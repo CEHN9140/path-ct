@@ -1,0 +1,31 @@
+python_executable: /home/qijunchen/miniconda3/envs/grandqc/bin/python
+device: cuda:4
+max_artifact_rate: 0.1
+tissue_class_id: 1
+artifact_class_ids: [2, 3, 4, 5, 6]
+background_class_ids: [0, 7]
+tissue_detect:
+  model_dir: tools/pathology_qc/models/td
+  model_name: Tissue_Detection_MPP10.pth
+  mpp_model: 10
+  patch_size: 512
+  encoder_model: timm-efficientnet-b0
+  encoder_weights: imagenet
+  overlay_image_weight: 0.7
+  overlay_mask_weight: 0.3
+  tissue_colors:
+    - [50, 50, 250]
+    - [128, 128, 128]
+artifact_seg:
+  overlay_factor: 10
+  mpp_model: 1.5
+  create_geojson: "Y"
+  model_dir: tools/pathology_qc/models/qc
+  model_name_by_mpp:
+    "1.0": GrandQC_MPP1.pth
+    "1.5": GrandQC_MPP15.pth
+    "2.0": GrandQC_MPP2.pth
+  patch_size: 512
+  encoder_model: timm-efficientnet-b0
+  encoder_weights: imagenet
+  back_class: 7

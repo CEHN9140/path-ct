@@ -1,0 +1,40 @@
+llm:
+  model_path: /data/qijun/path-ct/models/qwen2.5-72b-instruct
+  model_name: qwen2.5
+  base_url: http://127.0.0.1:8001/v1
+  temperature: 0.1
+  max_new_tokens: 2048
+  evidence_audit_max_new_tokens: 1024
+  action_decision_max_new_tokens: 1024
+
+prompt_dir: agents/subtype_review/prompts
+
+allowed_tools:
+  - tool_stability_check
+  - tool_survival_analysis
+  - tool_mutation_enrichment
+  - tool_pathway_enrichment
+  - tool_confound_test
+  - tool_known_label_echo_test
+  - tool_multimodal_consistency_check
+
+artifact_policy:
+  mode: key_only
+  save_debug_rounds: false
+  save_individual_tool_json: false
+  save_llm_audit: false
+  save_figures: true
+
+budget:
+  max_rounds: 3
+  max_tool_calls: 8
+  max_failures: 2
+  max_revisions: 3
+  max_split_depth: 2
+  max_merge_attempts: 2
+
+visualization:
+  dpi: 180
+  format: png
+  max_top_features: 20
+  figure_style: clean

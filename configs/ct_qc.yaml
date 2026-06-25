@@ -1,0 +1,55 @@
+dicom_prefilter:
+  required_image_types: [ORIGINAL, PRIMARY]
+  excluded_image_types:
+    [
+      LOCALIZER,
+      SCOUT,
+      TOPOGRAM,
+      DERIVED,
+      SECONDARY,
+      REFORMATTED,
+      MPR,
+      MIP,
+      MINIP,
+      3D,
+      DOSE,
+    ]
+  max_slice_thickness: 5.0
+  min_abs_normal_z: 0.8
+  min_slices: 50
+  max_pixel_spacing: 2.0
+  min_matrix_size: 256
+  max_z_gap_factor: 2.5
+  max_duplicate_slices: 5
+
+dcm2niix:
+  bin: /home/qijunchen/miniconda3/envs/agent/bin/dcm2niix
+  gzip_output: "y"
+  bids_sidecar: "y"
+  anonymize_bids: "y"
+  filename: "%j_%s"
+
+nifti_qc:
+  hu_min_allowed: -4096
+  hu_max_allowed: 4096
+  hu_range_p99_p1_min: 100
+
+totalsegmentator:
+  bin: /home/qijunchen/miniconda3/envs/agent/bin/TotalSegmentator
+  task: total
+  roi_subset: [kidney_left, kidney_right]
+  use_roi_subset: true
+  min_single_roi_volume_ml: 30
+  device: cuda:5
+
+radqy:
+  modality: CT
+  sample_stride: 4
+  middle_percent: 100
+  segmenter: otsuhull
+  save_images: false
+  robust_z_cutoff: 3.0
+  bad_count_fail_threshold: 2
+  metrics:
+    high_bad: [CV, CJV, EFC]
+    low_bad: [PSNR]
