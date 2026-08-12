@@ -56,7 +56,7 @@ omics_evidence
 candidate_cluster_ids
 ```
 
-其中 `inventory` 只记录输入数据里的原始病例信息，不写入 `has_clinical`、`wsi_records`、`selected_ct` 这类派生清单；`qc` 只取 `success` / `fail`；`ct_evidence`、`wsi_evidence` 只保留数值向量 `features` 和 `feature_path`；`text_evidence` 暂时为空；`omics_evidence` 只保留 `rna_features`、`rna_feature_path`、`wxs_features`、`wxs_feature_path`，RNA/WXS 特征也都是数值向量。各 feature path 仅作为 state 内 features 读取异常时的备选。
+其中 `inventory` 只记录输入数据里的原始病例信息，不写入 `has_clinical`、`wsi_records`、`selected_ct` 这类派生清单；`qc` 只取 `success` / `fail`；`ct_evidence`、`wsi_evidence` 记录对应工具产物；`text_evidence` 暂时为空；`omics_evidence` 记录 RNA、CNV 与 genomic affinity 的产物路径。WXS 不再保存一套未参与聚类的逐患者高维二元向量。
 
 ## 当前执行顺序
 

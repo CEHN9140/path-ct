@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import math
-import os
-from pathlib import Path
-
 import numpy as np
 
 from tools.subtype_review_common import (
     bh_fdr,
+    enrichment_decision_metrics,
     feature_dataframe,
     member_case_ids,
     read_gmt_gene_sets,
@@ -15,8 +13,7 @@ from tools.subtype_review_common import (
     tool_parameters,
     tool_result,
 )
-from utils.io import ensure_dir
-from utils.tool_utils import safe_identifier
+from utils.visualization import configure_matplotlib
 
 
 def candidate_set_members(all_cluster_states, fallback_cluster_state):
@@ -61,6 +58,7 @@ def empty_pathway_result(cluster_id, output_root, summary, missing_reason):
         output_root=output_root,
         summary=summary,
         metrics={"rna_pathway_enrichment": []},
+        decision_metrics={"per_set_rna_pathway_enrichment": {}},
         missing_reason=missing_reason,
         support_level="none",
         concern_level="moderate",
@@ -68,17 +66,14 @@ def empty_pathway_result(cluster_id, output_root, summary, missing_reason):
     )
 
 
-def ssgsea_scores(feature_frame, pathway_to_genes, output_root, cluster_id, min_size):
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
+def ssgsea_scores(feature_frame, pathway_to_genes, min_size):
+    configure_matplotlib()
     from gseapy import ssgsea
 
-    ssgsea_dir = ensure_dir(
-        Path(output_root) / "subtype_review" / safe_identifier(cluster_id) / "ssgsea"
-    )
     result = ssgsea(
         data=feature_frame.transpose(),
         gene_sets=pathway_to_genes,
-        outdir=str(ssgsea_dir),
+        outdir=None,
         no_plot=True,
         threads=1,
         min_size=min_size,
@@ -169,6 +164,78 @@ def pathway_rows(score_frame, pathway_gene_counts, candidate_sets):
     )
 
 
+def gene_differential_expression_rows(feature_frame, candidate_sets):
+    from scipy.stats import mannwhitneyu
+
+    all_case_ids = sorted({case_id for members in candidate_sets.values() for case_id in members})
+    rows = []
+    for candidate_set_id, members in candidate_sets.items():
+        set_ids = [case_id for case_id in all_case_ids if case_id in members and case_id in feature_frame.index]
+        rest_ids = [
+            case_id
+            for case_id in all_case_ids
+            if case_id not in members and case_id in feature_frame.index
+        ]
+        for gene in feature_frame.columns:
+            set_values = (
+                feature_frame.loc[set_ids, gene]
+                .astype(float)
+                .replace([np.inf, -np.inf], np.nan)
+                .dropna()
+                .tolist()
+            )
+            rest_values = (
+                feature_frame.loc[rest_ids, gene]
+                .astype(float)
+                .replace([np.inf, -np.inf], np.nan)
+                .dropna()
+                .tolist()
+            )
+            if not set_values or not rest_values:
+                continue
+            set_mean = float(np.mean(set_values))
+            rest_mean = float(np.mean(rest_values))
+            p_value = float(mannwhitneyu(set_values, rest_values, alternative="two-sided").pvalue)
+            smd = standardized_mean_difference(set_values, rest_values)
+            rows.append(
+                {
+                    "candidate_set_id": candidate_set_id,
+                    "gene": gene,
+                    "available_n": len(set_values) + len(rest_values),
+                    "set_available_n": len(set_values),
+                    "rest_available_n": len(rest_values),
+                    "set_mean": round_float(set_mean),
+                    "rest_mean": round_float(rest_mean),
+                    "log2_fold_change": round_float(set_mean - rest_mean),
+                    "standardized_mean_difference": round_float(smd),
+                    "mannwhitney_p_value": round_float(p_value),
+                    "q_value": None,
+                }
+            )
+    p_values = [
+        1.0 if row["mannwhitney_p_value"] is None else float(row["mannwhitney_p_value"])
+        for row in rows
+    ]
+    for row, q_value in zip(rows, bh_fdr(p_values)):
+        row["q_value"] = round_float(q_value)
+    return sorted(
+        rows,
+        key=lambda row: (
+            float("inf") if row.get("q_value") is None else float(row["q_value"]),
+            -abs(
+                float(
+                    row.get("standardized_mean_difference")
+                    if row.get("standardized_mean_difference") is not None
+                    else row.get("log2_fold_change")
+                    or 0.0
+                )
+            ),
+            str(row.get("gene") or ""),
+            str(row.get("candidate_set_id") or ""),
+        ),
+    )
+
+
 def tool_pathway_enrichment(
     cluster_state,
     patient_states_by_id,
@@ -219,8 +286,6 @@ def tool_pathway_enrichment(
     score_frame = ssgsea_scores(
         feature_frame,
         filtered_pathways,
-        output_root,
-        cluster_id,
         min_pathway_overlap,
     )
     rows = pathway_rows(score_frame, pathway_gene_counts, candidate_sets)
@@ -231,6 +296,11 @@ def tool_pathway_enrichment(
         output_root=output_root,
         summary="RNA ssGSEA pathway enrichment table was computed.",
         metrics={"rna_pathway_enrichment": rows},
+        decision_metrics={
+            "per_set_rna_pathway_enrichment": enrichment_decision_metrics(
+                rows, "pathway"
+            )
+        },
         evidence_hints=[],
         support_level="informational",
         concern_level="none",

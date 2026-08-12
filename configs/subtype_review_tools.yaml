@@ -1,54 +1,7 @@
-tools:
-  tool_stability_check:
-    module: tools.tool_stability_check
-    function: tool_stability_check
-    evidence_blocks: [set_reliability]
-  tool_survival_analysis:
-    module: tools.tool_survival_analysis
-    function: tool_survival_analysis
-    evidence_blocks: [clinical_context]
-  tool_mutation_enrichment:
-    module: tools.tool_mutation_enrichment
-    function: tool_mutation_enrichment
-    evidence_blocks: [biological_support]
-  tool_pathway_enrichment:
-    module: tools.tool_pathway_enrichment
-    function: tool_pathway_enrichment
-    evidence_blocks: [biological_support]
-  tool_confound_test:
-    module: tools.tool_confound_test
-    function: tool_confound_test
-    evidence_blocks: [confounder_exclusion]
-  tool_known_label_echo_test:
-    module: tools.tool_known_label_echo_test
-    function: tool_known_label_echo_test
-    evidence_blocks: [known_label_echo]
-  tool_multimodal_consistency_check:
-    module: tools.tool_multimodal_consistency_check
-    function: tool_multimodal_consistency_check
-    evidence_blocks: [multimodal_support]
-
-confounder_fields:
-  demographic: [gender, race, age_at_index]
-  technical: [ct_manufacturer, year_of_diagnosis]
-  known_or_disease_label: [stage_group, stage, grade, primary_diagnosis, morphology]
-
-survival:
-  endpoint: os
-  min_events_per_group: 3
-
-mutation:
-  max_reported_genes: 20
-  pathway_gene_sets:
-    KEGG_MEDICUS:
-      role: primary
-      path: "/data/qijun/path-ct/tools/msigdb/c2.cp.kegg_medicus.v2026.1.Hs.symbols.gmt"
-    REACTOME:
-      role: validation
-      path: "/data/qijun/path-ct/tools/msigdb/c2.cp.reactome.v2026.1.Hs.symbols.gmt"
+structural_adequacy:
+  bootstrap_iterations: 199
+  max_split_plans_per_set: 4
 
 rna:
-  max_reported_features: 20
   min_pathway_overlap: 15
   pathway_gene_sets_path: "/data/qijun/path-ct/tools/msigdb/h.all.v2026.1.Hs.symbols.gmt"
-  pathway_score_method: ssgsea

@@ -8,5 +8,6 @@ __all__ = [
     "wsi_embeddings",
     "wsi_patch",
     "wsi_qc",
+    "wsi_tumor_seg",
     "wxs",
 ]

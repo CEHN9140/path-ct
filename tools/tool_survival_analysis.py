@@ -67,6 +67,9 @@ def survival_rows(
                     "candidate_set_id": set_id,
                     "time": time_value,
                     "event": event_value,
+                    "age": record.get("age"),
+                    "stage_group": record.get("stage_group"),
+                    "grade": record.get("grade"),
                 }
             )
     return rows, total - len(rows)
@@ -167,6 +170,125 @@ def cox_set_vs_rest(set_records: list[dict[str, Any]], rest_records: list[dict[s
         return null_result
 
 
+def adjusted_cox_set_vs_rest(
+    set_records: list[dict[str, Any]],
+    rest_records: list[dict[str, Any]],
+    covariates: list[str],
+) -> dict[str, Any]:
+    null_result = {
+        "hazard_ratio": None,
+        "ci_95_lower": None,
+        "ci_95_upper": None,
+        "cox_p_value": None,
+        "direction": "not_estimable",
+        "covariates": list(covariates),
+        "used_covariates": [],
+        "available_n": 0,
+        "event_n": 0,
+        "clinical_c_index": None,
+        "clinical_plus_set_c_index": None,
+        "delta_c_index": None,
+        "not_estimable_reason": "",
+    }
+    records = [
+        {**row, "candidate_set": 1} for row in set_records
+    ] + [
+        {**row, "candidate_set": 0} for row in rest_records
+    ]
+    if not records:
+        null_result["not_estimable_reason"] = "no_survival_records"
+        return null_result
+    frame = pd.DataFrame(records)
+    keep_columns = ["time", "event", "candidate_set"] + list(covariates)
+    frame = frame[keep_columns].copy()
+    for column in ["time", "event", "candidate_set"]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    for covariate in covariates:
+        if covariate == "age":
+            frame[covariate] = pd.to_numeric(frame[covariate], errors="coerce")
+        else:
+            frame[covariate] = frame[covariate].replace("", np.nan)
+    frame = frame.dropna()
+    null_result["available_n"] = int(len(frame))
+    null_result["event_n"] = int(frame["event"].sum()) if not frame.empty else 0
+    if len(frame) < 6 or int(frame["event"].sum()) < 3:
+        null_result["not_estimable_reason"] = "insufficient_events_or_cases"
+        return null_result
+    used_covariates = []
+    model_frame = frame[["time", "event", "candidate_set"]].copy()
+    clinical_frame = frame[["time", "event"]].copy()
+    for covariate in covariates:
+        if covariate == "age":
+            if frame[covariate].nunique(dropna=True) > 1:
+                model_frame[covariate] = frame[covariate].astype(float)
+                clinical_frame[covariate] = frame[covariate].astype(float)
+                used_covariates.append(covariate)
+            continue
+        if frame[covariate].nunique(dropna=True) > 1:
+            dummies = pd.get_dummies(frame[covariate].astype(str), prefix=covariate, drop_first=True)
+            if not dummies.empty:
+                model_frame = pd.concat([model_frame, dummies], axis=1)
+                clinical_frame = pd.concat([clinical_frame, dummies], axis=1)
+                used_covariates.append(covariate)
+    null_result["used_covariates"] = list(used_covariates)
+    if not used_covariates:
+        null_result["not_estimable_reason"] = "no_informative_covariates"
+        return null_result
+    if model_frame["candidate_set"].nunique(dropna=True) < 2:
+        null_result["not_estimable_reason"] = "no_candidate_set_variation"
+        return null_result
+    try:
+        clinical_c_index = None
+        if clinical_frame.shape[1] > 2:
+            clinical_model = CoxPHFitter(penalizer=0.1).fit(
+                clinical_frame,
+                duration_col="time",
+                event_col="event",
+            )
+            clinical_c_index = float(clinical_model.concordance_index_)
+        cph = CoxPHFitter(penalizer=0.1).fit(
+            model_frame,
+            duration_col="time",
+            event_col="event",
+        )
+        summary = cph.summary.loc["candidate_set"]
+        hazard_ratio = float(summary.get("exp(coef)", np.exp(cph.params_["candidate_set"])))
+        lower = float(summary.get("exp(coef) lower 95%"))
+        upper = float(summary.get("exp(coef) upper 95%"))
+        p_value = float(summary.get("p"))
+        values = [hazard_ratio, lower, upper, p_value]
+        if not all(math.isfinite(value) for value in values):
+            null_result["not_estimable_reason"] = "non_finite_adjusted_cox"
+            return null_result
+        plus_c_index = float(cph.concordance_index_)
+        direction = (
+            "worse_survival_in_set"
+            if hazard_ratio > 1
+            else "better_survival_in_set"
+            if hazard_ratio < 1
+            else "not_estimable"
+        )
+        return {
+            **null_result,
+            "hazard_ratio": round_value(hazard_ratio),
+            "ci_95_lower": round_value(lower),
+            "ci_95_upper": round_value(upper),
+            "cox_p_value": round_value(p_value),
+            "direction": direction,
+            "clinical_c_index": round_value(clinical_c_index),
+            "clinical_plus_set_c_index": round_value(plus_c_index),
+            "delta_c_index": round_value(
+                plus_c_index - clinical_c_index
+                if clinical_c_index is not None
+                else None
+            ),
+            "not_estimable_reason": "",
+        }
+    except Exception as exc:
+        null_result["not_estimable_reason"] = f"cox_fit_failed:{type(exc).__name__}"
+        return null_result
+
+
 def tool_survival_analysis(
     cluster_state,
     patient_states_by_id,
@@ -255,7 +377,23 @@ def tool_survival_analysis(
             "rest_median_os_days": median_os_days(rest_records),
             **cox,
             "logrank_p_value": set_logrank(set_records, rest_records),
+            "adjusted_cox_age_stage": adjusted_cox_set_vs_rest(
+                set_records,
+                rest_records,
+                ["age", "stage_group"],
+            ),
+            "adjusted_cox_age_grade": adjusted_cox_set_vs_rest(
+                set_records,
+                rest_records,
+                ["age", "grade"],
+            ),
         }
+        set_metrics[set_id]["delta_c_index_age_stage"] = set_metrics[set_id][
+            "adjusted_cox_age_stage"
+        ].get("delta_c_index")
+        set_metrics[set_id]["delta_c_index_age_grade"] = set_metrics[set_id][
+            "adjusted_cox_age_grade"
+        ].get("delta_c_index")
 
     return tool_result(
         tool_name="tool_survival_analysis",

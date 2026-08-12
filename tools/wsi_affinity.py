@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+
+def build_wsi_affinity(
+    patient_states: Sequence[Mapping[str, Any]], *, config_dir: str = ""
+) -> dict[str, Any]:
+    import numpy as np
+    from scipy.spatial.distance import cdist
+    from snf.compute import affinity_matrix
+    from utils.llm_utils import load_yaml_file
+
+    config = load_yaml_file(Path(config_dir or "configs") / "snf.yaml")
+    states = [dict(state) for state in patient_states if state.get("qc") == "success"]
+    case_ids = [str(state.get("case_id", "")) for state in states]
+    vectors = []
+    for state in states:
+        evidence = dict(state.get("wsi_evidence", {}) or {})
+        path = Path(str(evidence.get("feature_path", "") or ""))
+        if path.suffix == ".pt" and path.with_suffix(".npy").is_file():
+            path = path.with_suffix(".npy")
+        vectors.append(np.asarray(np.load(path), dtype=float).reshape(-1))
+    matrix = np.asarray(vectors, dtype=float)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    matrix = np.divide(matrix, norms, out=np.zeros_like(matrix), where=norms > 0)
+    if len(case_ids) == 1:
+        affinity = np.ones((1, 1), dtype=float)
+    else:
+        distance = cdist(matrix, matrix, metric="cosine")
+        affinity = affinity_matrix(
+            distance,
+            K=min(max(int(config["neighbor_count"]), 1), len(case_ids) - 1),
+            mu=float(config["mu"]),
+        )
+    return {
+        "affinity": np.asarray(affinity, dtype=float),
+        "patient_ids": case_ids,
+        "feature_count": int(matrix.shape[1]),
+        "audit": {
+            "feature_count": int(matrix.shape[1]),
+            "normalization": "row_l2",
+            "metric": "cosine",
+        },
+    }

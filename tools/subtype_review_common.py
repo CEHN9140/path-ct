@@ -11,230 +11,23 @@ from utils.io import ensure_dir, write_json
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import safe_identifier
 
-
-DEFAULT_REVIEW_TOOLS = {
-    "tool_stability_check": {
-        "module": "tools.tool_stability_check",
-        "function": "tool_stability_check",
-        "evidence_blocks": ["set_reliability"],
-    },
-    "tool_survival_analysis": {
-        "module": "tools.tool_survival_analysis",
-        "function": "tool_survival_analysis",
-        "evidence_blocks": ["clinical_context"],
-    },
-    "tool_mutation_enrichment": {
-        "module": "tools.tool_mutation_enrichment",
-        "function": "tool_mutation_enrichment",
-        "evidence_blocks": ["biological_support"],
-    },
-    "tool_pathway_enrichment": {
-        "module": "tools.tool_pathway_enrichment",
-        "function": "tool_pathway_enrichment",
-        "evidence_blocks": ["biological_support"],
-    },
-    "tool_confound_test": {
-        "module": "tools.tool_confound_test",
-        "function": "tool_confound_test",
-        "evidence_blocks": ["confounder_exclusion"],
-    },
-    "tool_known_label_echo_test": {
-        "module": "tools.tool_known_label_echo_test",
-        "function": "tool_known_label_echo_test",
-        "evidence_blocks": ["known_label_echo"],
-    },
-    "tool_multimodal_consistency_check": {
-        "module": "tools.tool_multimodal_consistency_check",
-        "function": "tool_multimodal_consistency_check",
-        "evidence_blocks": ["multimodal_support"],
-    },
-}
-
-DEFAULT_CONFOUNDER_FIELDS = {
-    "demographic": ["gender", "race", "age_at_index"],
-    "technical": [
-        "ct_manufacturer",
-        "year_of_diagnosis",
-    ],
-    "known_or_disease_label": ["stage_group", "stage", "grade", "primary_diagnosis", "morphology"],
-}
-
-MOFS_CLUSTER_COLORS = [
-    "#119da4",
-    "#ff6666",
-    "#ffc857",
-    "#2a9d8f",
-    "#e76f51",
-    "#457b9d",
-    "#8ab17d",
-    "#6d597a",
-]
-
-
-def mofs_cluster_color(index: int) -> str:
-    return MOFS_CLUSTER_COLORS[int(index) % len(MOFS_CLUSTER_COLORS)]
-
-
-def style_mofs_axes(ax, *, grid_axis: str = "both") -> None:
-    ax.set_facecolor("#f3f6f6")
-    for spine in ax.spines.values():
-        spine.set_color("black")
-        spine.set_linewidth(1.2)
-    ax.tick_params(labelsize=8, colors="black")
-    if grid_axis:
-        ax.grid(
-            True,
-            axis=grid_axis,
-            color="#cacfd2",
-            linestyle="--",
-            linewidth=0.6,
-            alpha=0.8,
-        )
-        ax.set_axisbelow(True)
-
-
 def subtype_review_dir(output_root: str, cluster_id: str) -> Path:
     return ensure_dir(
         Path(output_root) / "subtype_review" / safe_identifier(cluster_id)
     )
 
 
-def subtype_review_figure_dir(output_root: str, cluster_id: str) -> Path:
-    return ensure_dir(subtype_review_dir(output_root, cluster_id) / "figures")
-
-
-def subtype_review_global_figure_dir(output_root: str) -> Path:
-    return ensure_dir(Path(output_root) / "subtype_review" / "global" / "figures")
-
-
 def subtype_review_config(config_dir: str) -> dict[str, Any]:
-    config_path = Path(config_dir).expanduser() if config_dir else Path("configs")
-    try:
-        return load_yaml_file(config_path / "subtype_review.yaml")
-    except Exception:
-        return {}
+    return load_yaml_file(Path(config_dir).expanduser() / "subtype_review.yaml")
 
 
 def subtype_review_tools_config(config_dir: str) -> dict[str, Any]:
-    config_path = Path(config_dir).expanduser() if config_dir else Path("configs")
-    try:
-        return load_yaml_file(config_path / "subtype_review_tools.yaml")
-    except Exception:
-        return {}
-
-
-def subtype_review_tool_definitions(config_dir: str = "") -> dict[str, dict[str, Any]]:
-    tools_config = subtype_review_tools_config(config_dir)
-    raw_tools = dict(tools_config.get("tools", {}) or DEFAULT_REVIEW_TOOLS)
-    definitions = {}
-    for tool_name, raw_definition in raw_tools.items():
-        definition = dict(raw_definition or {})
-        definitions[str(tool_name)] = {
-            "module": str(definition.get("module", "") or ""),
-            "function": str(definition.get("function", "") or ""),
-            "evidence_blocks": [
-                str(item)
-                for item in list(definition.get("evidence_blocks", []) or [])
-                if str(item)
-            ],
-        }
-    return definitions
-
-
-def subtype_review_tool_imports(config_dir: str = "") -> dict[str, tuple[str, str]]:
-    imports = {}
-    for tool_name, definition in subtype_review_tool_definitions(config_dir).items():
-        module_name = str(definition.get("module", "") or "")
-        function_name = str(definition.get("function", "") or "")
-        if module_name and function_name:
-            imports[tool_name] = (module_name, function_name)
-    return imports
-
-
-def subtype_review_confounder_fields(config_dir: str = "") -> dict[str, set[str]]:
-    tools_config = subtype_review_tools_config(config_dir)
-    raw_fields = dict(tools_config.get("confounder_fields", {}) or DEFAULT_CONFOUNDER_FIELDS)
-    return {
-        "demographic": {str(item).lower() for item in list(raw_fields.get("demographic", []) or [])},
-        "technical": {str(item).lower() for item in list(raw_fields.get("technical", []) or [])},
-        "known_or_disease_label": {
-            str(item).lower()
-            for item in list(raw_fields.get("known_or_disease_label", []) or [])
-        },
-    }
+    return load_yaml_file(Path(config_dir).expanduser() / "subtype_review_tools.yaml")
 
 
 def tool_parameters(config_dir: str, tool_key: str) -> dict[str, Any]:
     tools_config = subtype_review_tools_config(config_dir)
-    return dict(tools_config.get(tool_key, {}) or {})
-
-
-def figures_enabled(config_dir: str) -> bool:
-    policy = dict(subtype_review_config(config_dir).get("artifact_policy", {}) or {})
-    return bool(policy.get("save_figures", True))
-
-
-def save_png_figure(
-    output_root: str,
-    cluster_id: str,
-    filename: str,
-    draw_function,
-    *,
-    config_dir: str = "",
-) -> str:
-    if not figures_enabled(config_dir):
-        return ""
-    try:
-        import os
-
-        os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        viz = dict(subtype_review_config(config_dir).get("visualization", {}) or {})
-        dpi = int(viz.get("dpi", 180) or 180)
-        fig, ax = plt.subplots(figsize=(7, 4.5), dpi=dpi)
-        draw_function(fig, ax)
-        fig.tight_layout()
-        path = subtype_review_figure_dir(output_root, cluster_id) / filename
-        fig.savefig(path, dpi=dpi)
-        plt.close(fig)
-        return str(path)
-    except Exception:
-        return ""
-
-
-def save_global_png_figure(
-    output_root: str,
-    filename: str,
-    draw_function,
-    *,
-    config_dir: str = "",
-) -> str:
-    if not figures_enabled(config_dir):
-        return ""
-    try:
-        import os
-
-        os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        viz = dict(subtype_review_config(config_dir).get("visualization", {}) or {})
-        dpi = int(viz.get("dpi", 180) or 180)
-        fig, ax = plt.subplots(figsize=(7, 4.5), dpi=dpi)
-        draw_function(fig, ax)
-        fig.tight_layout()
-        path = subtype_review_global_figure_dir(output_root) / filename
-        fig.savefig(path, dpi=dpi)
-        plt.close(fig)
-        return str(path)
-    except Exception:
-        return ""
+    return dict(tools_config[tool_key])
 
 
 def tool_result(
@@ -245,6 +38,7 @@ def tool_result(
     output_root: str,
     summary: str,
     metrics: dict[str, Any] | None = None,
+    decision_metrics: dict[str, Any] | None = None,
     evidence_hints: list[dict[str, Any]] | None = None,
     warnings: list[str] | None = None,
     missing_reason: str = "",
@@ -254,13 +48,24 @@ def tool_result(
     concern_level: str = "none",
     figures: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    full_metrics = metrics or {}
+    full_metrics_path = ""
+    if full_metrics:
+        full_metrics_path = str(
+            subtype_review_dir(output_root, cluster_id)
+            / f"{safe_identifier(tool_name)}_full_metrics.json"
+        )
+        write_json(full_metrics_path, full_metrics)
     result = {
         "tool_name": tool_name,
         "status": status,
         "cluster_id": cluster_id,
         "results": {
             "summary": summary,
-            "metrics": metrics or {},
+            "metrics": full_metrics,
+            "decision_metrics": (
+                full_metrics if decision_metrics is None else decision_metrics
+            ),
             "support_level": support_level,
             "concern_level": concern_level,
             "evidence_hints": evidence_hints or [],
@@ -268,6 +73,7 @@ def tool_result(
             "missing_reason": missing_reason,
         },
         "artifacts": {
+            "full_metrics": full_metrics_path,
             "figures": {
                 key: value for key, value in dict(figures or {}).items() if value
             }
@@ -275,6 +81,81 @@ def tool_result(
         "errors": errors or [],
     }
     return result
+
+
+def enrichment_decision_metrics(
+    rows: list[dict[str, Any]], name_field: str, top_n: int = 5
+) -> dict[str, Any]:
+    fields = (
+        name_field,
+        "q_value",
+        "p_value",
+        "mannwhitney_p_value",
+        "delta_frequency",
+        "delta_mean",
+        "delta_mean_score",
+        "log2_fold_change",
+        "standardized_mean_difference",
+        "odds_ratio",
+    )
+
+    def finite(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    def effect(row: Mapping[str, Any]) -> float:
+        for key in (
+            "delta_frequency",
+            "delta_mean",
+            "delta_mean_score",
+            "log2_fold_change",
+            "standardized_mean_difference",
+        ):
+            value = finite(row.get(key))
+            if value is not None:
+                return abs(value)
+        odds_ratio = finite(row.get("odds_ratio"))
+        return abs(math.log2(odds_ratio)) if odds_ratio and odds_ratio > 0 else 0.0
+
+    summaries = {}
+    set_ids = sorted({str(row.get("candidate_set_id", "")) for row in rows})
+    for set_id in set_ids:
+        table = [row for row in rows if str(row.get("candidate_set_id", "")) == set_id]
+        q_values = [finite(row.get("q_value")) for row in table]
+        p_values = [
+            finite(row.get("p_value", row.get("mannwhitney_p_value")))
+            for row in table
+        ]
+        q_values = [value for value in q_values if value is not None]
+        p_values = [value for value in p_values if value is not None]
+        def project(row: Mapping[str, Any]) -> dict[str, Any]:
+            return {key: row.get(key) for key in fields if row.get(key) is not None}
+        summaries[set_id] = {
+            "summary": {
+                "tested_count": len(table),
+                "significant_count_q05": sum(value <= 0.05 for value in q_values),
+                "significant_count_q10": sum(value <= 0.10 for value in q_values),
+                "min_q_value": min(q_values) if q_values else None,
+                "min_p_value": min(p_values) if p_values else None,
+            },
+            "top_by_q": [
+                project(row)
+                for row in sorted(
+                    table,
+                    key=lambda row: finite(row.get("q_value"))
+                    if finite(row.get("q_value")) is not None
+                    else float("inf"),
+                )[:top_n]
+            ],
+            "top_by_effect": [
+                project(row)
+                for row in sorted(table, key=effect, reverse=True)[:top_n]
+            ],
+        }
+    return summaries
 
 
 def member_case_ids(cluster_state: Mapping[str, Any]) -> set[str]:
@@ -409,7 +290,9 @@ def read_case_feature_table(path: str) -> tuple[list[str], dict[str, dict[str, f
                 for feature_name in feature_names:
                     try:
                         value = row.get(feature_name, "")
-                        table[case_id][feature_name] = float(value) if str(value).strip() else float("nan")
+                        table[case_id][feature_name] = (
+                            float(value) if str(value).strip() else float("nan")
+                        )
                     except (TypeError, ValueError):
                         table[case_id][feature_name] = float("nan")
         return feature_names, table
@@ -480,7 +363,9 @@ def bh_fdr(p_values: list[float]) -> list[float]:
     return [float(value) for value in multipletests(values, method="fdr_bh")[1]]
 
 
-def fisher_exact_result(a: int, b: int, c: int, d: int) -> tuple[float | None, float | None]:
+def fisher_exact_result(
+    a: int, b: int, c: int, d: int
+) -> tuple[float | None, float | None]:
     from scipy.stats import fisher_exact
 
     result = fisher_exact([[a, b], [c, d]], alternative="two-sided")

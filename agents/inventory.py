@@ -28,6 +28,7 @@ def inventory_case(case_payload: Mapping[str, Any]) -> dict[str, Any]:
         "WSI": len(list(case_payload.get("WSI") or [])),
         "RNA_Seq": len(list(case_payload.get("RNA_Seq") or [])),
         "WXS": len(list(case_payload.get("WXS") or [])),
+        "CNV": len(list(case_payload.get("CNV") or [])),
         "Clinical": 1 if dict(case_payload.get("Clinical") or {}) else 0,
     }
     available = [f"{modality}={count}" for modality, count in counts.items() if count]

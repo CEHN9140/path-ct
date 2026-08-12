@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -51,6 +50,56 @@ def canonical_partition(labels: np.ndarray) -> tuple[int, ...]:
             label_map[label] = len(label_map)
         canonical_labels.append(label_map[label])
     return tuple(canonical_labels)
+
+
+def fit_kmedoids(
+    distance_matrix: np.ndarray,
+    *,
+    n_clusters: int,
+    seed: int,
+    init: str,
+    max_iter: int = 300,
+) -> np.ndarray:
+    values = np.asarray(distance_matrix, dtype=float)
+    n_cases = int(values.shape[0])
+    rng = np.random.default_rng(seed)
+    if init == "heuristic":
+        medoids = np.argsort(values.sum(axis=1))[:n_clusters].astype(int)
+    elif init == "random":
+        medoids = rng.choice(n_cases, size=n_clusters, replace=False).astype(int)
+    elif init == "k-medoids++":
+        medoids = [int(rng.integers(0, n_cases))]
+        while len(medoids) < n_clusters:
+            nearest = np.min(values[:, medoids], axis=1)
+            weights = nearest**2
+            weights[medoids] = 0.0
+            total = float(np.sum(weights))
+            if total <= 0:
+                remaining = [index for index in range(n_cases) if index not in medoids]
+                medoids.append(int(rng.choice(remaining)))
+            else:
+                medoids.append(int(rng.choice(n_cases, p=weights / total)))
+        medoids = np.asarray(medoids, dtype=int)
+    else:
+        raise ValueError(f"Unsupported k-medoids init: {init}")
+
+    for _ in range(max_iter):
+        labels = np.argmin(values[:, medoids], axis=1)
+        labels[medoids] = np.arange(n_clusters)
+        new_medoids = medoids.copy()
+        for cluster_index in range(n_clusters):
+            members = np.flatnonzero(labels == cluster_index)
+            costs = values[np.ix_(members, members)].sum(axis=1)
+            new_medoids[cluster_index] = int(members[int(np.argmin(costs))])
+        if np.array_equal(new_medoids, medoids):
+            break
+        medoids = new_medoids
+    else:
+        raise RuntimeError(f"K-medoids did not converge within {max_iter} iterations")
+
+    labels = np.asarray(np.argmin(values[:, medoids], axis=1), dtype=int)
+    labels[medoids] = np.arange(n_clusters)
+    return labels
 
 
 def consensus_matrix_from_partitions(partitions: list[tuple[int, ...]]) -> np.ndarray:
@@ -227,7 +276,9 @@ def save_candidate_clustering_outputs(
     consensus_dir = ensure_dir(candidate_dir / "consensus_cluster")
     consensus_matrix_dir = ensure_dir(consensus_dir / "matrices")
     consensus_visualization_dir = ensure_dir(consensus_dir / "visualizations")
-    os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-cache")
+    from utils.visualization import configure_matplotlib
+
+    configure_matplotlib()
     import matplotlib
 
     matplotlib.use("Agg")
@@ -328,6 +379,7 @@ def save_candidate_clustering_outputs(
                 "pac": float(record.get("pac", 0.0) or 0.0),
                 "cluster_sizes": list(record.get("cluster_sizes", []) or []),
                 "consensus_silhouette": record.get("consensus_silhouette"),
+                "sampling_summary": dict(record.get("sampling_summary", {}) or {}),
                 "labels": label_map,
             },
         )
@@ -358,6 +410,7 @@ def save_candidate_clustering_outputs(
                 "pac": float(record.get("pac", 0.0) or 0.0),
                 "cluster_sizes": list(record.get("cluster_sizes", []) or []),
                 "consensus_silhouette": record.get("consensus_silhouette"),
+                "sampling_summary": dict(record.get("sampling_summary", {}) or {}),
                 "matrix_path": str(matrix_path),
                 "heatmap_path": str(heatmap_path),
                 "partition_path": partition_path,
@@ -373,6 +426,9 @@ def save_candidate_clustering_outputs(
             "selection_metric": selection_metric,
             "selected_k": best_record.get("n_clusters"),
             "selected_k_reason": selected_k_reason,
+            "llm_confidence": best_record.get("llm_confidence", ""),
+            "llm_evidence_refs": best_record.get("llm_evidence_refs", []),
+            "k_selection_audit_path": best_record.get("k_selection_audit_path", ""),
             "diagnostics": candidate_k_diagnostics,
         },
     )
@@ -647,6 +703,9 @@ def save_candidate_clustering_outputs(
             "cluster_sizes": list(best_record.get("cluster_sizes", []) or []),
             "consensus_silhouette": best_record.get("consensus_silhouette"),
             "selected_k_reason": selected_k_reason,
+            "llm_confidence": best_record.get("llm_confidence", ""),
+            "llm_evidence_refs": best_record.get("llm_evidence_refs", []),
+            "k_selection_audit_path": best_record.get("k_selection_audit_path", ""),
             "cdf_area": float(best_record.get("cdf_area", 0.0) or 0.0),
             "delta_area": float(best_record.get("delta_area", 0.0) or 0.0),
             "relative_delta_area": float(
@@ -676,6 +735,9 @@ def save_candidate_clustering_outputs(
             "best_cluster_sizes": list(best_record.get("cluster_sizes", []) or []),
             "best_consensus_silhouette": best_record.get("consensus_silhouette"),
             "selected_k_reason": selected_k_reason,
+            "llm_confidence": best_record.get("llm_confidence", ""),
+            "llm_evidence_refs": best_record.get("llm_evidence_refs", []),
+            "k_selection_audit_path": best_record.get("k_selection_audit_path", ""),
             "candidate_k_diagnostics_path": candidate_k_diagnostics_path,
             "candidate_k_diagnostics": candidate_k_diagnostics,
             "shape": list(best_consensus.shape),

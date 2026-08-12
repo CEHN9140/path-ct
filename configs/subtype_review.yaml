@@ -1,40 +1,51 @@
 llm:
-  model_path: /data/qijun/path-ct/models/qwen2.5-72b-instruct
+  provider: deepseek
+  model_name: deepseek-v4-pro
+  base_url: https://api.deepseek.com
+  api_key: sk-c68298213be44d23b88f4786b38e62e6
+  temperature: 0.1
+  timeout: 120
+  max_new_tokens: 4096
+  length_retry_max_new_tokens: 8192
+  structured_output: json_object
+  json_retries: 2
+
+local_vllm:
   model_name: qwen2.5
   base_url: http://127.0.0.1:8001/v1
-  temperature: 0.1
-  max_new_tokens: 2048
-  evidence_audit_max_new_tokens: 1024
-  action_decision_max_new_tokens: 1024
+  api_key: EMPTY
 
 prompt_dir: agents/subtype_review/prompts
 
-allowed_tools:
-  - tool_stability_check
-  - tool_survival_analysis
-  - tool_mutation_enrichment
-  - tool_pathway_enrichment
-  - tool_confound_test
-  - tool_known_label_echo_test
-  - tool_multimodal_consistency_check
-
-artifact_policy:
-  mode: key_only
-  save_debug_rounds: false
-  save_individual_tool_json: false
-  save_llm_audit: false
-  save_figures: true
-
 budget:
-  max_rounds: 3
-  max_tool_calls: 8
-  max_failures: 2
-  max_revisions: 3
-  max_split_depth: 2
-  max_merge_attempts: 2
+  max_rounds: 12
+  max_failures: 3
+  min_split_size: 10
+  max_split_children: 4
+  max_split_plans_per_k: 3
 
-visualization:
-  dpi: 180
-  format: png
-  max_top_features: 20
-  figure_style: clean
+tools:
+  tool_mutation_enrichment:
+    module: tools.tool_mutation_enrichment
+    function: tool_mutation_enrichment
+    evidence_blocks: [biological_support]
+  tool_pathway_enrichment:
+    module: tools.tool_pathway_enrichment
+    function: tool_pathway_enrichment
+    evidence_blocks: [biological_support]
+  tool_confound_test:
+    module: tools.tool_confound_test
+    function: tool_confound_test
+    evidence_blocks: [confounder_exclusion]
+  tool_known_label_echo_test:
+    module: tools.tool_known_label_echo_test
+    function: tool_known_label_echo_test
+    evidence_blocks: [known_label_echo]
+  tool_multimodal_consistency_check:
+    module: tools.tool_multimodal_consistency_check
+    function: tool_multimodal_consistency_check
+    evidence_blocks: [cross_modal_consistency]
+  tool_structural_adequacy:
+    module: tools.tool_structural_adequacy
+    function: tool_structural_adequacy
+    evidence_blocks: [structural_adequacy]

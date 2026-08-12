@@ -3,10 +3,27 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from utils.tool_utils import safe_identifier, to_jsonable
-from utils.llm_utils import load_yaml_file
+
+
+def add_execution_errors(
+    state: Mapping[str, Any], tool_name: str, errors: Sequence[Any]
+) -> dict[str, Any]:
+    updated = dict(state)
+    messages = [
+        f"{tool_name}: {str(error).strip()}"
+        for error in errors
+        if str(error).strip()
+    ]
+    if not messages:
+        messages = [f"{tool_name}: tool execution failed"]
+    existing = [str(item) for item in list(updated.get("execution_errors", []) or [])]
+    updated["execution_errors"] = existing + [
+        message for message in messages if message not in existing
+    ]
+    return updated
 
 
 def case_from_state(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -17,6 +34,7 @@ def case_from_state(state: Mapping[str, Any]) -> dict[str, Any]:
         "CT": list(inventory.get("CT") or inventory.get("ct_records", []) or []),
         "RNA_Seq": list(inventory.get("RNA_Seq") or inventory.get("rna_seq_records", []) or []),
         "WXS": list(inventory.get("WXS") or inventory.get("wxs_records", []) or []),
+        "CNV": list(inventory.get("CNV") or inventory.get("cnv_records", []) or []),
         "Clinical": dict(inventory.get("Clinical") or inventory.get("clinical", {}) or {}),
     }
 
@@ -130,36 +148,19 @@ def load_tool_snapshot(
     return {"tool_result": tool_result, "payload": dict(snapshot.get("payload", {}) or {})}
 
 
-def convert_slide_embedding_to_npy(slide_embedding_path: Path, slide_embedding_npy_path: Path, config_dir: str) -> None:
+def convert_slide_embedding_to_npy(
+    slide_embedding_path: Path, slide_embedding_npy_path: Path
+) -> None:
     if slide_embedding_npy_path.exists() or not slide_embedding_path.exists():
         return
-    try:
-        import subprocess
+    import numpy as np
+    import torch
 
-        config = load_yaml_file(Path(config_dir).expanduser() / "wsi_embeddings.yaml")
-        python_executable = Path(str(config["python_executable"])).expanduser()
-        if not python_executable.exists():
-            return
-        slide_embedding_npy_path.parent.mkdir(parents=True, exist_ok=True)
-        completed = subprocess.run(
-            [
-                str(python_executable),
-                "-c",
-                (
-                    "import sys, torch, numpy as np; "
-                    "value = torch.load(sys.argv[1], map_location='cpu'); "
-                    "value = value.detach().cpu().numpy() if hasattr(value, 'detach') else value; "
-                    "np.save(sys.argv[2], value)"
-                ),
-                str(slide_embedding_path),
-                str(slide_embedding_npy_path),
-            ],
-            check=False,
-        )
-        if completed.returncode != 0 and slide_embedding_npy_path.exists():
-            slide_embedding_npy_path.unlink()
-    except Exception:
-        return
+    value = torch.load(slide_embedding_path, map_location="cpu")
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    slide_embedding_npy_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(slide_embedding_npy_path, value)
 
 
 def read_json_feature_map(path: str) -> dict[str, float]:
@@ -196,10 +197,26 @@ def add_tool_result(
     artifacts = dict(tool_result.get("artifacts", {}) or {})
     if bucket_name == "ct_evidence" and evidence_key == "radiomics":
         feature_path = str(artifacts.get("features_json_path", "") or "")
-        evidence = {"features": to_jsonable(read_json_feature_map(feature_path)), "feature_path": feature_path}
+        ccc_feature_paths = {
+            key.removeprefix("features_bin_width_").removesuffix(
+                "_json_path"
+            ): str(value)
+            for key, value in artifacts.items()
+            if key.startswith("features_bin_width_")
+            and key.endswith("_json_path")
+        }
+        evidence = {
+            "features": to_jsonable(read_json_feature_map(feature_path)),
+            "feature_path": feature_path,
+            "ccc_feature_paths": ccc_feature_paths,
+        }
     elif bucket_name == "wsi_evidence" and evidence_key == "embeddings":
         feature_path = str(artifacts.get("slide_embedding_npy_path", "") or artifacts.get("slide_embedding_path", "") or "")
-        evidence = {"features": to_jsonable(read_npy_feature_vector(feature_path)), "feature_path": feature_path}
+        evidence = {
+            "features": to_jsonable(read_npy_feature_vector(feature_path)),
+            "feature_path": feature_path,
+            "tile_embeddings_path": str(artifacts.get("tile_embeddings_path", "") or ""),
+        }
     else:
         evidence = dict(updated.get(bucket_name, {}) or {})
     updated[bucket_name] = evidence
@@ -228,10 +245,8 @@ def add_omics_result(
         omics_evidence["rna_pathway_feature_path"] = str(
             artifacts.get("pathway_features_path", "") or ""
         )
-    if normalized_key == "wxs" and artifacts.get("all_features_path"):
-        omics_evidence["wxs_full_feature_path"] = str(
-            artifacts.get("all_features_path", "") or ""
-        )
+    if normalized_key == "cnv":
+        omics_evidence["cnv_feature_names"] = list(payload.get("feature_names", []) or [])
     updated["omics_evidence"] = omics_evidence
     announce_tool_result_path(node, case_id, tool_result)
     return updated

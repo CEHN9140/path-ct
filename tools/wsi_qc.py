@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -13,7 +13,64 @@ from tqdm.auto import tqdm
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from utils.tool_utils import quiet_tool_logs, save_snapshot
+from utils.tool_utils import (
+    quiet_tool_logs,
+    run_json_workers,
+    save_snapshot,
+    semantic_execution_config,
+    split_device_requests,
+    to_jsonable,
+)
+
+
+def wsi_qc_config_signature(
+    config: Mapping[str, Any], *, include_device_indices: bool = False
+) -> str:
+    signature_config = (
+        to_jsonable(dict(config))
+        if include_device_indices
+        else semantic_execution_config(dict(config))
+    )
+    content = json.dumps(signature_config, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(content).hexdigest()
+
+
+def wsi_qc_stage_config_signature(config: Mapping[str, Any]) -> str:
+    stage_config = {
+        key: dict(config)[key]
+        for key in ("python_executable", "tissue_detect", "artifact_seg")
+    }
+    return wsi_qc_config_signature(stage_config)
+
+
+def wsi_case_cache_signature(
+    case: Mapping[str, Any], config_signature: str
+) -> str:
+    records = []
+    for raw_record in list(case.get("WSI", []) or []):
+        record = dict(raw_record)
+        source_path = str(record.get("File Path", "") or "").strip()
+        file_identity: dict[str, Any] = {"path": source_path}
+        if source_path:
+            path = Path(source_path).expanduser().resolve()
+            file_identity["path"] = str(path)
+            if path.is_file():
+                stat = path.stat()
+                file_identity.update(
+                    {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
+                )
+        records.append(
+            {"record": to_jsonable(record), "file_identity": file_identity}
+        )
+    records.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    payload = {
+        "case_id": case_id_from_case(case),
+        "config_signature": config_signature,
+        "wsi_records": records,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def case_id_from_case(case: Mapping[str, Any]) -> str:
@@ -66,9 +123,14 @@ def failure_summary(
     case_id: str,
     output_root: str,
     errors: Sequence[str],
+    cache_signature: str = "",
+    grandqc_stage_signature: str = "",
 ) -> dict[str, Any]:
     summary = {
         "case_id": case_id,
+        "cache_signature": cache_signature,
+        "grandqc_stage_signature": grandqc_stage_signature,
+        "cacheable": False,
         "errors": [str(item) for item in errors if str(item).strip()],
     }
     save_snapshot(output_root, f"wsi_qc/{case_id}", "selection_summary", summary)
@@ -85,8 +147,21 @@ def build_wsi_case_summary(
     artifact_class_ids: Sequence[int],
     background_class_ids: Sequence[int],
     errors: Sequence[str] | None = None,
+    cache_signature: str = "",
+    grandqc_stage_signature: str = "",
 ) -> dict[str, Any]:
     slide_summaries = [dict(item) for item in slide_summaries]
+    for slide in slide_summaries:
+        usable_tissue_pixels = int(
+            slide.get("usable_tissue_pixels", slide.get("tissue_pixels", 0)) or 0
+        )
+        artifact_rate = float(slide.get("artifact_rate", 1.0) or 0.0)
+        slide["passes_threshold"] = bool(
+            usable_tissue_pixels > 0 and artifact_rate <= max_artifact_rate
+        )
+        slide["artifact_rate_exceeds_threshold"] = bool(
+            artifact_rate > max_artifact_rate
+        )
     ranked_slides = sorted(
         slide_summaries,
         key=lambda slide: int(
@@ -94,20 +169,21 @@ def build_wsi_case_summary(
         ),
         reverse=True,
     )
-    selected_raw = ranked_slides[0] if ranked_slides else {}
+    eligible_slides = [
+        slide for slide in ranked_slides if bool(slide["passes_threshold"])
+    ]
+    selected_raw = (
+        eligible_slides[0]
+        if eligible_slides
+        else (ranked_slides[0] if ranked_slides else {})
+    )
     selected_usable_tissue_pixels = int(
         selected_raw.get("usable_tissue_pixels", selected_raw.get("tissue_pixels", 0))
         or 0
     )
-    selected_artifact_rate = (
-        float(selected_raw.get("artifact_rate"))
-        if selected_raw.get("artifact_rate") is not None
-        else 1.0
-    )
-    selected_passes = (
-        bool(selected_raw)
-        and selected_usable_tissue_pixels > 0
-        and selected_artifact_rate <= max_artifact_rate
+    selected_artifact_rate = float(selected_raw.get("artifact_rate", 1.0) or 0.0)
+    selected_passes = bool(selected_raw) and bool(
+        selected_raw.get("passes_threshold")
     )
     selected_slide = (
         {
@@ -119,6 +195,9 @@ def build_wsi_case_summary(
             "selected_tissue_rate": float(selected_raw.get("tissue_rate", 0.0) or 0.0),
             "selected_artifact_rate": float(
                 selected_raw.get("artifact_rate", 0.0) or 0.0
+            ),
+            "artifact_rate_exceeds_threshold": bool(
+                selected_artifact_rate > max_artifact_rate
             ),
             "selected_usable_tissue_pixels": int(
                 selected_raw.get(
@@ -133,8 +212,16 @@ def build_wsi_case_summary(
         if selected_raw
         else {}
     )
+    summary_errors = [str(item) for item in list(errors or []) if str(item).strip()]
+    for slide in slide_summaries:
+        slide_error = str(slide.get("error", "") or "").strip()
+        if slide_error and slide_error not in summary_errors:
+            summary_errors.append(slide_error)
     summary = {
         "case_id": case_id,
+        "cache_signature": cache_signature,
+        "grandqc_stage_signature": grandqc_stage_signature,
+        "cacheable": not summary_errors,
         "case_qc_passes_threshold": bool(selected_passes),
         "thresholds": {
             "max_artifact_rate": max_artifact_rate,
@@ -142,10 +229,10 @@ def build_wsi_case_summary(
             "artifact_class_ids": [int(item) for item in artifact_class_ids],
             "background_class_ids": [int(item) for item in background_class_ids],
         },
-        "selection_rule": "max_usable_tissue_pixels_then_artifact_threshold",
+        "selection_rule": "artifact_rate_threshold_then_max_usable_tissue_pixels",
         "slide_summaries": slide_summaries,
         "selected_slide": selected_slide,
-        "errors": [] if selected_passes else [str(item) for item in list(errors or [])],
+        "errors": summary_errors,
     }
     save_snapshot(output_root, f"wsi_qc/{case_id}", "selection_summary", summary)
     return summary
@@ -167,6 +254,9 @@ def run_wsi_qc_cohort_worker(
     background_class_ids = [
         int(class_id) for class_id in list(tool_config["background_class_ids"])
     ]
+    case_cache_signatures = dict(tool_config.get("case_cache_signatures", {}) or {})
+    case_stage_signatures = dict(tool_config.get("case_stage_signatures", {}) or {})
+    force_case_ids = set(tool_config.get("force_case_ids", []) or [])
 
     from tools.pathology_qc.artifacts_seg import artifacts_seg
     from tools.pathology_qc.wsi_tis_detect import wsi_tis_detect
@@ -193,6 +283,7 @@ def run_wsi_qc_cohort_worker(
                 "output_dir": str(slide_output_dir),
                 "tissue_mask_path": str(slide_output_dir / "tis_det_mask" / f"{slide_name}_MASK.png"),
                 "qc_mask_path": str(slide_output_dir / "mask_qc" / f"{slide_name}_mask.png"),
+                "force_recompute": case_id in force_case_ids,
             }
             if not slide_path:
                 task["error"] = "WSI record is missing File Path."
@@ -208,13 +299,10 @@ def run_wsi_qc_cohort_worker(
             continue
         tissue_mask_path = Path(str(task["tissue_mask_path"]))
         qc_mask_path = Path(str(task["qc_mask_path"]))
-        if (
-            tissue_mask_path.is_file()
-            and tissue_mask_path.stat().st_size > 0
-        ) or (
-            qc_mask_path.is_file()
-            and qc_mask_path.stat().st_size > 0
-        ):
+        reusable_stage_output = (
+            tissue_mask_path.is_file() and tissue_mask_path.stat().st_size > 0
+        ) or (qc_mask_path.is_file() and qc_mask_path.stat().st_size > 0)
+        if not task["force_recompute"] and reusable_stage_output:
             task["tissue_detection_reused"] = True
             continue
         try:
@@ -235,7 +323,11 @@ def run_wsi_qc_cohort_worker(
         if task.get("error"):
             continue
         qc_mask_path = Path(str(task["qc_mask_path"]))
-        if qc_mask_path.is_file() and qc_mask_path.stat().st_size > 0:
+        if (
+            not task["force_recompute"]
+            and qc_mask_path.is_file()
+            and qc_mask_path.stat().st_size > 0
+        ):
             task["artifact_segmentation_reused"] = True
             continue
         try:
@@ -299,7 +391,11 @@ def run_wsi_qc_cohort_worker(
                     "slide_path": str(task["slide_path"]),
                     "output_dir": str(slide_output_dir),
                     "passes_threshold": bool(
-                        usable_tissue_pixels > 0 and artifact_rate <= max_artifact_rate
+                        usable_tissue_pixels > 0
+                        and artifact_rate <= max_artifact_rate
+                    ),
+                    "artifact_rate_exceeds_threshold": bool(
+                        artifact_rate > max_artifact_rate
                     ),
                     "tissue_rate": float(mask_summary["tissue_rate"]),
                     "artifact_rate": artifact_rate,
@@ -337,6 +433,10 @@ def run_wsi_qc_cohort_worker(
             artifact_class_ids=artifact_class_ids,
             background_class_ids=background_class_ids,
             errors=case_errors.get(case_id, []),
+            cache_signature=str(case_cache_signatures.get(case_id, "") or ""),
+            grandqc_stage_signature=str(
+                case_stage_signatures.get(case_id, "") or ""
+            ),
         )
     return {
         "case_count": len(cases),
@@ -376,20 +476,76 @@ def run_wsi_qc_cohort(
 
     import yaml
 
+    tool_config = yaml.safe_load(
+        (Path(config_dir).expanduser() / "wsi_qc.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    config_signature = wsi_qc_config_signature(tool_config)
+    legacy_config_signature = wsi_qc_config_signature(
+        tool_config, include_device_indices=True
+    )
+    stage_config_signature = wsi_qc_stage_config_signature(tool_config)
     summaries: dict[str, Any] = {}
     pending_cases = []
+    case_cache_signatures = {}
+    case_stage_signatures = {}
+    force_case_ids = []
     for case in cases:
         case_id = case_id_from_case(case)
+        cache_signature = wsi_case_cache_signature(case, config_signature)
+        legacy_device_cache_signature = wsi_case_cache_signature(
+            case, legacy_config_signature
+        )
+        stage_signature = wsi_case_cache_signature(case, stage_config_signature)
+        case_cache_signatures[case_id] = cache_signature
+        case_stage_signatures[case_id] = stage_signature
         summary_path = Path(output_root) / "wsi_qc" / case_id / "selection_summary.json"
+        summary = {}
         if summary_path.exists() and summary_path.read_text(encoding="utf-8").strip():
-            summaries[case_id] = json.loads(summary_path.read_text(encoding="utf-8"))
-        else:
-            pending_cases.append(case)
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary_cacheable = bool(
+                summary.get("cacheable", not list(summary.get("errors", []) or []))
+            )
+            saved_cache_signature = str(summary.get("cache_signature", "") or "")
+            if saved_cache_signature in {
+                cache_signature,
+                legacy_device_cache_signature,
+            }:
+                if summary_cacheable:
+                    if saved_cache_signature != cache_signature:
+                        summary["cache_signature"] = cache_signature
+                        summary_path.write_text(
+                            json.dumps(to_jsonable(summary), ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                    summaries[case_id] = summary
+                    continue
+                force_case_ids.append(case_id)
+        pending_cases.append(case)
+        previous_stage_signature = str(
+            summary.get("grandqc_stage_signature", "") or ""
+        )
+        if previous_stage_signature:
+            if (
+                previous_stage_signature != stage_signature
+                and case_id not in force_case_ids
+            ):
+                force_case_ids.append(case_id)
+            continue
     if not pending_cases:
         return {"case_count": len(cases), "selection_summaries": summaries}
 
-    tool_config = yaml.safe_load((Path(config_dir).expanduser() / "wsi_qc.yaml").read_text(encoding="utf-8")) or {}
     tool_config["config_dir"] = config_dir
+    tool_config["case_cache_signatures"] = {
+        case_id_from_case(case): case_cache_signatures[case_id_from_case(case)]
+        for case in pending_cases
+    }
+    tool_config["case_stage_signatures"] = {
+        case_id_from_case(case): case_stage_signatures[case_id_from_case(case)]
+        for case in pending_cases
+    }
+    tool_config["force_case_ids"] = force_case_ids
     python_executable = Path(str(tool_config["python_executable"])).expanduser()
     if not python_executable.exists():
         for case in pending_cases:
@@ -398,18 +554,11 @@ def run_wsi_qc_cohort(
                 case_id,
                 output_root,
                 errors=[f"WSI QC python environment was not found: {python_executable}"],
+                cache_signature=case_cache_signatures[case_id],
+                grandqc_stage_signature=case_stage_signatures[case_id],
             )
         return {"case_count": len(cases), "selection_summaries": summaries}
 
-    run_config = json.dumps(
-        {
-            "cases": pending_cases,
-            "output_root": output_root,
-            "config_dir": config_dir,
-            "tool_config": tool_config,
-        },
-        ensure_ascii=False,
-    )
     command = [
         str(python_executable),
         str(Path(__file__).resolve()),
@@ -421,49 +570,58 @@ def run_wsi_qc_cohort(
     if env.get("PYTHONPATH"):
         python_path_items.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(python_path_items)
-    env.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
     env["PYTHONUNBUFFERED"] = "1"
-    worker_stderr = None if sys.stderr.isatty() else subprocess.PIPE
-    completed = subprocess.run(
-        command,
-        cwd=str(project_dir),
-        env=env,
-        input=run_config,
-        stdout=subprocess.PIPE,
-        stderr=worker_stderr,
-        text=True,
-        check=False,
+    devices = list(tool_config["devices"])
+    assignments, visible_devices = split_device_requests(
+        pending_cases,
+        devices,
+        workers_per_device=int(tool_config["workers_per_gpu"]),
     )
-
-    if completed.returncode != 0:
-        for case in pending_cases:
+    if visible_devices is not None:
+        env["CUDA_VISIBLE_DEVICES"] = visible_devices
+    payloads = [
+        {
+            "cases": assignment["requests"],
+            "output_root": output_root,
+            "config_dir": config_dir,
+            "tool_config": {**tool_config, "device": assignment["device"]},
+            "print_result": False,
+        }
+        for assignment in assignments
+    ]
+    returncodes = run_json_workers(command, payloads, cwd=str(project_dir), env=env)
+    for assignment, returncode in zip(assignments, returncodes):
+        for case in assignment["requests"]:
             case_id = case_id_from_case(case)
-            summaries[case_id] = failure_summary(
-                case_id,
-                output_root,
-                errors=[
-                    f"WSI QC failed with return code {completed.returncode}.",
-                    (completed.stderr or "").strip() or completed.stdout.strip(),
-                ],
+            summary_path = (
+                Path(output_root) / "wsi_qc" / case_id / "selection_summary.json"
             )
-        return {"case_count": len(cases), "selection_summaries": summaries}
-
-    try:
-        result = json.loads(completed.stdout.strip() or "{}")
-    except json.JSONDecodeError:
-        result = {}
-    summaries.update(dict(result.get("selection_summaries", {}) or {}))
-    for case in pending_cases:
-        case_id = case_id_from_case(case)
-        if case_id not in summaries:
-            summaries[case_id] = failure_summary(
-                case_id,
-                output_root,
-                errors=["WSI QC finished without writing selection_summary.json."],
-            )
-    result["selection_summaries"] = summaries
-    result["case_count"] = len(cases)
-    return result
+            if summary_path.exists():
+                summaries[case_id] = json.loads(
+                    summary_path.read_text(encoding="utf-8")
+                )
+            else:
+                summaries[case_id] = failure_summary(
+                    case_id,
+                    output_root,
+                    errors=[f"WSI QC worker failed with return code {returncode}."],
+                    cache_signature=case_cache_signatures[case_id],
+                    grandqc_stage_signature=case_stage_signatures[case_id],
+                )
+    return {
+        "case_count": len(cases),
+        "passed_case_ids": [
+            case_id
+            for case_id, summary in summaries.items()
+            if summary.get("case_qc_passes_threshold")
+        ],
+        "filtered_case_ids": [
+            case_id
+            for case_id, summary in summaries.items()
+            if not summary.get("case_qc_passes_threshold")
+        ],
+        "selection_summaries": summaries,
+    }
 
 
 def main() -> None:
@@ -478,7 +636,8 @@ def main() -> None:
             config_dir=str(payload.get("config_dir", "") or ""),
             tool_config=dict(payload.get("tool_config", {}) or {}),
         )
-        print(json.dumps(result, ensure_ascii=False))
+        if payload.get("print_result", True):
+            print(json.dumps(result, ensure_ascii=False))
         return
     parser.print_help()
 

@@ -5,7 +5,10 @@ import logging
 import math
 import os
 import re
+import subprocess
 import warnings
+from multiprocessing import get_context
+from collections.abc import Mapping
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, Literal, TypedDict, Union
@@ -46,6 +49,127 @@ def to_jsonable(value: Any) -> JSONValue:
     if isinstance(value, (list, tuple, set)):
         return [to_jsonable(item) for item in value]
     return repr(value)
+
+
+def semantic_execution_config(value: Any, key: str = "") -> JSONValue:
+    runtime_keys = {"devices", "workers_per_gpu"}
+    if isinstance(value, Mapping):
+        result = {
+            str(item_key): semantic_execution_config(item, str(item_key))
+            for item_key, item in value.items()
+            if str(item_key).lower() not in runtime_keys
+        }
+        if "devices" in value and "device" not in result:
+            devices = [str(item).strip().lower() for item in value["devices"]]
+            result["device"] = (
+                "cuda"
+                if devices and all(device.startswith(("cuda:", "gpu:")) for device in devices)
+                else semantic_execution_config(devices[0], "device")
+            )
+        return result
+    if isinstance(value, (list, tuple)):
+        item_key = "device" if key.lower() == "devices" else ""
+        return [semantic_execution_config(item, item_key) for item in value]
+    if key.lower() == "device":
+        device = str(value).strip().lower()
+        if (
+            device.isdigit()
+            or device == "gpu"
+            or re.fullmatch(r"(?:cuda|gpu):\d+", device)
+        ):
+            return "cuda"
+    return to_jsonable(value)
+
+
+def split_requests(requests: list[Any], worker_count: int) -> list[list[Any]]:
+    count = min(max(1, int(worker_count)), len(requests))
+    return [requests[index::count] for index in range(count)] if requests else []
+
+
+def split_device_requests(
+    requests: list[Any], devices: list[str], *, workers_per_device: int
+) -> tuple[list[dict[str, Any]], str | None]:
+    devices = [str(device).strip().lower() for device in devices]
+    if not devices:
+        raise ValueError("At least one execution device is required")
+    cuda_devices = all(
+        device.startswith("cuda:") and device.split(":", 1)[1].isdigit()
+        for device in devices
+    )
+    if not cuda_devices and devices != ["cpu"]:
+        raise ValueError("Devices must be CUDA devices or a single CPU device")
+    groups = split_requests(requests, len(devices) * int(workers_per_device))
+    assignments = []
+    for position, group in enumerate(groups):
+        device_index = position % len(devices)
+        assignments.append(
+            {
+                "requests": group,
+                "device": f"cuda:{device_index}" if cuda_devices else "cpu",
+                "physical_device": devices[device_index],
+                "position": position,
+            }
+        )
+    visible = (
+        ",".join(device.split(":", 1)[1] for device in devices)
+        if cuda_devices
+        else None
+    )
+    return assignments, visible
+
+
+def run_json_workers(
+    command: list[str],
+    payloads: list[Mapping[str, Any]],
+    *,
+    env: Mapping[str, str] | None = None,
+    cwd: str | None = None,
+) -> list[int]:
+    processes = []
+    for payload in payloads:
+        process = subprocess.Popen(
+            command,
+            env=dict(env) if env is not None else None,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            text=True,
+        )
+        if process.stdin is None:
+            raise RuntimeError("Worker stdin pipe was not created.")
+        process.stdin.write(json.dumps(payload, ensure_ascii=False))
+        process.stdin.close()
+        processes.append(process)
+    return [int(process.wait()) for process in processes]
+
+
+def run_command(
+    command: list[str],
+    *,
+    env: Mapping[str, str] | None = None,
+    cwd: str | None = None,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        env=dict(env) if env is not None else None,
+        cwd=cwd,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def run_function_workers(function, payloads: list[Mapping[str, Any]]) -> list[int]:
+    processes = [
+        get_context("spawn").Process(target=function, args=(payload,))
+        for payload in payloads
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join()
+    return [int(process.exitcode or 0) for process in processes]
 
 
 def safe_identifier(value: str) -> str:

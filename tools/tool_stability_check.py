@@ -89,6 +89,14 @@ def load_consensus_matrix(
     return matrix, patient_ids, None
 
 
+def load_partition_records(consensus: Mapping[str, Any]) -> list[dict[str, Any]]:
+    path = Path(str(consensus.get("partition_records_path", "") or ""))
+    if not path.exists():
+        return []
+    records = json.loads(path.read_text(encoding="utf-8"))
+    return [dict(item) for item in list(records or []) if dict(item or {}).get("valid", True)]
+
+
 def global_consensus_metrics(
     memberships: Mapping[str, list[str]],
     consensus: Mapping[str, Any],
@@ -147,8 +155,15 @@ def empty_set_consensus_row(
         "silhouette_median": None,
         "silhouette_q25": None,
         "silhouette_min": None,
+        "negative_silhouette_fraction": None,
         "per_member_consensus_support": {},
         "per_member_silhouette": {},
+        "partition_recovery_mean_jaccard": None,
+        "partition_recovery_median_jaccard": None,
+        "partition_recovery_min_jaccard": None,
+        "partition_recovery_partition_count": 0,
+        "algorithm_agreement_mean_jaccard": None,
+        "algorithm_agreement_by_algorithm": {},
         "missing_reason": missing_reason,
     }
 
@@ -184,6 +199,8 @@ def set_consensus_metrics(
     matrix: np.ndarray | None,
     matrix_index_by_case: Mapping[str, int],
     missing_reason: str | None,
+    partition_records: list[dict[str, Any]] | None = None,
+    target_n_clusters: int | None = None,
 ) -> dict[str, dict[str, Any]]:
     silhouettes = (
         silhouette_by_case(matrix, memberships, matrix_index_by_case)
@@ -285,17 +302,91 @@ def set_consensus_metrics(
         }
         silhouette_values = list(member_silhouettes.values())
         silhouette = summary_stats(silhouette_values)
+        negative_count = sum(1 for value in silhouette_values if float(value) < 0.0)
         row.update(
             {
                 "silhouette_mean": silhouette["mean"],
                 "silhouette_median": silhouette["median"],
                 "silhouette_q25": silhouette["q25"],
                 "silhouette_min": silhouette["min"],
+                "negative_silhouette_fraction": round_value(
+                    negative_count / float(len(silhouette_values))
+                    if silhouette_values
+                    else None
+                ),
                 "per_member_silhouette": member_silhouettes,
             }
         )
+        row.update(
+            partition_recovery_metrics(
+                set_id,
+                available_members,
+                partition_records or [],
+                target_n_clusters,
+            )
+        )
         rows[set_id] = row
     return rows
+
+
+def best_jaccard_against_partition(
+    target_members: set[str], labels: Mapping[str, Any]
+) -> float | None:
+    if not target_members:
+        return None
+    groups: dict[str, set[str]] = {}
+    for case_id, label in dict(labels or {}).items():
+        groups.setdefault(str(label), set()).add(str(case_id))
+    scores = []
+    for members in groups.values():
+        union = target_members | members
+        if union:
+            scores.append(len(target_members & members) / float(len(union)))
+    return max(scores) if scores else None
+
+
+def partition_recovery_metrics(
+    set_id: str,
+    members: list[str],
+    partition_records: list[dict[str, Any]],
+    target_n_clusters: int | None,
+) -> dict[str, Any]:
+    target = set(str(item) for item in members)
+    scores = []
+    scores_by_algorithm: dict[str, list[float]] = {}
+    for record in partition_records:
+        if target_n_clusters and int(record.get("n_clusters", 0) or 0) != int(target_n_clusters):
+            continue
+        score = best_jaccard_against_partition(target, dict(record.get("labels", {}) or {}))
+        if score is None:
+            continue
+        scores.append(float(score))
+        algorithm = str(record.get("algorithm", "") or "unknown")
+        scores_by_algorithm.setdefault(algorithm, []).append(float(score))
+    stats = summary_stats(scores)
+    by_algorithm = {
+        algorithm: {
+            "mean_jaccard": round_value(np.mean(values)),
+            "median_jaccard": round_value(np.median(values)),
+            "partition_count": len(values),
+        }
+        for algorithm, values in sorted(scores_by_algorithm.items())
+    }
+    algorithm_means = [
+        float(item["mean_jaccard"])
+        for item in by_algorithm.values()
+        if item.get("mean_jaccard") is not None
+    ]
+    return {
+        "partition_recovery_mean_jaccard": stats["mean"],
+        "partition_recovery_median_jaccard": stats["median"],
+        "partition_recovery_min_jaccard": stats["min"],
+        "partition_recovery_partition_count": len(scores),
+        "algorithm_agreement_mean_jaccard": round_value(np.mean(algorithm_means))
+        if algorithm_means
+        else None,
+        "algorithm_agreement_by_algorithm": by_algorithm,
+    }
 
 
 def tool_stability_check(
@@ -309,6 +400,8 @@ def tool_stability_check(
     memberships = candidate_set_members(cluster_state, all_cluster_states)
     consensus = consensus_payload(cluster_state, all_cluster_states)
     matrix, patient_ids, missing_reason = load_consensus_matrix(consensus)
+    partition_records = load_partition_records(consensus)
+    target_n_clusters = consensus.get("best_n_clusters") or consensus.get("n_clusters")
     matrix_index_by_case = {case_id: index for index, case_id in enumerate(patient_ids)}
     metrics = {
         "set_reliability_global_consensus": global_consensus_metrics(
@@ -322,6 +415,8 @@ def tool_stability_check(
             matrix,
             matrix_index_by_case,
             missing_reason,
+            partition_records,
+            int(target_n_clusters) if target_n_clusters else None,
         ),
     }
     status = "success" if matrix is not None else "warning"
