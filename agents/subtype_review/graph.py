@@ -539,14 +539,22 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             for key in ("round", "max_rounds", "failures", "error")
         },
     }
-    result = invoke_with_recovery(model, payload, state, "router")
-    if result is None:
-        return state
-    try:
-        action = parse_router_action(result)
-        validate_router_action(action, state)
-    except Exception as exc:
-        mark_failure(state, "router", exc)
+    action = None
+    for attempt in range(3):
+        result = invoke_with_recovery(model, payload, state, "router")
+        if result is None:
+            return state
+        try:
+            action = parse_router_action(result)
+            validate_router_action(action, state)
+            break
+        except Exception as exc:
+            if attempt == 2:
+                mark_failure(state, "router", exc)
+                return state
+            payload["validation_error"] = f"{type(exc).__name__}: {exc}"
+            payload["rejected_action"] = result
+    if action is None:
         return state
     control = dict(state.get("control", {}) or {})
     control["round"] = int(control.get("round", 0) or 0) + 1

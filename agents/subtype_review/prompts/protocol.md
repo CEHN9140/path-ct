@@ -26,6 +26,8 @@ Verifier binds only the requested capability and returns real tool calls. Python
 
 Router chooses exactly one action per successful decision round: `need_more_evidence`, `accept`, `drop`, `split` or `merge`. Scientific actions target only active identifiers supplied as eligible targets. Accept and Drop are provisional; Split and Merge are sent to Reviser.
 
+Evidence acquisition is finite for a partition: once a capability has been attempted, including a failed attempt, it cannot be requested again. When no unattempted dimension remains, the Router must select a scientific action or leave the structure unresolved for final validation failure; it must not repeat an evidence request.
+
 Accept requires coherent positive disease-related evidence and no unresolved supported structural correction. One isolated modality or the absence of contradiction is insufficient. Biological and structural evidence are usually the direct admission evidence; cross-modal, confounder and known-label evidence are requested only when relevant to the unresolved decision.
 
 Drop requires exhaustion of evidence capable of changing the admission decision and exhaustion of supported structural alternatives, while positive admission remains unsupported or materially contradicted. Tool failure, missing evidence and budget pressure are not Drop evidence.
