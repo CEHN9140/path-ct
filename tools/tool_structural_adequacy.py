@@ -33,6 +33,23 @@ def split_plan_seed(plan: Mapping[str, Any]) -> int:
     return 7100 + int(digest[:8], 16) % 1_000_000
 
 
+def merge_bootstrap_seed(
+    memberships: Mapping[str, list[str]], set_ids: list[str], modality: str
+) -> int:
+    groups = sorted(
+        sorted(str(case_id) for case_id in memberships[set_id])
+        for set_id in set_ids
+    )
+    signature = json.dumps(
+        {"groups": groups, "modality": modality},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(signature.encode("utf-8")).hexdigest()
+    return 6100 + int(digest[:8], 16) % 1_000_000
+
+
 def apply_split_modality_fdr(split_evidence: list[dict[str, Any]]) -> None:
     for modality in MODALITIES:
         if modality == "fused":
@@ -306,19 +323,23 @@ def merge_group_evidence(
     bootstrap_iterations: int,
 ) -> dict[str, Any]:
     index_by_case = {case_id: index for index, case_id in enumerate(case_ids)}
-    set_indices = [
-        np.asarray([index_by_case[case_id] for case_id in memberships[set_id]])
+    canonical_groups = sorted(
+        (tuple(sorted(str(case_id) for case_id in memberships[set_id])), set_id)
         for set_id in set_ids
+    )
+    set_indices = [
+        np.asarray([index_by_case[case_id] for case_id in group])
+        for group, _ in canonical_groups
     ]
     rows = {}
-    for index, modality in enumerate(MODALITIES):
+    for modality in MODALITIES:
         similarity = normalize_affinity(affinities[modality])
         within, between, separation = boundary_values(similarity, set_indices)
         lower, upper = boundary_bootstrap_interval(
             similarity,
             set_indices,
             iterations=bootstrap_iterations,
-            seed=6100 + index,
+            seed=merge_bootstrap_seed(memberships, set_ids, modality),
         )
         rows[modality] = {
             "mean_within_affinity": round_value(within),

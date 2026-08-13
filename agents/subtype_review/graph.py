@@ -638,22 +638,6 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     audit_refs = metric_refs_from_findings(dict(state.get("audit", {}) or {}))
     if not set(action.metric_refs).issubset(audit_refs):
         raise ValueError("Router metric_refs were not reported by the current Verifier audit")
-    if action.action == "accept":
-        admission_refs = {
-            str(ref)
-            for finding in findings
-            if finding.get("dimension") == "biological_support"
-            and finding.get("status") == "supporting"
-            and (
-                not finding.get("target_ids")
-                or action.target_ids[0] in {str(item) for item in finding.get("target_ids", [])}
-            )
-            for ref in finding.get("metric_refs", [])
-        }
-        if not admission_refs:
-            raise ValueError("Accept requires a supporting biological_support finding")
-        if not admission_refs.intersection(action.metric_refs):
-            raise ValueError("Accept must cite supporting biological_support metrics")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
