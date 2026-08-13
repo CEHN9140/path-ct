@@ -156,6 +156,11 @@ def missing_metric_refs(metric_refs: list[str], evidence: Mapping[str, Any]) -> 
     return [ref for ref in metric_refs if re.sub(r"\[(\d+)\]", r".\1", ref) not in available]
 
 
+def require_metric_refs(metric_refs: list[str], context: str) -> None:
+    if not metric_refs:
+        raise ValueError(f"{context} requires metric_refs")
+
+
 def serializable_messages(messages: list[Any]) -> list[dict[str, Any]]:
     rows = []
     for message in list(messages or []):
@@ -247,8 +252,12 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
             messages.append({"role": "tool", "name": name, "content": payload})
     evidence["results"] = results
     state["evidence"] = evidence
+    for item in current_sets(state):
+        if str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}:
+            item["status"] = "active"
     state["messages"] = messages[-8:]
     control = dict(state.get("control", {}) or {})
+    control["blocked_actions"] = []
     control["next"] = "audit"
     state["control"] = control
     append_trace(state, {
@@ -401,6 +410,8 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
         raise ValueError(f"Verifier referenced inactive or unknown sets: {unknown}")
     evidence = current_partition_evidence(state)
     for finding in audit.findings:
+        if finding.status != "unavailable":
+            require_metric_refs(finding.metric_refs, "Evidence finding")
         missing = missing_metric_refs(finding.metric_refs, evidence)
         if missing:
             raise ValueError(f"Verifier referenced unavailable metrics: {missing}")
@@ -503,15 +514,38 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     target = next(item for item in sets if set_id(item) == action.target_ids[0])
     if str(target.get("status", "active")) != "active":
         raise ValueError(f"Router target is already provisionally decided: {action.target_ids[0]}")
+    gaps = list(dict(state.get("audit", {}) or {}).get("gaps", []) or [])
+    if any(not gap.get("target_ids") for gap in gaps) or any(
+        action.target_ids[0] in {str(item) for item in gap.get("target_ids", []) or []}
+        for gap in gaps
+    ):
+        raise ValueError("Scientific action is blocked by a decision-relevant gap")
+    findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+    if action.action in {"split", "merge"} and not any(
+        finding.get("dimension") == "structural_adequacy"
+        and finding.get("status") == "conflicting"
+        and action.target_ids[0] in {str(item) for item in finding.get("target_ids", []) or []}
+        for finding in findings
+    ):
+        raise ValueError("Structural action requires a conflicting structural finding")
     blocked = set(dict(state.get("control", {}) or {}).get("blocked_actions", []) or [])
     key = f"{action.action}:{action.target_ids[0]}"
     if key in blocked:
         raise ValueError(f"Action is blocked for this partition: {key}")
     if missing_metric_refs(action.metric_refs, current_partition_evidence(state)):
         raise ValueError("Router referenced unavailable metrics")
+    require_metric_refs(action.metric_refs, "Scientific action")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
+    control = dict(state.get("control", {}) or {})
+    if int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 12) or 12):
+        control["status"] = "final_validation_failed"
+        control["error"] = "max_rounds_exhausted"
+        control["next"] = "end"
+        state["control"] = control
+        append_trace(state, {"node": "router", "event": "budget_exhausted"})
+        return state
     signature = partition_signature(current_sets(state))
     sets = current_sets(state)
     audit = dict(state.get("audit", {}) or {})
@@ -741,8 +775,16 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         })
         return state
     plan = next((row for row in candidates if str(row.get("plan_id", "")) == parsed.plan_id), None)
-    if plan is None or missing_metric_refs(parsed.metric_refs, current_partition_evidence(state)):
-        mark_failure(state, "reviser", ValueError("Reviser selected an unknown plan or unavailable metric"))
+    if plan is None:
+        mark_failure(state, "reviser", ValueError("Reviser selected an unknown plan"))
+        return state
+    try:
+        require_metric_refs(parsed.metric_refs, "Reviser plan")
+    except ValueError as exc:
+        mark_failure(state, "reviser", exc)
+        return state
+    if missing_metric_refs(parsed.metric_refs, current_partition_evidence(state)):
+        mark_failure(state, "reviser", ValueError("Reviser referenced unavailable metrics"))
         return state
     next_signature = candidate_partition_signature(state, str(action.get("action", "")), plan)
     if next_signature in set(dict(state.get("control", {}) or {}).get("visited_partitions", []) or []):

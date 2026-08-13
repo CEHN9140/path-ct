@@ -8,7 +8,7 @@ Read the current evidence inventory, detailed evidence and latest ToolMessages. 
 
 When `mode=protocol_self_review`, independently check `proposed_audit` against the current evidence and shared protocol. Correct unsupported status labels, incorrect target scope, omitted decision-relevant gaps and mechanically added irrelevant gaps.
 
-Return exactly one JSON object in audit mode:
+Every finding except `unavailable` must cite at least one metric reference that exists in the current evidence. Return exactly one JSON object in audit mode:
 
 {"findings":[{"target_ids":["C0001"],"dimension":"biological_support","status":"supporting","summary":"short factual audit","metric_refs":["..."]}],"gaps":[{"target_ids":["C0001"],"dimension":"structural_adequacy","reason":"decision-blocking missing information"}]}
 

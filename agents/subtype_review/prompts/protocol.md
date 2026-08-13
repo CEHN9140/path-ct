@@ -20,7 +20,9 @@ An explicit known-label conflict with no conflicting structural finding that has
 
 Router may request evidence only for a dimension present in the current Verifier gaps. Gap targets describe affected sets rather than computation scope, because each capability runs once on the complete partition. Router may therefore use an empty target list for a partition-level request; a nonempty list must remain within the matching gap.
 
-Verifier binds only the requested capability and returns real tool calls. Python executes those calls and returns ToolMessages before Verifier performs a fresh audit. The same dimension is attempted at most once for the same partition, including failed results; Split or Merge creates a new partition and resets eligibility, whereas Accept, Drop and renaming do not. Successful nonempty metrics are available evidence and must be audited from their values. An attempted but inconclusive capability is reported as uncertainty and is not requested again.
+Verifier binds only the requested capability and returns real tool calls. Python executes those calls and returns ToolMessages before Verifier performs a fresh audit. The same dimension is attempted at most once for the same partition, including failed results; Split or Merge creates a new partition and resets eligibility, whereas Accept, Drop and renaming do not. Any newly recorded capability result, including failure, invalidates all provisional Accept or Drop states and blocked actions for that partition before re-audit. Successful nonempty metrics are available evidence and must be audited from their values. An attempted but inconclusive capability is reported as uncertainty and is not requested again.
+
+Every evidence-bearing finding with status supporting, conflicting, mixed or inconclusive must cite at least one available metric reference. Unavailable findings may have no reference. Every Accept, Drop, Split or Merge action and every selected Reviser plan must cite available metric references; need_more_evidence and plan_id=null may use an empty list.
 
 ## Action rules
 
@@ -42,4 +44,4 @@ Completion requires every current set to be provisionally accepted, no decision-
 
 ## Python boundary
 
-Python validates JSON types, identifiers, metric references, partition signatures, tool reuse, budgets, plan identifiers, member completeness, mutual exclusivity and Merge pairwise evidence. Python does not choose scientific targets, impose action priorities or reinterpret evidence.
+Python validates JSON types, identifiers, metric references, partition signatures, tool reuse, budgets, plan identifiers, member completeness, mutual exclusivity and Merge pairwise evidence. A scientific action is rejected when its target has a current decision-relevant gap, when a whole-partition gap exists, or when Split/Merge lacks a matching conflicting structural finding. Python does not choose scientific targets, impose action priorities or reinterpret evidence.
