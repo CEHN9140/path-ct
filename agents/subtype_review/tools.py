@@ -1,42 +1,34 @@
 from __future__ import annotations
 
 import importlib
-import json
-from typing import Any, Callable, Mapping, Literal
+from typing import Any, Callable, Mapping
 
-from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS
 from utils.tool_utils import to_jsonable
 
 DEFAULT_TOOL_DEFINITIONS = {
     "tool_mutation_enrichment": {
         "module": "tools.tool_mutation_enrichment",
         "function": "tool_mutation_enrichment",
-        "evidence_blocks": ["biological_support"],
     },
     "tool_pathway_enrichment": {
         "module": "tools.tool_pathway_enrichment",
         "function": "tool_pathway_enrichment",
-        "evidence_blocks": ["biological_support"],
     },
     "tool_confound_test": {
         "module": "tools.tool_confound_test",
         "function": "tool_confound_test",
-        "evidence_blocks": ["confounder_exclusion"],
     },
     "tool_known_label_echo_test": {
         "module": "tools.tool_known_label_echo_test",
         "function": "tool_known_label_echo_test",
-        "evidence_blocks": ["known_label_echo"],
     },
     "tool_multimodal_consistency_check": {
         "module": "tools.tool_multimodal_consistency_check",
         "function": "tool_multimodal_consistency_check",
-        "evidence_blocks": ["cross_modal_consistency"],
     },
     "tool_structural_adequacy": {
         "module": "tools.tool_structural_adequacy",
         "function": "tool_structural_adequacy",
-        "evidence_blocks": ["structural_adequacy"],
     },
 }
 
@@ -49,11 +41,6 @@ def normalize_tool_definitions(
         str(name): {
             "module": str(dict(item or {}).get("module", "") or ""),
             "function": str(dict(item or {}).get("function", "") or ""),
-            "evidence_blocks": [
-                str(block)
-                for block in list(dict(item or {}).get("evidence_blocks", []) or [])
-                if str(block) in EVIDENCE_DIMENSIONS
-            ],
         }
         for name, item in definitions.items()
     }
@@ -61,16 +48,12 @@ def normalize_tool_definitions(
 
 def load_available_tool_functions(
     definitions: Mapping[str, Mapping[str, Any]],
-) -> tuple[dict[str, Callable[..., Any]], dict[str, str]]:
+) -> dict[str, Callable[..., Any]]:
     functions: dict[str, Callable[..., Any]] = {}
-    errors: dict[str, str] = {}
     for name, item in definitions.items():
-        try:
-            module = importlib.import_module(str(item.get("module", "")))
-            functions[str(name)] = getattr(module, str(item.get("function", "")))
-        except Exception as exc:
-            errors[str(name)] = f"{type(exc).__name__}: {exc}"
-    return functions, errors
+        module = importlib.import_module(str(item.get("module", "")))
+        functions[str(name)] = getattr(module, str(item.get("function", "")))
+    return functions
 
 
 def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -166,34 +149,31 @@ def execute_capability(
     }
 
 
-def build_validation_tools(executor: Callable[..., dict[str, Any]]) -> list[Any]:
+def build_validation_tools() -> list[Any]:
     from langchain_core.tools import tool
 
     def make(name: str, description: str, func: Callable[..., Any]) -> Any:
         return tool(name, description=description)(func)
 
-    def biological_support(target_set_ids: list[str] | None = None) -> str:
-        """Compute RNA and WXS biological-support evidence for target sets."""
-        return json.dumps(executor("biological_support", target_set_ids or []), ensure_ascii=False)
+    def biological_support() -> str:
+        """Compute RNA and WXS biological-support evidence for the current partition."""
+        return "biological_support"
 
-    def cross_modal_consistency(target_set_ids: list[str] | None = None) -> str:
-        """Compute CT, WSI, RNA and genomic affinity consistency evidence."""
-        return json.dumps(executor("cross_modal_consistency", target_set_ids or []), ensure_ascii=False)
+    def cross_modal_consistency() -> str:
+        """Compute CT, WSI, RNA and genomic consistency for the current partition."""
+        return "cross_modal_consistency"
 
-    def confounder_exclusion(target_set_ids: list[str] | None = None) -> str:
-        """Compute CT acquisition-confounder evidence for target sets."""
-        return json.dumps(executor("confounder_exclusion", target_set_ids or []), ensure_ascii=False)
+    def confounder_exclusion() -> str:
+        """Compute CT acquisition-confounder evidence for the current partition."""
+        return "confounder_exclusion"
 
-    def known_label_echo(target_set_ids: list[str] | None = None) -> str:
+    def known_label_echo() -> str:
         """Compute whole-partition stage and grade echo evidence."""
-        return json.dumps(executor("known_label_echo", target_set_ids or []), ensure_ascii=False)
+        return "known_label_echo"
 
-    def structural_adequacy(
-        target_set_ids: list[str] | None = None,
-        scope: Literal["internal", "external", "both"] = "both",
-    ) -> str:
-        """Compute legal Split and Merge candidates for current sets."""
-        return json.dumps(executor("structural_adequacy", target_set_ids or [], scope), ensure_ascii=False)
+    def structural_adequacy() -> str:
+        """Compute legal Split and Merge evidence for the current partition."""
+        return "structural_adequacy"
 
     return [
         make("biological_support", biological_support.__doc__ or "", biological_support),

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 import numpy as np
 from sklearn.cluster import SpectralClustering
 
-from tools.subtype_review_common import tool_parameters, tool_result
+from tools.subtype_review_common import bh_fdr, tool_parameters, tool_result
 from tools.tool_multimodal_consistency_check import (
     modality_affinity_path,
     normalize_affinity,
@@ -91,6 +91,9 @@ def split_plan_evidence(
     plan: Mapping[str, Any],
     affinities: Mapping[str, np.ndarray],
     case_ids: list[str],
+    *,
+    permutations: int,
+    seed: int,
 ) -> dict[str, Any]:
     group_by_case = {
         str(case_id): f"G{index}"
@@ -105,29 +108,28 @@ def split_plan_evidence(
     ):
         raise ValueError(f"Split plan has patients outside affinity order: {plan}")
 
-    similarity = normalize_affinity(
-        np.asarray(affinities["fused"])[np.ix_(positions, positions)]
-    )
-    global_row, per_set = partition_separation(similarity, labels)
-    children = [
-        {
-            "child_id": child_id,
-            **row,
-        }
-        for child_id, row in per_set.items()
-    ]
-    rows = {
-        "fused": {
-            "normalized_internal_separation": global_row[
-                "normalized_affinity_separation"
-            ],
+    rows = {}
+    fused_similarity = None
+    for modality in MODALITIES:
+        similarity = normalize_affinity(
+            np.asarray(affinities[modality])[np.ix_(positions, positions)]
+        )
+        global_row, per_set = partition_separation(similarity, labels)
+        rows[modality] = {
+            "normalized_separation": global_row["normalized_affinity_separation"],
             "minimum_child_separation": min(
                 float(row["normalized_affinity_separation"])
                 for row in per_set.values()
             ),
-            "children": children,
+            **fixed_partition_null_calibration(
+                similarity,
+                labels,
+                permutations=permutations,
+                seed=seed + 1000 + MODALITIES.index(modality),
+            ),
         }
-    }
+        if modality == "fused":
+            fused_similarity = similarity
 
     return {
         "plan_id": plan.get("plan_id"),
@@ -136,7 +138,14 @@ def split_plan_evidence(
         "child_sizes": list(plan.get("child_sizes", []) or []),
         "groups": [list(group) for group in list(plan.get("groups", []) or [])],
         "source_networks": list(plan.get("source_networks", []) or []),
-        "internal_community": rows,
+        "metric_direction": "larger_positive_separation_supports_the_proposed_split",
+        "selection_adjusted_null": split_null_calibration(
+            fused_similarity,
+            labels,
+            permutations=permutations,
+            seed=seed,
+        ),
+        "modality_community": rows,
     }
 
 
@@ -155,6 +164,86 @@ def boundary_values(
     within = float(np.mean(within_values)) if within_values else float("nan")
     between = float(np.mean(between_values))
     return within, between, separation_score(within, between)
+
+
+def split_null_calibration(
+    similarity: np.ndarray,
+    labels: np.ndarray,
+    *,
+    permutations: int,
+    seed: int,
+) -> dict[str, Any]:
+    matrix = normalize_affinity(similarity)
+    labels = np.asarray(labels)
+    child_count = len(np.unique(labels))
+    indices = [np.flatnonzero(labels == label) for label in np.unique(labels)]
+    observed = boundary_values(matrix, indices)[2]
+    upper = np.triu_indices(len(matrix), 1)
+    weights = matrix[upper].copy()
+    rng = np.random.default_rng(seed)
+    null_scores = []
+    for iteration in range(permutations):
+        shuffled = weights.copy()
+        rng.shuffle(shuffled)
+        null_matrix = np.eye(len(matrix), dtype=float)
+        null_matrix[upper] = shuffled
+        null_matrix[(upper[1], upper[0])] = shuffled
+        null_labels = SpectralClustering(
+            n_clusters=child_count,
+            affinity="precomputed",
+            assign_labels="cluster_qr",
+            random_state=seed + iteration,
+        ).fit_predict(null_matrix)
+        null_indices = [
+            np.flatnonzero(null_labels == label)
+            for label in np.unique(null_labels)
+        ]
+        null_scores.append(boundary_values(null_matrix, null_indices)[2])
+    null_values = np.asarray(null_scores, dtype=float)
+    null_mean = float(null_values.mean())
+    lower, upper_bound = np.quantile(null_values, [0.025, 0.975])
+    p_value = (1 + int(np.sum(null_values >= observed))) / (permutations + 1)
+    return {
+        "observed_separation": round_value(observed),
+        "null_mean_separation": round_value(null_mean),
+        "null_ci95": [round_value(lower), round_value(upper_bound)],
+        "separation_gain_over_null": round_value(observed - null_mean),
+        "permutation_p_value": round_value(p_value),
+        "permutations": int(permutations),
+    }
+
+
+def fixed_partition_null_calibration(
+    similarity: np.ndarray,
+    labels: np.ndarray,
+    *,
+    permutations: int,
+    seed: int,
+) -> dict[str, Any]:
+    matrix = normalize_affinity(similarity)
+    labels = np.asarray(labels)
+    observed_indices = [
+        np.flatnonzero(labels == label) for label in np.unique(labels)
+    ]
+    observed = boundary_values(matrix, observed_indices)[2]
+    rng = np.random.default_rng(seed)
+    null_scores = []
+    for _ in range(permutations):
+        shuffled = rng.permutation(labels)
+        shuffled_indices = [
+            np.flatnonzero(shuffled == label) for label in np.unique(shuffled)
+        ]
+        null_scores.append(boundary_values(matrix, shuffled_indices)[2])
+    null_values = np.asarray(null_scores, dtype=float)
+    null_mean = float(null_values.mean())
+    lower, upper = np.quantile(null_values, [0.025, 0.975])
+    p_value = (1 + int(np.sum(null_values >= observed))) / (permutations + 1)
+    return {
+        "null_mean_separation": round_value(null_mean),
+        "null_ci95": [round_value(lower), round_value(upper)],
+        "separation_gain_over_null": round_value(observed - null_mean),
+        "permutation_p_value": round_value(p_value),
+    }
 
 
 def boundary_bootstrap_interval(
@@ -256,14 +345,35 @@ def tool_structural_adequacy(
         min_size=int(budget["min_split_size"]),
         max_children=int(budget["max_split_children"]),
     )
+    split_permutations = int(parameters["split_null_permutations"])
     split_evidence = [
         split_plan_evidence(
             plan,
             affinities,
             case_ids,
+            permutations=split_permutations,
+            seed=7100 + index,
         )
-        for plan in split_plans
+        for index, plan in enumerate(split_plans)
     ]
+    split_q_values = bh_fdr([
+        float(row["selection_adjusted_null"]["permutation_p_value"])
+        for row in split_evidence
+    ])
+    for row, q_value in zip(split_evidence, split_q_values):
+        row["selection_adjusted_null"]["q_value"] = round_value(q_value)
+    modality_tests = [
+        (row, modality)
+        for row in split_evidence
+        for modality in MODALITIES
+        if modality != "fused"
+    ]
+    modality_q_values = bh_fdr([
+        float(row["modality_community"][modality]["permutation_p_value"])
+        for row, modality in modality_tests
+    ])
+    for (row, modality), q_value in zip(modality_tests, modality_q_values):
+        row["modality_community"][modality]["q_value"] = round_value(q_value)
     max_split_plans = int(parameters["max_split_plans_per_set"])
     selected_split_evidence = []
     for set_id in sorted(memberships):
@@ -274,14 +384,14 @@ def tool_structural_adequacy(
             key=lambda row: (
                 int(row.get("child_count", 0) or 0),
                 -float(
-                    dict(row["internal_community"].get("fused", {}) or {}).get(
+                    dict(row["modality_community"].get("fused", {}) or {}).get(
                         "minimum_child_separation", 0.0
                     )
                     or 0.0
                 ),
                 -float(
-                    dict(row["internal_community"].get("fused", {}) or {}).get(
-                        "normalized_internal_separation", 0.0
+                    dict(row["modality_community"].get("fused", {}) or {}).get(
+                        "normalized_separation", 0.0
                     )
                     or 0.0
                 ),
@@ -315,13 +425,24 @@ def tool_structural_adequacy(
     metrics = {
         "split_candidates": split_evidence,
         "merge_candidates": merge_evidence,
+        "split_evidence_semantics": (
+            "Every split_candidates entry is an executable legal plan, not an "
+            "endorsed Split. normalized_separation is directional: larger positive "
+            "values indicate stronger child separation. selection_adjusted_null "
+            "compares the observed fused separation with edge-permuted networks "
+            "that are reclustered by the same algorithm; positive gain with "
+            "q_value <= 0.05 is required. Each original modality also uses a "
+            "fixed-membership label-permutation null. At least two original "
+            "modalities must have positive gain, q_value <= 0.05 and positive "
+            "minimum-child separation before the audit may treat the plan as "
+            "statistical Split support."
+        ),
         "analysis_scope": (
-            "Split candidates use only each current set's fused affinity "
-            "submatrix. Single-modality support is evaluated only after a "
-            "split through a new on-demand review. Merge evidence covers every "
-            "current set pair; the LLM may compose a multi-set Merge only when "
-            "evidence exists for every pair. Candidate-Proposer partitions "
-            "and alternative cluster counts are not used."
+            "Split plans are generated from each current set's fused affinity "
+            "submatrix, calibrated against a selection-adjusted permutation null, "
+            "and described across CT, WSI, RNA, genomic and fused networks. Merge "
+            "evidence covers every current set pair. Candidate-Proposer alternative "
+            "cluster counts are not used."
         ),
         "decision_scope": (
             "The tool reports measurements and exact executable plans only. "
@@ -333,7 +454,7 @@ def tool_structural_adequacy(
         status="success",
         cluster_id="GLOBAL",
         output_root=output_root,
-        summary="Current subtype structure was evaluated for supported split and merge candidates.",
+        summary="Current subtype structure was measured and exact legal Split and Merge plans were generated.",
         metrics=metrics,
         decision_metrics=metrics,
         support_level="informational",

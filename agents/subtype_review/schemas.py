@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 EVIDENCE_DIMENSIONS = (
     "biological_support",
@@ -18,9 +18,6 @@ FINDING_STATUSES = (
     "inconclusive",
     "unavailable",
 )
-ROUTER_ACTIONS = ("accept", "drop", "split", "merge")
-
-
 class AuditFinding(BaseModel):
     target_ids: list[str] = Field(default_factory=list)
     dimension: str
@@ -62,10 +59,31 @@ class VerifierOutput(BaseModel):
 
 
 class RouterAction(BaseModel):
-    action: Literal["accept", "drop", "split", "merge"]
-    target_id: str
+    action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
+    target_ids: list[str] = Field(default_factory=list)
+    dimension: str | None = None
     reason: str = ""
     metric_refs: list[str] = Field(default_factory=list)
+
+    @field_validator("dimension")
+    @classmethod
+    def valid_dimension(cls, value: str | None) -> str | None:
+        if value is not None and value not in EVIDENCE_DIMENSIONS:
+            raise ValueError(f"unknown evidence dimension: {value}")
+        return value
+
+    @model_validator(mode="after")
+    def valid_action_shape(self) -> "RouterAction":
+        self.target_ids = [str(item) for item in self.target_ids if str(item)]
+        if self.action == "need_more_evidence":
+            if self.dimension is None:
+                raise ValueError("need_more_evidence requires dimension")
+        else:
+            if self.dimension is not None:
+                raise ValueError("scientific actions must set dimension to null")
+            if len(self.target_ids) != 1:
+                raise ValueError("scientific actions require one target_id")
+        return self
 
 
 class ReviserOutput(BaseModel):
@@ -89,8 +107,3 @@ def set_id(item: dict[str, Any]) -> str:
 
 def active_sets(sets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [item for item in sets if str(item.get("status", "active")) != "retired"]
-
-
-def action_target_ids(action: dict[str, Any]) -> list[str]:
-    target = str(action.get("target_id", "") or "")
-    return [item for item in target.split("+") if item]

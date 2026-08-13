@@ -1,51 +1,37 @@
 llm:
-  provider: deepseek
   model_name: deepseek-v4-pro
   base_url: https://api.deepseek.com
   api_key: sk-c68298213be44d23b88f4786b38e62e6
-  temperature: 0.1
+  temperature: 0
   timeout: 120
   max_new_tokens: 4096
-  length_retry_max_new_tokens: 8192
   structured_output: json_object
   json_retries: 2
-
-local_vllm:
-  model_name: qwen2.5
-  base_url: http://127.0.0.1:8001/v1
-  api_key: EMPTY
 
 prompt_dir: agents/subtype_review/prompts
 
 budget:
-  max_rounds: 12
+  max_rounds: 24
   max_failures: 3
   min_split_size: 10
   max_split_children: 4
-  max_split_plans_per_k: 3
 
 tools:
   tool_mutation_enrichment:
     module: tools.tool_mutation_enrichment
     function: tool_mutation_enrichment
-    evidence_blocks: [biological_support]
   tool_pathway_enrichment:
     module: tools.tool_pathway_enrichment
     function: tool_pathway_enrichment
-    evidence_blocks: [biological_support]
   tool_confound_test:
     module: tools.tool_confound_test
     function: tool_confound_test
-    evidence_blocks: [confounder_exclusion]
   tool_known_label_echo_test:
     module: tools.tool_known_label_echo_test
     function: tool_known_label_echo_test
-    evidence_blocks: [known_label_echo]
   tool_multimodal_consistency_check:
     module: tools.tool_multimodal_consistency_check
     function: tool_multimodal_consistency_check
-    evidence_blocks: [cross_modal_consistency]
   tool_structural_adequacy:
     module: tools.tool_structural_adequacy
     function: tool_structural_adequacy
-    evidence_blocks: [structural_adequacy]

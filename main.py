@@ -131,7 +131,7 @@ def run_pipeline(
 
     review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
     tool_definitions = normalize_tool_definitions(review_config.get("tools", {}))
-    tool_functions, tool_load_errors = load_available_tool_functions(tool_definitions)
+    tool_functions = load_available_tool_functions(tool_definitions)
     review_patients = list(candidate_output.get("patient_states", patient_states))
     patient_states_by_id = {
         str(item.get("case_id", item.get("Case_ID", ""))): dict(item)
@@ -143,11 +143,10 @@ def run_pipeline(
         "output_root": str(args.output_root),
         "config_dir": str(args.config_dir),
         "tool_functions": tool_functions,
-        "tool_load_errors": tool_load_errors,
     }
     verifier_model = build_default_verifier(review_config, args.config_dir)
     reviser_model = build_default_reviser(review_config, args.config_dir)
-    router_model = build_default_router(review_config, args.config_dir, lambda *_args, **_kwargs: {})
+    router_model = build_default_router(review_config, args.config_dir)
     review_graph = build_review_graph(
         verifier_model=verifier_model,
         router_model=router_model,
