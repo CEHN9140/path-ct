@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -10,6 +11,16 @@ import yaml
 
 def load_yaml_file(path: str | Path) -> dict[str, Any]:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def resolve_api_key(config: dict[str, Any]) -> str:
+    variable = str(config.get("api_key_env", "") or "").strip()
+    if not variable:
+        raise ValueError("llm.api_key_env must name the API key environment variable")
+    value = str(os.environ.get(variable, "") or "").strip()
+    if not value:
+        raise RuntimeError(f"Required API key environment variable is unset: {variable}")
+    return value
 
 
 def extract_json_object(text: str) -> dict[str, Any] | None:

@@ -15,7 +15,7 @@ from utils.candidate_clustering_outputs import (
     save_candidate_clustering_outputs,
 )
 from utils.cluster_store import save_candidate_clusters
-from utils.llm_utils import load_yaml_file
+from utils.llm_utils import load_yaml_file, resolve_api_key
 from utils.patient_store import save_patient_states
 
 
@@ -185,11 +185,8 @@ def select_k_with_llm(
     system_prompt = prompt_path.read_text(encoding="utf-8")
 
     if llm_client is None:
-        api_key = str(llm_config["api_key"])
-        if not api_key:
-            raise RuntimeError("API key is not configured in candidate_k_selector.yaml")
         llm_client = OpenAI(
-            api_key=api_key,
+            api_key=resolve_api_key(llm_config),
             base_url=str(llm_config["base_url"]),
             timeout=120.0,
         )

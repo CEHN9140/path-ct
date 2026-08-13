@@ -137,7 +137,7 @@ def enrichment_rows(feature_names, table, candidate_sets):
 def empty_result(cluster_id, output_root, reason):
     return tool_result(
         tool_name="tool_mutation_enrichment",
-        status="missing",
+        status="failure",
         cluster_id=cluster_id,
         output_root=output_root,
         summary="WXS discovery and validation features are unavailable.",

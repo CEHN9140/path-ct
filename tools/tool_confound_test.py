@@ -795,7 +795,7 @@ def tool_confound_test(
     if not memberships:
         return tool_result(
             tool_name="tool_confound_test",
-            status="missing",
+            status="failure",
             cluster_id=cluster_id,
             output_root=output_root,
             summary="No candidate-set cases are available for confound testing.",

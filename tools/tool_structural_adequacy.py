@@ -429,13 +429,10 @@ def tool_structural_adequacy(
             "Every split_candidates entry is an executable legal plan, not an "
             "endorsed Split. normalized_separation is directional: larger positive "
             "values indicate stronger child separation. selection_adjusted_null "
-            "compares the observed fused separation with edge-permuted networks "
-            "that are reclustered by the same algorithm; positive gain with "
-            "q_value <= 0.05 is required. Each original modality also uses a "
-            "fixed-membership label-permutation null. At least two original "
-            "modalities must have positive gain, q_value <= 0.05 and positive "
-            "minimum-child separation before the audit may treat the plan as "
-            "statistical Split support."
+            "compares observed fused separation with edge-permuted networks "
+            "reclustered by the same algorithm. Original modalities use a "
+            "fixed-membership label-permutation null. The protocol defines how "
+            "these measurements inform scientific actions."
         ),
         "analysis_scope": (
             "Split plans are generated from each current set's fused affinity "

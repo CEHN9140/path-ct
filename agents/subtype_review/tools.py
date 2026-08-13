@@ -70,7 +70,7 @@ def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
     ]
     return {
         "tool_name": tool_name,
-        "status": str(payload.get("status", "failure") or "failure"),
+        "status": "success" if str(payload.get("status", "")).lower() == "success" else "failure",
         "metrics": metrics,
         "metric_refs": metric_refs,
         "warnings": list(results.get("warnings", []) or []),

@@ -220,6 +220,7 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
     functions = dict(runtime.get("tool_functions", {}) or {})
     messages = list(state.get("messages", []) or [])
     messages.append(ai_message)
+    executed = []
     for call in calls:
         name = tool_call_name(call)
         payload = execute_capability(
@@ -233,6 +234,7 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
         )
         payload["partition_signature"] = signature
         results.append(payload)
+        executed.append(payload)
         try:
             from langchain_core.messages import ToolMessage
 
@@ -246,7 +248,27 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
     control = dict(state.get("control", {}) or {})
     control["next"] = "audit"
     state["control"] = control
-    append_trace(state, {"node": "verifier", "event": "tools", "capabilities": names})
+    append_trace(state, {
+        "node": "verifier",
+        "event": "tools",
+        "partition_signature": signature,
+        "capabilities": names,
+        "evidence_refs": [
+            {
+                "capability": item["capability"],
+                "status": item["status"],
+                "partition_signature": item["partition_signature"],
+                "tool_results": [
+                    {
+                        key: child.get(key)
+                        for key in ("tool_name", "status", "metric_refs", "artifact_paths")
+                    }
+                    for child in item["results"]
+                ],
+            }
+            for item in executed
+        ],
+    })
     return True
 
 
@@ -323,7 +345,13 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     state["messages"] = []
     state["action"] = None
     mark_success(state)
-    append_trace(state, {"node": "verifier", "event": "audit", "findings": len(parsed.findings), "gaps": len(parsed.gaps)})
+    append_trace(state, {
+        "node": "verifier",
+        "event": "audit",
+        "partition_signature": partition_signature(current_sets(state)),
+        "audit": parsed.model_dump(),
+        "evidence_inventory": evidence_inventory(current_evidence),
+    })
     control = dict(state.get("control", {}) or {})
     control["next"] = "router"
     if complete_audit(state):
@@ -498,7 +526,11 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                 item["status"] = "provisionally_accepted" if action.action == "accept" else "provisionally_dropped"
     state["control"] = control
     mark_success(state)
-    append_trace(state, {"node": "router", "action": action.model_dump()})
+    append_trace(state, {
+        "node": "router",
+        "partition_signature": signature,
+        "action": action.model_dump(),
+    })
     return state
 
 
@@ -517,9 +549,9 @@ def merge_options(target: str, merges: list[dict[str, Any]], sets: list[dict[str
             options.append({
                 "plan_id": "merge:" + "+".join(group),
                 "set_ids": list(group),
-                "pair_plan_ids": [pair_map[frozenset(pair)].get("plan_id", "") for pair in combinations(group, 2)],
+                "pairwise_evidence": [pair_map[frozenset(pair)] for pair in combinations(group, 2)],
             })
-    return options
+    return sorted(options, key=lambda item: str(item["plan_id"]))
 
 
 def candidate_partition_signature(state: Mapping[str, Any], action: str, plan: Mapping[str, Any]) -> str:
@@ -596,6 +628,7 @@ def reset_after_structural_change(state: dict[str, Any], signature: str) -> None
 def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
     action = dict(state.get("action", {}) or {})
     target = str((action.get("target_ids") or [""])[0])
+    partition_before = partition_signature(current_sets(state))
     splits, merges = structural_candidates(state)
     candidates = [row for row in splits if str(row.get("source_set_id", "")) == target] if action.get("action") == "split" else merge_options(target, merges, current_sets(state))
     visited = set(dict(state.get("control", {}) or {}).get("visited_partitions", []) or [])
@@ -606,7 +639,13 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         state["control"]["blocked_actions"] = sorted(set(blocked))
         state["action"] = None
         state["control"]["next"] = "audit"
-        append_trace(state, {"node": "reviser", "plan_id": None, "reason": "no_valid_plan"})
+        append_trace(state, {
+            "node": "reviser",
+            "partition_before": partition_before,
+            "partition_after": partition_before,
+            "candidates": [],
+            "selection": {"plan_id": None, "reason": "no_valid_plan", "metric_refs": []},
+        })
         return state
     payload = {"action": action, "candidates": candidates, "audit": state.get("audit", {})}
     result = invoke_with_recovery(model, payload, state, "reviser")
@@ -624,7 +663,13 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         state["action"] = None
         state["control"]["next"] = "audit"
         mark_success(state)
-        append_trace(state, {"node": "reviser", "plan_id": None, "reason": parsed.reason})
+        append_trace(state, {
+            "node": "reviser",
+            "partition_before": partition_before,
+            "partition_after": partition_before,
+            "candidates": to_jsonable(candidates),
+            "selection": parsed.model_dump(),
+        })
         return state
     plan = next((row for row in candidates if str(row.get("plan_id", "")) == parsed.plan_id), None)
     if plan is None or missing_metric_refs(parsed.metric_refs, dict(state.get("evidence", {}) or {})):
@@ -643,7 +688,13 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         apply_merge(state, plan)
     reset_after_structural_change(state, next_signature)
     mark_success(state)
-    append_trace(state, {"node": "reviser", "plan_id": parsed.plan_id, "reason": parsed.reason})
+    append_trace(state, {
+        "node": "reviser",
+        "partition_before": partition_before,
+        "partition_after": partition_signature(current_sets(state)),
+        "candidates": to_jsonable(candidates),
+        "selection": parsed.model_dump(),
+    })
     return state
 
 

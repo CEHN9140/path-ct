@@ -53,7 +53,7 @@ def rna_feature_path(patient_states_by_id):
 def empty_pathway_result(cluster_id, output_root, summary, missing_reason):
     return tool_result(
         tool_name="tool_pathway_enrichment",
-        status="missing",
+        status="failure",
         cluster_id=cluster_id,
         output_root=output_root,
         summary=summary,

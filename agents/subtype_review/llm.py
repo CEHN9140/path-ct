@@ -6,7 +6,12 @@ from typing import Any
 
 from agents.subtype_review.schemas import ReviserOutput, RouterAction
 from agents.subtype_review.tools import build_validation_tools
-from utils.llm_utils import LocalLLMClient, extract_json_object, local_llm_server_available
+from utils.llm_utils import (
+    LocalLLMClient,
+    extract_json_object,
+    local_llm_server_available,
+    resolve_api_key,
+)
 
 
 def load_prompt(prompt_dir: str | Path, name: str) -> str:
@@ -23,10 +28,6 @@ def load_prompt_with_protocol(prompt_dir: str | Path, name: str) -> str:
 def prompt_dir(config: dict[str, Any], config_dir: str | Path) -> Path:
     path = Path(config.get("prompt_dir", "agents/subtype_review/prompts"))
     return path if path.is_absolute() else Path(config_dir).resolve().parent / path
-
-
-def resolve_api_key(config: dict[str, Any]) -> str:
-    return str(config.get("api_key", "") or "")
 
 
 def parse_json_content(content: Any) -> dict[str, Any]:
@@ -91,7 +92,8 @@ class JsonStructuredModel:
 
 class LocalStructuredModel:
     def __init__(self, config: dict[str, Any], schema: type, system_prompt: str):
-        self.client = LocalLLMClient(config)
+        client_config = {**config, "api_key": resolve_api_key(config)}
+        self.client = LocalLLMClient(client_config)
         self.schema = schema
         self.system_prompt = system_prompt
 
@@ -158,7 +160,8 @@ class VerifierChatModel:
 
 class LocalVerifierModel:
     def __init__(self, config: dict[str, Any], system_prompt: str, tools: list[Any]):
-        self.client = LocalLLMClient(config)
+        client_config = {**config, "api_key": resolve_api_key(config)}
+        self.client = LocalLLMClient(client_config)
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
 

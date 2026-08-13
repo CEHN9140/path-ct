@@ -20,7 +20,6 @@ from utils.llm_utils import load_yaml_file
 from utils.omics_utils import build_cohort_signature, collect_case_file_paths
 from utils.tool_utils import (
     make_tool_result,
-    quiet_tool_logs,
     safe_identifier,
     save_snapshot,
     semantic_execution_config,
@@ -701,35 +700,11 @@ def ct_tumor_seg_context(
         )
     )
     cached_ct_identity = dict(cached_payload.get("ct_identity", {}) or {})
-    cached_input_matches = cached_ct_identity == current_ct_identity
-    if not cached_ct_identity and cached_mask_path.exists() and cached_config_matches:
-        diagnostics_path = (
-            Path(output_root)
-            / "ct_radiomics"
-            / safe_identifier(case_id)
-            / "diagnostics_features.json"
-        )
-        if diagnostics_path.exists():
-            try:
-                import SimpleITK as sitk
-
-                diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
-                cached_ct_hash = str(
-                    diagnostics.get("diagnostics_Image-original_Hash", "") or ""
-                )
-                with quiet_tool_logs():
-                    current_ct_hash = sitk.Hash(sitk.ReadImage(ct_path))
-                cached_input_matches = bool(
-                    cached_ct_hash and cached_ct_hash == current_ct_hash
-                )
-            except Exception:
-                cached_input_matches = False
-        elif (
-            str(cached_tool_result.get("status", "") or "").lower() == "failure"
-            and Path(ct_path).stat().st_mtime_ns
-            <= cached_mask_path.stat().st_mtime_ns
-        ):
-            cached_input_matches = True
+    cached_input_matches = (
+        cached_ct_identity == current_ct_identity
+        if cached_ct_identity
+        else str(cached_tool_result.get("status", "") or "").lower() == "success"
+    )
     reuse_existing_mask = (
         cached_mask_path.exists()
         and cached_config_matches

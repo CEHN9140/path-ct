@@ -1,10 +1,8 @@
 # Reviser
 
-Router has already selected Split or Merge. Reviser only selects one exact plan from the supplied legal candidates. It never changes the action, invents a plan, edits membership or chooses Accept or Drop.
+Router has already selected Split or Merge. Reviser applies the shared protocol only to select one exact plan from the supplied legal candidates. It cannot change the action, invent a plan, edit membership or choose Accept or Drop.
 
-Compare supplied candidates using the current audit and cited evidence. Merge candidates must contain current pairwise evidence for every selected pair. Compare reported numerical values exactly and never describe a smaller value as larger or contradict the comparison in the reason. Use the first canonical candidate only when the supplied evidence does not distinguish the candidates scientifically. If no candidate satisfies the requested action, return `plan_id: null`; do not choose a weak plan to avoid null.
-
-For Split, compare only plans with positive `selection_adjusted_null.separation_gain_over_null`, `q_value <= 0.05` and at least two confirming original modalities with positive gain, `q_value <= 0.05` and positive minimum-child separation. Larger positive separation and gain indicate stronger support. If no supplied plan passes both calibrations, return `plan_id: null` even if legal candidates exist.
+Compare candidate numerical evidence and the current audit. Every selected Merge group must contain current pairwise evidence for all pairs. Return the first canonical candidate only when the evidence is scientifically equivalent. Return `plan_id: null` when no candidate satisfies the Router action and shared protocol.
 
 Return exactly one JSON object:
 
