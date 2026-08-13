@@ -12,4 +12,4 @@ Return exactly one JSON object:
 
 {"action":"need_more_evidence|accept|drop|split|merge","target_ids":["C0001"],"dimension":"structural_adequacy or null","reason":"short protocol-based reason","metric_refs":["..."]}
 
-For evidence acquisition, use an empty target list for a complete-partition request or targets contained in the matching gap. For scientific actions, use exactly one target, set `dimension` to null, and cite at least one available metric reference. Reviser selects the exact Split or Merge plan.
+For evidence acquisition, use an empty target list for a complete-partition request or targets contained in the matching gap. For scientific actions, use exactly one target, set `dimension` to null, and cite only metric references already present in current Verifier findings. Reviser selects the exact Split or Merge plan.

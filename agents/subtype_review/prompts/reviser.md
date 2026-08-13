@@ -4,7 +4,7 @@ Router has already selected Split or Merge. Reviser applies the shared protocol 
 
 If `validation_error` is present, reject the previously invalid choice and select a different supplied candidate, or return `plan_id: null`; do not repeat the same invalid output.
 
-Compare candidate numerical evidence and the current audit. Every selected Merge group must contain current pairwise evidence for all pairs. Return the first canonical candidate only when the evidence is scientifically equivalent. A selected plan must cite at least one available metric reference. Return `plan_id: null` when no candidate satisfies the Router action and shared protocol.
+Compare candidate numerical evidence and the current audit. Every selected Merge group must contain current pairwise evidence for all pairs. Return the first canonical candidate only when the evidence is scientifically equivalent. A selected plan must cite at least one current structural-plan metric reference matching the selected Split or Merge action. Return `plan_id: null` when no candidate satisfies the Router action and shared protocol.
 
 Return exactly one JSON object:
 

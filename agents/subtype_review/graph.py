@@ -36,6 +36,15 @@ class ReviewContext(TypedDict, total=False):
     tool_functions: dict[str, Any]
 
 
+CAPABILITY_TO_TOOLS = {
+    "biological_support": {"tool_mutation_enrichment", "tool_pathway_enrichment"},
+    "cross_modal_consistency": {"tool_multimodal_consistency_check"},
+    "confounder_exclusion": {"tool_confound_test"},
+    "known_label_echo": {"tool_known_label_echo_test"},
+    "structural_adequacy": {"tool_structural_adequacy"},
+}
+
+
 def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
     sets = []
     for item in candidate_sets:
@@ -154,6 +163,22 @@ def all_metric_refs(evidence: Mapping[str, Any]) -> set[str]:
 def missing_metric_refs(metric_refs: list[str], evidence: Mapping[str, Any]) -> list[str]:
     available = all_metric_refs(evidence)
     return [ref for ref in metric_refs if re.sub(r"\[(\d+)\]", r".\1", ref) not in available]
+
+
+def metric_refs_for_tools(evidence: Mapping[str, Any], tool_names: set[str]) -> set[str]:
+    return {
+        ref for ref in all_metric_refs(evidence)
+        if ref.startswith("tool_results.")
+        and ref.split(".", 2)[1] in tool_names
+    }
+
+
+def metric_refs_from_findings(audit: Mapping[str, Any]) -> set[str]:
+    return {
+        str(ref)
+        for finding in list(audit.get("findings", []) or [])
+        for ref in list(finding.get("metric_refs", []) or [])
+    }
 
 
 def require_metric_refs(metric_refs: list[str], context: str) -> None:
@@ -409,12 +434,23 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
     if unknown:
         raise ValueError(f"Verifier referenced inactive or unknown sets: {unknown}")
     evidence = current_partition_evidence(state)
+    attempted = attempted_dimensions(state)
+    repeated_gaps = sorted({
+        str(gap.dimension)
+        for gap in audit.gaps
+        if str(gap.dimension) in attempted
+    })
+    if repeated_gaps:
+        raise ValueError(f"Verifier gap references an already attempted dimension: {repeated_gaps}")
     for finding in audit.findings:
         if finding.status != "unavailable":
             require_metric_refs(finding.metric_refs, "Evidence finding")
         missing = missing_metric_refs(finding.metric_refs, evidence)
         if missing:
             raise ValueError(f"Verifier referenced unavailable metrics: {missing}")
+        allowed = metric_refs_for_tools(evidence, CAPABILITY_TO_TOOLS[finding.dimension])
+        if not set(finding.metric_refs).issubset(allowed):
+            raise ValueError(f"Verifier metric_refs are outside {finding.dimension} evidence")
 
 
 def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
@@ -515,10 +551,16 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     if str(target.get("status", "active")) != "active":
         raise ValueError(f"Router target is already provisionally decided: {action.target_ids[0]}")
     gaps = list(dict(state.get("audit", {}) or {}).get("gaps", []) or [])
-    if any(not gap.get("target_ids") for gap in gaps) or any(
-        action.target_ids[0] in {str(item) for item in gap.get("target_ids", []) or []}
-        for gap in gaps
-    ):
+    attempted = attempted_dimensions(state)
+    blocking_gaps = [
+        gap for gap in gaps
+        if (
+            not gap.get("target_ids")
+            or action.target_ids[0] in {str(item) for item in gap.get("target_ids", []) or []}
+        )
+        and str(gap.get("dimension", "")) not in attempted
+    ]
+    if blocking_gaps:
         raise ValueError("Scientific action is blocked by a decision-relevant gap")
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
     if action.action in {"split", "merge"} and not any(
@@ -535,6 +577,9 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     if missing_metric_refs(action.metric_refs, current_partition_evidence(state)):
         raise ValueError("Router referenced unavailable metrics")
     require_metric_refs(action.metric_refs, "Scientific action")
+    audit_refs = metric_refs_from_findings(dict(state.get("audit", {}) or {}))
+    if not set(action.metric_refs).issubset(audit_refs):
+        raise ValueError("Router metric_refs were not reported by the current Verifier audit")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
@@ -785,6 +830,16 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         return state
     if missing_metric_refs(parsed.metric_refs, current_partition_evidence(state)):
         mark_failure(state, "reviser", ValueError("Reviser referenced unavailable metrics"))
+        return state
+    structural_refs = metric_refs_for_tools(
+        current_partition_evidence(state), {"tool_structural_adequacy"}
+    )
+    required_prefix = "tool_results.tool_structural_adequacy.metrics."
+    if not set(parsed.metric_refs).issubset(structural_refs) or not any(
+        ref.startswith(required_prefix + ("split_candidates" if action.get("action") == "split" else "merge_candidates"))
+        for ref in parsed.metric_refs
+    ):
+        mark_failure(state, "reviser", ValueError("Reviser plan metric_refs are not structural plan evidence"))
         return state
     next_signature = candidate_partition_signature(state, str(action.get("action", "")), plan)
     if next_signature in set(dict(state.get("control", {}) or {}).get("visited_partitions", []) or []):
