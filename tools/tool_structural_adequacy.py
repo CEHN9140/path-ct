@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from itertools import combinations
 from pathlib import Path
@@ -20,6 +21,34 @@ from utils.llm_utils import load_yaml_file
 
 
 MODALITIES = ("ct", "wsi", "rna", "genomic", "fused")
+
+
+def split_plan_seed(plan: Mapping[str, Any]) -> int:
+    groups = sorted(
+        sorted(str(case_id) for case_id in group)
+        for group in list(plan.get("groups", []) or [])
+    )
+    signature = json.dumps(groups, ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(signature.encode("utf-8")).hexdigest()
+    return 7100 + int(digest[:8], 16) % 1_000_000
+
+
+def apply_split_modality_fdr(split_evidence: list[dict[str, Any]]) -> None:
+    for modality in MODALITIES:
+        if modality == "fused":
+            continue
+        rows = [
+            {
+                "group": str(row["source_set_id"]),
+                "p": row["modality_community"][modality]["permutation_p_value"],
+                "metrics": row["modality_community"][modality],
+            }
+            for row in split_evidence
+        ]
+        assign_groupwise_fdr(rows, "group", "p", "q")
+        for item in rows:
+            metrics = item["metrics"]
+            metrics["q_value"] = round_value(item["q"])
 
 
 def local_split_plans(
@@ -352,9 +381,9 @@ def tool_structural_adequacy(
             affinities,
             case_ids,
             permutations=split_permutations,
-            seed=7100 + index,
+            seed=split_plan_seed(plan),
         )
-        for index, plan in enumerate(split_plans)
+        for plan in split_plans
     ]
     max_split_plans = int(parameters["max_split_plans_per_set"])
     selected_split_evidence = []
@@ -387,29 +416,7 @@ def tool_structural_adequacy(
     for row in split_evidence:
         row["selection_adjusted_null"]["q_value"] = round_value(row.pop("_fused_q"))
         row.pop("_fused_p", None)
-        for modality in MODALITIES:
-            if modality == "fused":
-                continue
-            metrics = row["modality_community"][modality]
-            metrics["_p"] = metrics["permutation_p_value"]
-        for modality in MODALITIES:
-            if modality == "fused":
-                continue
-            metrics = row["modality_community"][modality]
-            metrics["_fdr_group"] = str(row["source_set_id"])
-    for modality in MODALITIES:
-        if modality == "fused":
-            continue
-        modality_rows = []
-        for row in split_evidence:
-            metrics = row["modality_community"][modality]
-            modality_rows.append({"group": metrics["_fdr_group"], "p": metrics["_p"], "metrics": metrics})
-        assign_groupwise_fdr(modality_rows, "group", "p", "q")
-        for item in modality_rows:
-            metrics = item["metrics"]
-            metrics["q_value"] = round_value(metrics.pop("q"))
-            metrics.pop("_p", None)
-            metrics.pop("_fdr_group", None)
+    apply_split_modality_fdr(split_evidence)
     bootstrap_iterations = int(parameters["bootstrap_iterations"])
     merge_evidence = [
         merge_group_evidence(
