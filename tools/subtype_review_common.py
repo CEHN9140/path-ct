@@ -356,11 +356,25 @@ def standardized_mean_difference(values_a, values_b) -> float | None:
 def bh_fdr(p_values: list[float]) -> list[float]:
     from statsmodels.stats.multitest import multipletests
 
+    if not p_values:
+        return []
     values = [
         float(value) if value is not None and math.isfinite(float(value)) else 1.0
         for value in p_values
     ]
     return [float(value) for value in multipletests(values, method="fdr_bh")[1]]
+
+
+def assign_groupwise_fdr(
+    rows: list[dict], group_key: str, p_key: str, q_key: str
+) -> None:
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(str(row.get(group_key, "")), []).append(row)
+    for group_rows in groups.values():
+        p_values = [row.get(p_key) for row in group_rows]
+        for row, q_value in zip(group_rows, bh_fdr(p_values)):
+            row[q_key] = float(q_value)
 
 
 def fisher_exact_result(

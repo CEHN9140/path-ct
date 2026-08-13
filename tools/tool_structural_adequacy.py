@@ -8,7 +8,7 @@ from typing import Any, Mapping
 import numpy as np
 from sklearn.cluster import SpectralClustering
 
-from tools.subtype_review_common import bh_fdr, tool_parameters, tool_result
+from tools.subtype_review_common import assign_groupwise_fdr, tool_parameters, tool_result
 from tools.tool_multimodal_consistency_check import (
     modality_affinity_path,
     normalize_affinity,
@@ -356,24 +356,6 @@ def tool_structural_adequacy(
         )
         for index, plan in enumerate(split_plans)
     ]
-    split_q_values = bh_fdr([
-        float(row["selection_adjusted_null"]["permutation_p_value"])
-        for row in split_evidence
-    ])
-    for row, q_value in zip(split_evidence, split_q_values):
-        row["selection_adjusted_null"]["q_value"] = round_value(q_value)
-    modality_tests = [
-        (row, modality)
-        for row in split_evidence
-        for modality in MODALITIES
-        if modality != "fused"
-    ]
-    modality_q_values = bh_fdr([
-        float(row["modality_community"][modality]["permutation_p_value"])
-        for row, modality in modality_tests
-    ])
-    for (row, modality), q_value in zip(modality_tests, modality_q_values):
-        row["modality_community"][modality]["q_value"] = round_value(q_value)
     max_split_plans = int(parameters["max_split_plans_per_set"])
     selected_split_evidence = []
     for set_id in sorted(memberships):
@@ -399,6 +381,35 @@ def tool_structural_adequacy(
         )
         selected_split_evidence.extend(options[:max_split_plans])
     split_evidence = selected_split_evidence
+    for row in split_evidence:
+        row["_fused_p"] = row["selection_adjusted_null"]["permutation_p_value"]
+    assign_groupwise_fdr(split_evidence, "source_set_id", "_fused_p", "_fused_q")
+    for row in split_evidence:
+        row["selection_adjusted_null"]["q_value"] = round_value(row.pop("_fused_q"))
+        row.pop("_fused_p", None)
+        for modality in MODALITIES:
+            if modality == "fused":
+                continue
+            metrics = row["modality_community"][modality]
+            metrics["_p"] = metrics["permutation_p_value"]
+        for modality in MODALITIES:
+            if modality == "fused":
+                continue
+            metrics = row["modality_community"][modality]
+            metrics["_fdr_group"] = str(row["source_set_id"])
+    for modality in MODALITIES:
+        if modality == "fused":
+            continue
+        modality_rows = []
+        for row in split_evidence:
+            metrics = row["modality_community"][modality]
+            modality_rows.append({"group": metrics["_fdr_group"], "p": metrics["_p"], "metrics": metrics})
+        assign_groupwise_fdr(modality_rows, "group", "p", "q")
+        for item in modality_rows:
+            metrics = item["metrics"]
+            metrics["q_value"] = round_value(metrics.pop("q"))
+            metrics.pop("_p", None)
+            metrics.pop("_fdr_group", None)
     bootstrap_iterations = int(parameters["bootstrap_iterations"])
     merge_evidence = [
         merge_group_evidence(

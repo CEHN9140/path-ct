@@ -442,6 +442,27 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
     })
     if repeated_gaps:
         raise ValueError(f"Verifier gap references an already attempted dimension: {repeated_gaps}")
+    supported_targets = supported_structural_split_targets(state)
+    reported_structural_conflicts = {
+        str(target)
+        for finding in audit.findings
+        if finding.dimension == "structural_adequacy" and finding.status == "conflicting"
+        for target in finding.target_ids
+    }
+    missing_structural_conflicts = sorted(supported_targets - reported_structural_conflicts)
+    if missing_structural_conflicts:
+        raise ValueError(
+            "Verifier must mark supported structural split targets as conflicting: "
+            + ", ".join(missing_structural_conflicts)
+        )
+    for capability in failed_capabilities(state):
+        if not any(
+            finding.dimension == capability and finding.status in {"unavailable", "inconclusive"}
+            for finding in audit.findings
+        ):
+            raise ValueError(
+                f"Failed evidence capability requires an unavailable or inconclusive finding: {capability}"
+            )
     for finding in audit.findings:
         if finding.status != "unavailable":
             require_metric_refs(finding.metric_refs, "Evidence finding")
@@ -484,6 +505,36 @@ def structural_candidates(state: Mapping[str, Any]) -> tuple[list[dict[str, Any]
     return sorted(splits, key=lambda item: str(item.get("plan_id", ""))), sorted(merges, key=lambda item: str(item.get("plan_id", "")))
 
 
+def supported_structural_split_targets(state: Mapping[str, Any]) -> set[str]:
+    targets = set()
+    for row in structural_candidates(state)[0]:
+        selection = dict(row.get("selection_adjusted_null", {}) or {})
+        if float(selection.get("separation_gain_over_null", 0) or 0) <= 0 or float(selection.get("q_value", 1) or 1) > 0.05:
+            continue
+        confirmed = 0
+        for modality in ("ct", "wsi", "rna", "genomic"):
+            metrics = dict(row.get("modality_community", {}).get(modality, {}) or {})
+            if (
+                float(metrics.get("separation_gain_over_null", 0) or 0) > 0
+                and float(metrics.get("q_value", 1) or 1) <= 0.05
+                and float(metrics.get("minimum_child_separation", 0) or 0) > 0
+            ):
+                confirmed += 1
+        if confirmed >= 2 and str(row.get("source_set_id", "")):
+            targets.add(str(row["source_set_id"]))
+    return targets
+
+
+def failed_capabilities(state: Mapping[str, Any]) -> set[str]:
+    failed = set()
+    for item in current_partition_evidence(state).get("results", []):
+        children = list(item.get("results", []) or [])
+        statuses = {str(child.get("status", "")) for child in children}
+        if children and statuses and statuses.issubset({"failure", "unavailable"}):
+            failed.add(str(item.get("capability", "")))
+    return failed
+
+
 def structural_conflict_targets(state: Mapping[str, Any]) -> set[str]:
     return {
         str(target_id)
@@ -499,6 +550,13 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
         return False
     audit = dict(state.get("audit", {}) or {})
     if list(audit.get("gaps", []) or []):
+        return False
+    failed = failed_capabilities(state)
+    if any(
+        finding.get("dimension") in failed
+        and finding.get("status") in {"unavailable", "inconclusive"}
+        for finding in list(audit.get("findings", []) or [])
+    ):
         return False
     conflicts = structural_conflict_targets(state)
     splits, merges = structural_candidates(state)

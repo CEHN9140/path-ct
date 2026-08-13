@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from tools.subtype_review_common import (
-    bh_fdr,
+    assign_groupwise_fdr,
     enrichment_decision_metrics,
     feature_dataframe,
     member_case_ids,
@@ -140,12 +140,9 @@ def pathway_rows(score_frame, pathway_gene_counts, candidate_sets):
                     "q_value": None,
                 }
             )
-    p_values = [
-        1.0 if row["mannwhitney_p_value"] is None else float(row["mannwhitney_p_value"])
-        for row in rows
-    ]
-    for row, q_value in zip(rows, bh_fdr(p_values)):
-        row["q_value"] = round_float(q_value)
+    assign_groupwise_fdr(rows, "candidate_set_id", "mannwhitney_p_value", "q_value")
+    for row in rows:
+        row["q_value"] = round_float(row["q_value"])
     return sorted(
         rows,
         key=lambda row: (
@@ -212,12 +209,9 @@ def gene_differential_expression_rows(feature_frame, candidate_sets):
                     "q_value": None,
                 }
             )
-    p_values = [
-        1.0 if row["mannwhitney_p_value"] is None else float(row["mannwhitney_p_value"])
-        for row in rows
-    ]
-    for row, q_value in zip(rows, bh_fdr(p_values)):
-        row["q_value"] = round_float(q_value)
+    assign_groupwise_fdr(rows, "candidate_set_id", "mannwhitney_p_value", "q_value")
+    for row in rows:
+        row["q_value"] = round_float(row["q_value"])
     return sorted(
         rows,
         key=lambda row: (

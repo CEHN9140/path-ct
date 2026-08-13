@@ -7,7 +7,7 @@ import numpy as np
 from scipy.stats import mannwhitneyu
 
 from tools.subtype_review_common import (
-    bh_fdr,
+    assign_groupwise_fdr,
     enrichment_decision_metrics,
     fisher_exact_result,
     member_case_ids,
@@ -104,19 +104,11 @@ def enrichment_rows(feature_names, table, candidate_sets):
                     "q_value": None,
                 }
             )
-    for row, q_value in zip(
-        rows,
-        bh_fdr(
-            [
-                float(row["p_value"]) if row["p_value"] is not None else 1.0
-                for row in rows
-            ]
-        ),
-    ):
+    assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
+    for row in rows:
         row["p_value"] = (
             float(row["p_value"]) if row["p_value"] is not None else None
         )
-        row["q_value"] = float(q_value)
     return sorted(
         rows,
         key=lambda row: (
