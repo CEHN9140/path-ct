@@ -287,6 +287,13 @@ def current_partition_evidence(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def attempted_dimensions(state: Mapping[str, Any]) -> set[str]:
+    return {
+        str(item.get("capability", ""))
+        for item in current_partition_evidence(state).get("results", [])
+    }
+
+
 def evidence_inventory(evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
     inventory = []
     for item in sorted(list(evidence.get("results", []) or []), key=lambda row: str(row.get("capability", ""))):
@@ -357,13 +364,19 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     })
     control = dict(state.get("control", {}) or {})
     control["next"] = "router"
-    if has_known_label_conflict(state) and not any(
+    structural_attempted = "structural_adequacy" in attempted_dimensions(state)
+    if has_known_label_conflict(state) and structural_attempted and not any(
         finding.dimension == "structural_adequacy"
         and finding.status == "conflicting"
         for finding in parsed.findings
     ):
         control["status"] = "final_validation_failed"
         control["error"] = "known_label_echo_conflict"
+    elif has_known_label_conflict(state) and not structural_attempted and not any(
+        gap.dimension == "structural_adequacy" for gap in parsed.gaps
+    ):
+        control["status"] = "final_validation_failed"
+        control["error"] = "known_label_echo_conflict_without_structural_gap"
     elif complete_audit(state):
         control["status"] = "complete"
     elif current_sets(state) and all(
@@ -565,11 +578,16 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     elif action.action in {"split", "merge"}:
         control["next"] = "revise"
     else:
-        control["next"] = "audit"
+        control["next"] = "router"
         target = action.target_ids[0]
         for item in state["sets"]:
             if set_id(item) == target:
                 item["status"] = "provisionally_accepted" if action.action == "accept" else "provisionally_dropped"
+        if all(
+            str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
+            for item in current_sets(state)
+        ):
+            control["status"] = "complete" if complete_audit(state) else "final_validation_failed"
     state["control"] = control
     mark_success(state)
     append_trace(state, {
@@ -684,7 +702,7 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         blocked.append(f"{action.get('action')}:{target}")
         state["control"]["blocked_actions"] = sorted(set(blocked))
         state["action"] = None
-        state["control"]["next"] = "audit"
+        state["control"]["next"] = "router"
         append_trace(state, {
             "node": "reviser",
             "partition_before": partition_before,
@@ -712,7 +730,7 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         blocked.append(f"{action.get('action')}:{target}")
         state["control"]["blocked_actions"] = sorted(set(blocked))
         state["action"] = None
-        state["control"]["next"] = "audit"
+        state["control"]["next"] = "router"
         mark_success(state)
         append_trace(state, {
             "node": "reviser",
@@ -760,13 +778,15 @@ def verifier_route(state: Mapping[str, Any]) -> str:
 
 def route_after_router(state: Mapping[str, Any]) -> str:
     control = dict(state.get("control", {}) or {})
-    if control.get("status") == "review_unavailable":
+    if control.get("status") in {"review_unavailable", "complete", "final_validation_failed"}:
         return "end"
     if control.get("error") and int(control.get("failures", 0) or 0) > 0:
         return "retry"
     action = dict(state.get("action", {}) or {})
     if action.get("action") in {"split", "merge"}:
         return "revise"
+    if action.get("action") in {"accept", "drop"}:
+        return "router"
     return "verify"
 
 
@@ -776,7 +796,7 @@ def route_after_reviser(state: Mapping[str, Any]) -> str:
         return "end"
     if control.get("error") and int(control.get("failures", 0) or 0) > 0:
         return "retry"
-    return "verify"
+    return "router" if control.get("next") == "router" else "verify"
 
 
 def build_review_graph(*, verifier_model: Any, router_model: Any, reviser_model: Any, tool_functions: Mapping[str, Any], runtime: Mapping[str, Any] | None = None) -> Any:
@@ -799,8 +819,8 @@ def build_review_graph(*, verifier_model: Any, router_model: Any, reviser_model:
     graph.add_node("reviser", reviser)
     graph.add_edge(START, "verifier")
     graph.add_conditional_edges("verifier", verifier_route, {"router": "router", "audit": "verifier", "retry": "verifier", "end": END})
-    graph.add_conditional_edges("router", route_after_router, {"verify": "verifier", "revise": "reviser", "retry": "router", "end": END})
-    graph.add_conditional_edges("reviser", route_after_reviser, {"verify": "verifier", "retry": "reviser", "end": END})
+    graph.add_conditional_edges("router", route_after_router, {"router": "router", "verify": "verifier", "revise": "reviser", "retry": "router", "end": END})
+    graph.add_conditional_edges("reviser", route_after_reviser, {"router": "router", "verify": "verifier", "retry": "reviser", "end": END})
     return graph.compile()
 
 
