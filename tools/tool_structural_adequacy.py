@@ -449,7 +449,7 @@ def tool_structural_adequacy(
     return tool_result(
         tool_name="tool_structural_adequacy",
         status="success",
-        cluster_id="GLOBAL",
+        cluster_id=str(cluster_state.get("cluster_id", "GLOBAL")),
         output_root=output_root,
         summary="Current subtype structure was measured and exact legal Split and Merge plans were generated.",
         metrics=metrics,

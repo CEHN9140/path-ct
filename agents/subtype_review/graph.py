@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from collections.abc import Mapping
 from itertools import combinations
@@ -22,6 +23,10 @@ from agents.subtype_review.schemas import (
 )
 from agents.subtype_review.tools import execute_capability
 from utils.tool_utils import to_jsonable
+
+
+def partition_artifact_id(signature: str) -> str:
+    return "p_" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
 
 
 class ReviewContext(TypedDict, total=False):
@@ -142,8 +147,6 @@ def all_metric_refs(evidence: Mapping[str, Any]) -> set[str]:
         visit(f"evidence.{capability}", result)
         for child in list(result.get("results", []) or []):
             tool_name = str(child.get("tool_name", "") or "")
-            for ref in list(child.get("metric_refs", []) or []):
-                refs.add(str(ref))
             visit(f"tool_results.{tool_name}.metrics", child.get("metrics", {}))
     return refs
 
@@ -210,7 +213,7 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
 
     patient_states = dict(runtime.get("patient_states_by_id", {}) or {})
     cluster_state = {
-        "cluster_id": "GLOBAL",
+        "cluster_id": partition_artifact_id(signature),
         "member_ids": sorted(
             str(member)
             for item in all_sets
@@ -354,7 +357,14 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     })
     control = dict(state.get("control", {}) or {})
     control["next"] = "router"
-    if complete_audit(state):
+    if has_known_label_conflict(state) and not any(
+        finding.dimension == "structural_adequacy"
+        and finding.status == "conflicting"
+        for finding in parsed.findings
+    ):
+        control["status"] = "final_validation_failed"
+        control["error"] = "known_label_echo_conflict"
+    elif complete_audit(state):
         control["status"] = "complete"
     elif current_sets(state) and all(
         str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
@@ -376,6 +386,11 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
     unknown = sorted(referenced - known)
     if unknown:
         raise ValueError(f"Verifier referenced inactive or unknown sets: {unknown}")
+    evidence = current_partition_evidence(state)
+    for finding in audit.findings:
+        missing = missing_metric_refs(finding.metric_refs, evidence)
+        if missing:
+            raise ValueError(f"Verifier referenced unavailable metrics: {missing}")
 
 
 def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
@@ -387,6 +402,7 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
     }
     global_conflict = any(
         finding.status == "conflicting" and not finding.target_ids
+        and finding.dimension != "known_label_echo"
         for finding in audit.findings
     )
     for item in state["sets"]:
@@ -436,6 +452,14 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
     )
 
 
+def has_known_label_conflict(state: Mapping[str, Any]) -> bool:
+    return any(
+        finding.get("dimension") == "known_label_echo"
+        and finding.get("status") == "conflicting"
+        for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+    )
+
+
 def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> None:
     sets = current_sets(state)
     known = {set_id(item) for item in sets}
@@ -470,13 +494,25 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     key = f"{action.action}:{action.target_ids[0]}"
     if key in blocked:
         raise ValueError(f"Action is blocked for this partition: {key}")
-    if missing_metric_refs(action.metric_refs, dict(state.get("evidence", {}) or {})):
+    if missing_metric_refs(action.metric_refs, current_partition_evidence(state)):
         raise ValueError("Router referenced unavailable metrics")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
     signature = partition_signature(current_sets(state))
     sets = current_sets(state)
+    audit = dict(state.get("audit", {}) or {})
+    gaps = list(audit.get("gaps", []) or [])
+    attempted = {
+        str(item.get("capability", ""))
+        for item in list(dict(state.get("evidence", {}) or {}).get("results", []) or [])
+        if item.get("partition_signature") == signature
+    }
+    requestable = sorted({
+        str(gap.get("dimension", ""))
+        for gap in gaps
+        if str(gap.get("dimension", "")) and str(gap.get("dimension", "")) not in attempted
+    })
     available = [
         {"capability": str(item.get("capability", "")), "status": str(item.get("status", ""))}
         for item in list(dict(state.get("evidence", {}) or {}).get("results", []) or [])
@@ -493,8 +529,10 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             if str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
         },
         "validation_error": dict(state.get("control", {}) or {}).get("error"),
-        "audit": state.get("audit", {}),
+        "audit": audit,
         "available_evidence": available,
+        "requestable_evidence_dimensions": requestable,
+        "attempted_evidence_dimensions": sorted(attempted),
         "blocked_actions": list(dict(state.get("control", {}) or {}).get("blocked_actions", []) or []),
         "control": {
             key: dict(state.get("control", {}) or {}).get(key)
@@ -647,7 +685,12 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
             "selection": {"plan_id": None, "reason": "no_valid_plan", "metric_refs": []},
         })
         return state
-    payload = {"action": action, "candidates": candidates, "audit": state.get("audit", {})}
+    payload = {
+        "action": action,
+        "candidates": candidates,
+        "audit": state.get("audit", {}),
+        "validation_error": dict(state.get("control", {}) or {}).get("error"),
+    }
     result = invoke_with_recovery(model, payload, state, "reviser")
     if result is None:
         return state
@@ -672,7 +715,7 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
         })
         return state
     plan = next((row for row in candidates if str(row.get("plan_id", "")) == parsed.plan_id), None)
-    if plan is None or missing_metric_refs(parsed.metric_refs, dict(state.get("evidence", {}) or {})):
+    if plan is None or missing_metric_refs(parsed.metric_refs, current_partition_evidence(state)):
         mark_failure(state, "reviser", ValueError("Reviser selected an unknown plan or unavailable metric"))
         return state
     next_signature = candidate_partition_signature(state, str(action.get("action", "")), plan)

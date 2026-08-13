@@ -691,6 +691,27 @@ def assign_q_values(
         for row, q_value in zip(global_refs, bh_fdr(global_p_values)):
             row["q_value"] = round_value(q_value)
 
+    set_refs = []
+    set_p_values = []
+    for fields in set_metrics.values():
+        for value in fields.values():
+            if value.get("field_type") == "numeric":
+                p_value = value.get("mannwhitney_p_value")
+                if p_value is not None:
+                    set_refs.append(value)
+                    set_p_values.append(p_value)
+                continue
+            for level_row in value.values():
+                if not isinstance(level_row, Mapping):
+                    continue
+                p_value = level_row.get("p_value")
+                if p_value is not None:
+                    set_refs.append(level_row)
+                    set_p_values.append(p_value)
+    if set_p_values:
+        for row, q_value in zip(set_refs, bh_fdr(set_p_values)):
+            row["q_value"] = round_value(q_value)
+
 
 def confound_decision_metrics(global_metrics, set_metrics):
     global_rows = {
@@ -760,27 +781,6 @@ def confound_decision_metrics(global_metrics, set_metrics):
         associations.sort(key=association_p)
         per_set[set_id] = associations[:5]
     return {"global": global_rows, "sets": per_set}
-
-    set_refs = []
-    p_values = []
-    for rows in set_metrics.values():
-        for row in rows.values():
-            if isinstance(row, Mapping) and row.get("field_type") == "numeric":
-                p_value = row.get("mannwhitney_p_value")
-                if p_value is not None:
-                    set_refs.append(row)
-                    p_values.append(p_value)
-            elif isinstance(row, Mapping):
-                for level_row in row.values():
-                    if not isinstance(level_row, Mapping):
-                        continue
-                    p_value = level_row.get("p_value")
-                    if p_value is not None:
-                        set_refs.append(level_row)
-                        p_values.append(p_value)
-    if p_values:
-        for row, q_value in zip(set_refs, bh_fdr(p_values)):
-            row["q_value"] = round_value(q_value)
 
 
 def tool_confound_test(

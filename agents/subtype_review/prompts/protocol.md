@@ -10,9 +10,11 @@ The review object is the complete current partition of all patients. CT, WSI, RN
 
 The allowed dimensions are `biological_support`, `cross_modal_consistency`, `confounder_exclusion`, `known_label_echo` and `structural_adequacy`. Findings use `supporting`, `conflicting`, `mixed`, `inconclusive` or `unavailable`. Set-specific findings name affected set identifiers, while an empty target list is reserved for genuinely whole-partition evidence.
 
-A gap exists only when missing information prevents discrimination among actions that remain scientifically plausible. An unrun dimension is not automatically a gap, and evidence acquisition stops once current evidence distinguishes a protocol-compliant action. An active set must retain one relevant gap when its admission remains unresolved and an unattempted dimension could change the decision.
+A gap exists only when missing information prevents discrimination among actions that remain scientifically plausible. Each gap names exactly one allowed dimension; if multiple dimensions could change the decision, emit one gap per dimension rather than combining them in one reason. An unrun dimension is not automatically a gap, and evidence acquisition stops once current evidence distinguishes a protocol-compliant action. An active set must retain one relevant gap when its admission remains unresolved and an unattempted dimension could change the decision.
 
 Known-label echo compares the complete partition with stage and grade. It is optional unless echo exclusion is decision-relevant, but an explicit conflicting result blocks completion. Drop cannot remove patients or evade this comparison.
+
+An explicit known-label conflict with no conflicting structural finding that has a legal revision path terminates the review as `final_validation_failed` with reason `known_label_echo_conflict`; it is not resolved by repeatedly re-accepting or dropping sets.
 
 ## Evidence acquisition
 
@@ -28,7 +30,7 @@ Accept requires coherent positive disease-related evidence and no unresolved sup
 
 Drop requires exhaustion of evidence capable of changing the admission decision and exhaustion of supported structural alternatives, while positive admission remains unsupported or materially contradicted. Tool failure, missing evidence and budget pressure are not Drop evidence.
 
-The existence of a legal Split plan proves executability rather than heterogeneity. Split support requires positive fused `selection_adjusted_null.separation_gain_over_null`, fused `q_value <= 0.05`, and confirmation from at least two of CT, WSI, RNA and genomic with positive gain, `q_value <= 0.05` and positive `minimum_child_separation`. Original modalities cannot rescue failed fused calibration, and fused evidence cannot replace original-modality confirmation.
+The existence of a legal Split plan proves executability rather than heterogeneity. Split support requires positive fused `selection_adjusted_null.separation_gain_over_null`, fused `q_value <= 0.05`, and confirmation from at least two of CT, WSI, RNA and genomic with positive gain, `q_value <= 0.05` and positive `minimum_child_separation`. Original modalities cannot rescue failed fused calibration, and fused evidence cannot replace original-modality confirmation. When a candidate fails these conditions, it is not evidence of heterogeneity: report structural adequacy as `supporting`, `mixed` or `inconclusive` according to the current structure, never `conflicting` solely because an unsupported Split candidate exists.
 
 Split requires a conflicting structural finding and an exact supported plan. Merge requires a conflicting structural finding indicating an insufficient boundary, an anchor-containing legal plan, and current pairwise evidence for every selected pair. Coherent distinct identity opposing Merge blocks it. Scientifically equivalent targets and plans are resolved by the supplied canonical order.
 
