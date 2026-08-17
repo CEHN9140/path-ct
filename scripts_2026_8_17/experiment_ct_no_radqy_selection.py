@@ -19,6 +19,7 @@ PREFERRED_ENHANCED_PRIORITY = {
     "MAIN_CE_MEDIUM": 2,
     "CE_UNSPECIFIED": 3,
     "ART": 4,
+    "DEL": 5,
 }
 
 
