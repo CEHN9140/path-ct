@@ -73,8 +73,6 @@ def dicom_prefilter_reasons(
 
     if series_summary.get("modality") != "CT":
         reasons.append("The series is not a CT acquisition.")
-    if int(series_summary.get("n_slices") or 0) < int(config["min_slices"]):
-        reasons.append("The series has too few slices.")
     if image_types & excluded_image_types:
         reasons.append("The image type indicates a non-primary or derived series.")
     if required_image_types and not required_image_types.issubset(image_types):

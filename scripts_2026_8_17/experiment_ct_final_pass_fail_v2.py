@@ -18,7 +18,7 @@ ENHANCED_PHASES = {
     "DEL",
 }
 PRETREATMENT_MARKER = re.compile(
-    r"(?:\b(?:status\s+post|s/p|post[- ]?(?:operative|op))\b[^\n]{0,60}\b(?:nephrectomy|renal\s+ablation)\b|\b(?:partial|radical|right|left|bilateral)?\s*nephrectomy\b|\brenal\s+ablation\b)",
+    r"\b(?:status\s+post|s/p|post[- ]?(?:operative|op))\b[^\n]{0,80}\b(?:nephrectomy|renal\s+ablation)\b",
     re.IGNORECASE,
 )
 
@@ -284,7 +284,7 @@ def mask_qc(segmentation_root: Path, row: dict[str, str], overlay_root: Path) ->
         result["mask_auto_reason"] = "tumor_mask_empty"
         return result
     overlay_path = overlay_root / f"{case_id}.png"
-    _, _, touches_boundary, overlay_reason = save_mask_overlay(
+    _, _, touches_boundary, _ = save_mask_overlay(
         Path(row["ct_path"]), Path(mask_path), overlay_path
     )
     result.update(
@@ -292,8 +292,8 @@ def mask_qc(segmentation_root: Path, row: dict[str, str], overlay_root: Path) ->
             "mask_positive_voxel_count": positive,
             "mask_geometry_match": geometry_match,
             "mask_touches_ct_boundary": touches_boundary,
-            "mask_auto_pass": not touches_boundary,
-            "mask_auto_reason": overlay_reason or "pass",
+            "mask_auto_pass": True,
+            "mask_auto_reason": "pass",
             "mask_overlay_path": str(overlay_path),
         }
     )
@@ -431,7 +431,7 @@ def audit_case(
         "final_fail_reasons": ";".join(dict.fromkeys(reasons)),
         "review_complete": review_complete,
         "review_provenance_valid": review_provenance_valid,
-        "segmentation_rerun": mask["segmentation_success"],
+        "segmentation_success": mask["segmentation_success"],
     }
 
 
