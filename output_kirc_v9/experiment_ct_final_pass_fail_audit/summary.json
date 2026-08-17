@@ -1,0 +1,50 @@
+{
+  "experiment": "ct_final_pass_fail_audit_v1",
+  "scope": "standalone audit of existing no-RadQy phase-aware selected CT series",
+  "inputs": {
+    "selected_series_csv": "output_kirc_v9/experiment_ct_no_radqy_selection/selected_series.csv",
+    "qc_root": "output_kirc/ct_qc",
+    "tumor_segmentation_root": "output_kirc/ct_tumor_seg",
+    "radqy_used": false,
+    "rerun_tumor_segmentation": false,
+    "rerun_radiomics": false
+  },
+  "selected_case_count": 128,
+  "final_pass_case_count": 19,
+  "final_fail_case_count": 109,
+  "stage_pass_counts": {
+    "candidate_pass": 128,
+    "phase_pass": 51,
+    "artifact_proxy_pass": 128,
+    "renal_coverage_pass": 128,
+    "pretreatment_pass": 128,
+    "tumor_mask_pass": 59
+  },
+  "final_phase_counts": {
+    "CE_UNSPECIFIED": 3,
+    "DEL": 4,
+    "MAIN_CE_MEDIUM": 1,
+    "ART": 10,
+    "NEPH": 1
+  },
+  "final_fail_reason_counts": {
+    "non_contrast": 12,
+    "phase_unknown_requires_confirmation": 65,
+    "tumor_mask_series_uid_mismatch": 56,
+    "segmentation_not_confirmed": 10,
+    "tumor_mask_empty": 15,
+    "tumor_mask_geometry_mismatch": 10,
+    "tumor_mask_threshold_failed": 15,
+    "tumor_segmentation_json_missing": 11
+  },
+  "limitations": {
+    "artifact_review": "automated NIfTI/HU QC proxy only; visual severe-artifact review was not performed",
+    "pretreatment_review": "metadata marker audit only; treatment timeline was not available",
+    "tumor_mask_review": "existing JSON/mask artifacts were audited; segmentation was not rerun",
+    "interpretation": "final PASS is an experiment-level automated audit result, not a frozen main-flow QC decision"
+  },
+  "output_files": {
+    "case_audit": "output_kirc_v9/experiment_ct_final_pass_fail_audit/case_pass_fail_audit.csv",
+    "summary": "output_kirc_v9/experiment_ct_final_pass_fail_audit/summary.json"
+  }
+}
