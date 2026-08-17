@@ -30,7 +30,7 @@ PHASE_PATTERNS = {
     "DEL": (
         r"\bDELAY(?:ED)?\b",
         r"\bEXCRET(?:ION|ORY)?\b",
-        r"\b(?:3|5|10|12|15) MIN(?:UTE)?S?\b",
+        r"\b(?:3|5|10|12|15)\s*MIN(?:UTE)?S?\b",
         r"\bDELAY BLADDER\b",
         r"\bKIDNEYS & DELAY\b",
     ),
@@ -201,10 +201,12 @@ def infer_main_ce(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         updated["inference_reason"] = ""
         rows.append(updated)
 
-    grouped: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[tuple[int, dict[str, Any]]]] = defaultdict(list)
     for index, row in enumerate(rows):
-        if row.get("eligible_candidate"):
-            grouped[str(row.get("study_uid", ""))].append((index, row))
+        study_uid = str(row.get("study_uid", "") or "")
+        case_id = str(row.get("case_id", "") or "")
+        if row.get("eligible_candidate") and study_uid:
+            grouped[(case_id, study_uid)].append((index, row))
 
     def order_value(value: Any) -> tuple[int, float | str]:
         text = str(value or "").strip()
