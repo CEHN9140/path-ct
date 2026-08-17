@@ -30,7 +30,7 @@ PHASE_PATTERNS = {
     "DEL": (
         r"\bDELAY(?:ED)?\b",
         r"\bEXCRET(?:ION|ORY)?\b",
-        r"\b3 MIN(?:UTE)?\b",
+        r"\b(?:3|5|10|12|15) MIN(?:UTE)?S?\b",
         r"\bDELAY BLADDER\b",
         r"\bKIDNEYS & DELAY\b",
     ),
@@ -196,6 +196,7 @@ def infer_main_ce(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         updated = dict(row)
         updated["explicit_phase"] = row.get("explicit_phase", row.get("phase", "UNKNOWN"))
         updated["inferred_phase"] = updated["explicit_phase"]
+        updated["inferred_confidence"] = row.get("confidence", 0.0)
         updated["phase_source"] = "explicit" if updated["explicit_phase"] != "UNKNOWN" else "none"
         updated["inference_reason"] = ""
         rows.append(updated)
@@ -222,35 +223,45 @@ def infer_main_ce(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ordered = sorted(
             study_rows,
             key=lambda item: (
+                order_value(item[1].get("acquisition_time")),
                 order_value(item[1].get("series_number")),
                 order_value(item[1].get("acquisition_number")),
-                order_value(item[1].get("acquisition_time")),
                 item[0],
             ),
         )
         nc_positions = [pos for pos, (_, row) in enumerate(ordered) if row["explicit_phase"] == "NC"]
         del_positions = [pos for pos, (_, row) in enumerate(ordered) if row["explicit_phase"] == "DEL"]
-        boundaries = next(
-            ((nc, delay) for nc in nc_positions for delay in del_positions if nc < delay),
-            None,
-        )
-        if boundaries is None:
-            continue
+        first_del = min(del_positions) if del_positions else None
+        valid_nc = [position for position in nc_positions if first_del is None or position < first_del]
+        last_nc = max(valid_nc) if valid_nc else None
 
-        nc_position, del_position = boundaries
-        for position in range(nc_position + 1, del_position):
-            index, row = ordered[position]
+        def is_excluded(row: dict[str, Any]) -> bool:
             if row["explicit_phase"] in {"NC", "ART", "NEPH", "DEL"}:
-                continue
+                return True
             description = " ".join(
                 str(row.get(field, "") or "")
                 for field in ("series_description", "protocol_name")
             ).upper()
-            if re.search(r"\b(?:RECON|RECONSTRUCTION|SCOUT|SURVIEW|LOCALIZER|MPR)\b", description):
-                continue
-            rows[index]["inferred_phase"] = "MAIN_CE"
-            rows[index]["phase_source"] = "study_order"
-            rows[index]["inference_reason"] = "eligible_series_between_NC_and_DEL"
+            return bool(re.search(r"\b(?:RECON|RECONSTRUCTION|SCOUT|SURVIEW|LOCALIZER|MPR)\b", description))
+
+        if last_nc is not None and first_del is not None:
+            for position in range(last_nc + 1, first_del):
+                index, row = ordered[position]
+                if is_excluded(row):
+                    continue
+                rows[index]["inferred_phase"] = "MAIN_CE_HIGH"
+                rows[index]["inferred_confidence"] = 0.90
+                rows[index]["phase_source"] = "study_order"
+                rows[index]["inference_reason"] = "eligible_series_between_NC_and_DEL"
+        elif last_nc is not None:
+            for position in range(last_nc + 1, len(ordered)):
+                index, row = ordered[position]
+                if row["explicit_phase"] != "CE_UNSPECIFIED" or is_excluded(row):
+                    continue
+                rows[index]["inferred_phase"] = "MAIN_CE_MEDIUM"
+                rows[index]["inferred_confidence"] = 0.70
+                rows[index]["phase_source"] = "study_order"
+                rows[index]["inference_reason"] = "post_contrast_after_NC_without_DEL"
     return rows
 
 
@@ -330,7 +341,11 @@ def build_case_rows(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {row["explicit_phase"] for row in candidates if row["explicit_phase"] in {"NC", "ART", "NEPH", "DEL"}}
         )
         inferred_phases = sorted(
-            {row["inferred_phase"] for row in candidates if row["inferred_phase"] in {"NC", "ART", "NEPH", "MAIN_CE", "DEL"}}
+            {
+                row["inferred_phase"]
+                for row in candidates
+                if row["inferred_phase"] in {"NC", "ART", "NEPH", "MAIN_CE_HIGH", "MAIN_CE_MEDIUM", "DEL"}
+            }
         )
         broad_phases = sorted({row["broad_phase"] for row in candidates if row["broad_phase"] != "UNKNOWN"})
         output.append(
@@ -343,7 +358,8 @@ def build_case_rows(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "has_nc": "NC" in inferred_phases,
                 "has_art": "ART" in inferred_phases,
                 "has_neph": "NEPH" in inferred_phases,
-                "has_main_ce": "MAIN_CE" in inferred_phases,
+                "has_main_ce_high": "MAIN_CE_HIGH" in inferred_phases,
+                "has_main_ce_medium": "MAIN_CE_MEDIUM" in inferred_phases,
                 "has_del": "DEL" in inferred_phases,
                 "has_ce": "CE" in broad_phases,
                 "has_unknown_only": bool(candidates) and not inferred_phases and not broad_phases,
@@ -404,7 +420,11 @@ def run(inventory_path: Path, output_root: Path, experiment_root: Path) -> dict[
             "ART": sum(row["has_art"] for row in case_rows),
             "NEPH": sum(row["has_neph"] for row in case_rows),
             "DEL": sum(row["has_del"] for row in case_rows),
-            "MAIN_CE": sum(row["has_main_ce"] for row in case_rows),
+            "MAIN_CE_HIGH": sum(row["has_main_ce_high"] for row in case_rows),
+            "MAIN_CE_MEDIUM": sum(row["has_main_ce_medium"] for row in case_rows),
+            "MAIN_CE_ANY": sum(
+                row["has_main_ce_high"] or row["has_main_ce_medium"] for row in case_rows
+            ),
             "CE": sum(row["has_ce"] for row in case_rows),
             "explicit_fine_phase_any": sum(bool(row["explicit_fine_phases"]) for row in case_rows),
             "inferred_phase_any": sum(bool(row["inferred_phases"]) for row in case_rows),
@@ -414,6 +434,9 @@ def run(inventory_path: Path, output_root: Path, experiment_root: Path) -> dict[
             "generic_protocol_names_are_not_phase_labels": True,
             "eligible_candidate_requires": ["prefilter_pass", "nifti_qc_pass", "totalseg_pass"],
             "high_confidence_threshold": 0.95,
+            "main_ce_high": "eligible series between the latest NC and earliest later DEL in one Study",
+            "main_ce_medium": "explicit CE_UNSPECIFIED after NC in one Study when no later DEL exists",
+            "study_order_priority": ["AcquisitionTime", "SeriesNumber", "AcquisitionNumber"],
         },
         "output_files": {
             "series": str(experiment_root / "series_phase_audit.csv"),
