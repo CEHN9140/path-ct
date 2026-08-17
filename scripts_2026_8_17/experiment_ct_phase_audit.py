@@ -22,14 +22,17 @@ PHASE_PATTERNS = {
         r"\bKIDNEYS PRE\b",
     ),
     "ART": (r"\bARTERIAL(?: PHASE)?\b", r"\bCORTICOMEDULLARY\b"),
-    "NEPH": (r"\bNEPHRO(?:GRAPHIC)?\b", r"\bPARENCHYMAL\b"),
+    "NEPH": (
+        r"\bNEPH(?:RO(?:GRAPHIC)?)?\b",
+        r"\bPARENCHYMAL\b",
+        r"\bPARANCHYMAL\b",
+    ),
     "DEL": (
         r"\bDELAY(?:ED)?\b",
         r"\bEXCRET(?:ION|ORY)?\b",
         r"\b3 MIN(?:UTE)?\b",
         r"\bDELAY BLADDER\b",
         r"\bKIDNEYS & DELAY\b",
-        r"\bUROGRAM\b",
     ),
 }
 CE_PATTERNS = (
@@ -37,7 +40,6 @@ CE_PATTERNS = (
     r"\bWITH CONTRAST\b",
     r"\bW CONTRAST\b",
     r"\bVENOUS\b",
-    r"\bSMART PREP\b",
 )
 
 
@@ -188,6 +190,70 @@ def classify_phase(
     }
 
 
+def infer_main_ce(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for row in series_rows:
+        updated = dict(row)
+        updated["explicit_phase"] = row.get("explicit_phase", row.get("phase", "UNKNOWN"))
+        updated["inferred_phase"] = updated["explicit_phase"]
+        updated["phase_source"] = "explicit" if updated["explicit_phase"] != "UNKNOWN" else "none"
+        updated["inference_reason"] = ""
+        rows.append(updated)
+
+    grouped: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+    for index, row in enumerate(rows):
+        if row.get("eligible_candidate"):
+            grouped[str(row.get("study_uid", ""))].append((index, row))
+
+    def order_value(value: Any) -> tuple[int, float | str]:
+        text = str(value or "").strip()
+        if not text:
+            return (1, "")
+        try:
+            return (0, float(text))
+        except ValueError:
+            compact = text.replace(":", "")
+            try:
+                return (0, float(compact))
+            except ValueError:
+                return (1, text)
+
+    for study_rows in grouped.values():
+        ordered = sorted(
+            study_rows,
+            key=lambda item: (
+                order_value(item[1].get("series_number")),
+                order_value(item[1].get("acquisition_number")),
+                order_value(item[1].get("acquisition_time")),
+                item[0],
+            ),
+        )
+        nc_positions = [pos for pos, (_, row) in enumerate(ordered) if row["explicit_phase"] == "NC"]
+        del_positions = [pos for pos, (_, row) in enumerate(ordered) if row["explicit_phase"] == "DEL"]
+        boundaries = next(
+            ((nc, delay) for nc in nc_positions for delay in del_positions if nc < delay),
+            None,
+        )
+        if boundaries is None:
+            continue
+
+        nc_position, del_position = boundaries
+        for position in range(nc_position + 1, del_position):
+            index, row = ordered[position]
+            if row["explicit_phase"] in {"NC", "ART", "NEPH", "DEL"}:
+                continue
+            description = " ".join(
+                str(row.get(field, "") or "")
+                for field in ("series_description", "protocol_name")
+            ).upper()
+            if re.search(r"\b(?:RECON|RECONSTRUCTION|SCOUT|SURVIEW|LOCALIZER|MPR)\b", description):
+                continue
+            rows[index]["inferred_phase"] = "MAIN_CE"
+            rows[index]["phase_source"] = "study_order"
+            rows[index]["inference_reason"] = "eligible_series_between_NC_and_DEL"
+    return rows
+
+
 def selected_series_ids(output_root: Path) -> set[str]:
     selected = set()
     for path in (output_root / "ct_qc").glob("*/selection_summary.json"):
@@ -260,20 +326,27 @@ def build_case_rows(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output = []
     for case_id in all_case_ids:
         candidates = grouped.get(case_id, [])
-        fine_phases = sorted({row["phase"] for row in candidates if row["phase"] in {"NC", "ART", "NEPH", "DEL"}})
+        explicit_phases = sorted(
+            {row["explicit_phase"] for row in candidates if row["explicit_phase"] in {"NC", "ART", "NEPH", "DEL"}}
+        )
+        inferred_phases = sorted(
+            {row["inferred_phase"] for row in candidates if row["inferred_phase"] in {"NC", "ART", "NEPH", "MAIN_CE", "DEL"}}
+        )
         broad_phases = sorted({row["broad_phase"] for row in candidates if row["broad_phase"] != "UNKNOWN"})
         output.append(
             {
                 "case_id": case_id,
                 "candidate_series_count": len(candidates),
-                "fine_phases": ";".join(fine_phases),
+                "explicit_fine_phases": ";".join(explicit_phases),
+                "inferred_phases": ";".join(inferred_phases),
                 "broad_phases": ";".join(broad_phases),
-                "has_nc": "NC" in fine_phases,
-                "has_art": "ART" in fine_phases,
-                "has_neph": "NEPH" in fine_phases,
-                "has_del": "DEL" in fine_phases,
+                "has_nc": "NC" in inferred_phases,
+                "has_art": "ART" in inferred_phases,
+                "has_neph": "NEPH" in inferred_phases,
+                "has_main_ce": "MAIN_CE" in inferred_phases,
+                "has_del": "DEL" in inferred_phases,
                 "has_ce": "CE" in broad_phases,
-                "has_unknown_only": bool(candidates) and not fine_phases and not broad_phases,
+                "has_unknown_only": bool(candidates) and not inferred_phases and not broad_phases,
                 "retained_any_qc_candidate": bool(candidates),
                 "exclusion_reason": "" if candidates else "no_existing_qc_candidate",
             }
@@ -292,7 +365,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def run(inventory_path: Path, output_root: Path, experiment_root: Path) -> dict[str, Any]:
     inventory = read_inventory(inventory_path)
-    series_rows = read_report_rows(output_root, inventory)
+    series_rows = infer_main_ce(read_report_rows(output_root, inventory))
     case_rows = build_case_rows(series_rows)
     candidate_rows = [row for row in series_rows if row["eligible_candidate"]]
     sidecar_fields = (
@@ -318,7 +391,8 @@ def run(inventory_path: Path, output_root: Path, experiment_root: Path) -> dict[
         "eligible_candidate_series_count": len(candidate_rows),
         "cases_with_existing_qc_candidate": sum(row["retained_any_qc_candidate"] for row in case_rows),
         "cases_without_existing_qc_candidate": sum(not row["retained_any_qc_candidate"] for row in case_rows),
-        "candidate_phase_series_counts": dict(Counter(row["phase"] for row in candidate_rows)),
+        "candidate_explicit_phase_series_counts": dict(Counter(row["explicit_phase"] for row in candidate_rows)),
+        "candidate_inferred_phase_series_counts": dict(Counter(row["inferred_phase"] for row in candidate_rows)),
         "candidate_broad_phase_series_counts": dict(Counter(row["broad_phase"] for row in candidate_rows)),
         "sidecar_field_presence": {
             field: sum(bool(str(row.get(field, "") or "").strip()) for row in candidate_rows)
@@ -330,8 +404,10 @@ def run(inventory_path: Path, output_root: Path, experiment_root: Path) -> dict[
             "ART": sum(row["has_art"] for row in case_rows),
             "NEPH": sum(row["has_neph"] for row in case_rows),
             "DEL": sum(row["has_del"] for row in case_rows),
+            "MAIN_CE": sum(row["has_main_ce"] for row in case_rows),
             "CE": sum(row["has_ce"] for row in case_rows),
-            "fine_phase_any": sum(bool(row["fine_phases"]) for row in case_rows),
+            "explicit_fine_phase_any": sum(bool(row["explicit_fine_phases"]) for row in case_rows),
+            "inferred_phase_any": sum(bool(row["inferred_phases"]) for row in case_rows),
         },
         "phase_policy": {
             "description_is_supporting_evidence": True,
