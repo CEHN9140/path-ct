@@ -63,7 +63,10 @@ def final_status(
     mask_auto_pass: bool,
     mask_review: Any,
     review_complete: bool,
+    hard_fail: bool = False,
 ) -> str:
+    if hard_fail:
+        return "FAIL"
     if not review_complete:
         return "REVIEW_REQUIRED"
     if not candidate_pass or not phase_pass or not artifact_pass:
@@ -402,6 +405,16 @@ def audit_case(
         bool(mask["mask_auto_pass"]),
         review.get("mask_review", ""),
         review_complete,
+        hard_fail=(
+            not candidate_pass
+            or not pretreatment_ok
+            or phase_reason
+            in {
+                "non_contrast",
+                "manual_non_contrast",
+                "phase_review_conflicts_with_metadata",
+            }
+        ),
     )
     if status == "MASK_REVIEW_REQUIRED":
         review_complete = False
