@@ -1,0 +1,59 @@
+{
+  "experiment": "ct_phase_aware_radqy_sensitivity_v1",
+  "inputs": {
+    "phase_audit_csv": "output_kirc_v9/experiment_ct_phase_audit/series_phase_audit.csv",
+    "qc_root": "output_kirc/ct_qc",
+    "base_qc_candidate_definition": [
+      "prefilter_pass",
+      "nifti_qc_pass",
+      "totalseg_pass"
+    ],
+    "rerun_tumor_segmentation": false,
+    "run_radiomics": false
+  },
+  "candidate_series_count": 340,
+  "base_qc_case_count": 128,
+  "soft_retained_case_count": 128,
+  "strict_retained_case_count": 127,
+  "strict_case_loss_count": 1,
+  "soft_phase_counts": {
+    "NC": 30,
+    "UNKNOWN": 48,
+    "CE_UNSPECIFIED": 6,
+    "DEL": 7,
+    "MAIN_CE_MEDIUM": 1,
+    "ART": 10,
+    "NEPH": 5,
+    "MAIN_CE_HIGH": 21
+  },
+  "strict_phase_counts": {
+    "NC": 30,
+    "UNKNOWN": 48,
+    "CE_UNSPECIFIED": 6,
+    "DEL": 7,
+    "MAIN_CE_MEDIUM": 1,
+    "ART": 10,
+    "NEPH": 4,
+    "MAIN_CE_HIGH": 21
+  },
+  "soft_radqy_counts": {
+    "pass": 126,
+    "fail": 2
+  },
+  "strict_radqy_counts": {
+    "pass": 127
+  },
+  "selection_arm_difference_count": 1,
+  "policy": {
+    "soft": "phase priority first, RadQy selection rank within phase, RadQy fail retained with warning",
+    "strict": "RadQy pass filter first, then phase priority and RadQy rank",
+    "phase_priority_is_same_between_arms": true,
+    "structural_qc_remains_hard": true
+  },
+  "output_files": {
+    "candidates": "output_kirc_v9/experiment_ct_phase_aware_radqy_sensitivity/candidate_arm_comparison.csv",
+    "selected": "output_kirc_v9/experiment_ct_phase_aware_radqy_sensitivity/selected_series_by_arm.csv",
+    "cases": "output_kirc_v9/experiment_ct_phase_aware_radqy_sensitivity/case_arm_comparison.csv",
+    "summary": "output_kirc_v9/experiment_ct_phase_aware_radqy_sensitivity/summary.json"
+  }
+}
