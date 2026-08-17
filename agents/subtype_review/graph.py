@@ -398,6 +398,12 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     })
     control = dict(state.get("control", {}) or {})
     control["next"] = "router"
+    if "biological_support" in failed_capabilities(state):
+        control["status"] = "review_unavailable"
+        control["error"] = "mandatory_biological_support_unavailable"
+        control["next"] = "end"
+        state["control"] = control
+        return state
     structural_attempted = "structural_adequacy" in attempted_dimensions(state)
     if has_known_label_conflict(state) and structural_attempted and not any(
         finding.dimension == "structural_adequacy"
@@ -435,6 +441,10 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
         raise ValueError(f"Verifier referenced inactive or unknown sets: {unknown}")
     evidence = current_partition_evidence(state)
     attempted = attempted_dimensions(state)
+    if "biological_support" not in attempted and not any(
+        gap.dimension == "biological_support" for gap in audit.gaps
+    ):
+        raise ValueError("Verifier must report a biological_support gap before attempting acceptance")
     repeated_gaps = sorted({
         str(gap.dimension)
         for gap in audit.gaps
@@ -565,7 +575,8 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
     if any(conflicts.intersection(map(str, row.get("set_ids", []) or [])) for row in merges):
         return False
     return not any(
-        finding.get("dimension") == "known_label_echo" and finding.get("status") == "conflicting"
+        finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
+        and finding.get("status") == "conflicting"
         for finding in list(audit.get("findings", []) or [])
     )
 
@@ -644,10 +655,7 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
             for finding in findings
             if finding.get("dimension") == "biological_support"
             and finding.get("status") == "supporting"
-            and (
-                not finding.get("target_ids")
-                or action.target_ids[0] in {str(item) for item in finding.get("target_ids", [])}
-            )
+            and action.target_ids[0] in {str(item) for item in finding.get("target_ids", [])}
             for ref in finding.get("metric_refs", [])
         }
         if not admission_refs:
