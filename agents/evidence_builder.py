@@ -633,7 +633,33 @@ def build_evidence_states(
     patient_ids = [str(state.get("case_id", "")) for state in eligible_states]
     affinity_dir = Path(output_root) / "candidate_subtype"
     affinity_manifest_path = affinity_dir / "affinity_cache.json"
-    snf_config = load_yaml_file(Path(config_dir).expanduser() / "snf.yaml")
+    config_path = Path(config_dir).expanduser() if config_dir else Path("configs")
+    snf_config = load_yaml_file(config_path / "snf.yaml")
+    ct_radiomics_config = load_yaml_file(config_path / "ct_radiomics.yaml")
+    correction_config = dict(
+        ct_radiomics_config.get("confound_correction", {}) or {}
+    )
+    confound_fields = (
+        list(correction_config.get("fields") or [])
+        if bool(correction_config.get("enabled", True))
+        else []
+    )
+    from tools.tool_confound_test import confounder_values
+
+    current_confounders = confounder_values(
+        {
+            str(state.get("case_id", "")): state
+            for state in eligible_states
+        },
+        output_root,
+    )
+    ct_confounders = {
+        case_id: {
+            field: dict(current_confounders.get(case_id, {}) or {}).get(field, "")
+            for field in confound_fields
+        }
+        for case_id in patient_ids
+    }
     upstream_inputs = []
     for state in eligible_states:
         for bucket_name in ("ct_evidence", "wsi_evidence", "omics_evidence"):
@@ -654,9 +680,19 @@ def build_evidence_states(
             upstream_inputs.append({"key": key, "file": file_identity(path)})
     affinity_cache_signature = hash_payload(
         {
-            "cache_version": 1,
+            "cache_version": 2,
             "patient_ids": patient_ids,
-            "semantic_config": {"snf": snf_config},
+            "semantic_config": {
+                "snf": snf_config,
+                "ct_affinity": {
+                    "ccc_threshold": ct_radiomics_config["ccc_threshold"],
+                    "ccc_comparison_bin_widths": ct_radiomics_config[
+                        "ccc_comparison_bin_widths"
+                    ],
+                    "confound_correction": correction_config,
+                },
+            },
+            "ct_confounders": ct_confounders,
             "upstream_inputs": sorted(
                 upstream_inputs, key=lambda item: json.dumps(item, sort_keys=True)
             ),
@@ -692,7 +728,7 @@ def build_evidence_states(
             audit=feature_payload.get("audit", {}),
         )
         affinity_manifest = {
-            "cache_version": 1,
+            "cache_version": 2,
             "cache_signature": affinity_cache_signature,
             "patient_ids": patient_ids,
             "paths": affinity_paths,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -526,6 +527,9 @@ def run_wsi_qc_cohort(
                 continue
             if not summary_cacheable or saved_cache_signature != cache_signature:
                 force_case_ids.append(case_id)
+        case_dir = Path(output_root) / "wsi_qc" / case_id
+        if case_dir.is_dir():
+            shutil.rmtree(case_dir)
         pending_cases.append(case)
     if not pending_cases:
         return {"case_count": len(cases), "selection_summaries": summaries}
