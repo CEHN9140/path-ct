@@ -145,7 +145,7 @@ def main() -> None:
     parser.add_argument(
         "--experiment-root",
         type=Path,
-        default=Path("output_kirc/experiment_wsi_tumor_patch_count_audit"),
+        default=Path("output_kirc_v9/experiment_wsi_tumor_patch_count_audit"),
     )
     args = parser.parse_args()
     print(json.dumps(run(args.output_root, args.experiment_root), ensure_ascii=False, indent=2))
