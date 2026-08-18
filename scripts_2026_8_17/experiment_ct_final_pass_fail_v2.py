@@ -5,6 +5,7 @@ import csv
 import json
 import math
 import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -18,12 +19,18 @@ PHASE_PRIORITY = {
     "ART": 4,
     "DEL": 5,
     "NC": 6,
-    "UNKNOWN": 7,
+    "UNKNOWN": 6,
 }
 POST_TREATMENT_MARKER = re.compile(
     r"(?:\b(?:status\s+post|s/p|post[- ]?(?:operative|op))\b[^\n]{0,80}\b(?:nephrectomy|renal\s+ablation)\b|\bpost[- ]?nephrectomy\b)",
     re.IGNORECASE,
 )
+
+
+def ensure_project_root_on_path() -> None:
+    project_root = str(Path(__file__).resolve().parents[1])
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
 
 def as_bool(value: Any) -> bool:
@@ -184,6 +191,7 @@ def final_status(checks: dict[str, Any]) -> str:
 def run_tumor_segmentation(rows: list[dict[str, Any]], output_root: Path, config_dir: Path) -> None:
     if not rows:
         return
+    ensure_project_root_on_path()
     from tools.ct_tumor_seg import run_ct_tumor_seg_cohort
 
     requests = [

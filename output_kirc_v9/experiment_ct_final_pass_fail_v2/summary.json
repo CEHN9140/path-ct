@@ -1,38 +1,53 @@
 {
-  "experiment": "ct_final_pass_fail_audit_v2",
-  "scope": "standalone phase/artifact review plus fresh tumor segmentation audit",
+  "experiment": "ct_final_pass_fail_v2",
   "inputs": {
-    "selected_series_csv": "output_kirc_v9/experiment_ct_no_radqy_selection/selected_series.csv",
-    "review_csv": "",
+    "candidate_csv": "output_kirc_v9/experiment_ct_no_radqy_selection/candidate_reselection_audit.csv",
     "config_dir": "configs",
+    "run_segmentation": true,
     "radqy_used": false,
-    "contact_sheets_generated": true,
-    "tumor_segmentation_rerun": false
+    "aorta_segmentation_used": false,
+    "manual_review_used": false
   },
+  "candidate_series_count": 340,
+  "candidate_pass_series_count": 340,
+  "candidate_case_count": 128,
   "selected_case_count": 128,
-  "reviewed_case_count": 0,
-  "segmentation_case_count": 0,
-  "status_counts": {
-    "REVIEW_REQUIRED": 128
+  "selected_ct_count": 128,
+  "assert_one_selected_per_case": true,
+  "segmentation_request_count": 128,
+  "selected_phase_counts": {
+    "NC": 6,
+    "UNKNOWN": 58,
+    "CE_UNSPECIFIED": 6,
+    "DEL": 21,
+    "MAIN_CE_MEDIUM": 1,
+    "ART": 10,
+    "NEPH": 5,
+    "MAIN_CE_HIGH": 21
   },
-  "phase_review_counts": {
-    "MISSING": 128
+  "final_status_counts": {
+    "PASS": 124,
+    "FAIL": 4
   },
-  "artifact_review_counts": {
-    "MISSING": 128
+  "failure_reason_counts": {
+    "tumor_mask_geometry_mismatch": 1,
+    "tumor_mask_empty": 3
   },
-  "mask_auto_pass_count": 0,
-  "limitations": {
-    "phase": "UNKNOWN is not auto-rejected; it requires manual enhanced/non-contrast review.",
-    "artifact": "PASS/FAIL comes from the supplied visual review CSV, not the old NIfTI proxy.",
-    "pretreatment": "Only explicit postoperative metadata markers are excluded.",
-    "tumor_mask": "Segmentation is rerun for the current selected series; mask review still requires overlay inspection."
+  "policy": {
+    "series_candidate_gate": "structural_and_existing_kidney_qc_only",
+    "series_selection": "phase_priority_then_thickness_spacing_z_continuity_coverage_uid",
+    "one_series_per_case": true,
+    "unknown_phase_allowed": true,
+    "tumor_qc": "segmentation_success_uid_geometry_nonempty",
+    "final_status": [
+      "PASS",
+      "FAIL"
+    ]
   },
   "output_files": {
-    "review_template": "output_kirc_v9/experiment_ct_final_pass_fail_v2/review_template.csv",
-    "review_guide": "output_kirc_v9/experiment_ct_final_pass_fail_v2/review_guide.md",
-    "contact_sheet_dir": "output_kirc_v9/experiment_ct_final_pass_fail_v2/contact_sheets",
-    "case_audit": "output_kirc_v9/experiment_ct_final_pass_fail_v2/case_pass_fail_audit.csv",
+    "candidate_series_audit": "output_kirc_v9/experiment_ct_final_pass_fail_v2/candidate_series_audit.csv",
+    "selected_series": "output_kirc_v9/experiment_ct_final_pass_fail_v2/selected_series.csv",
+    "case_pass_fail_audit": "output_kirc_v9/experiment_ct_final_pass_fail_v2/case_pass_fail_audit.csv",
     "summary": "output_kirc_v9/experiment_ct_final_pass_fail_v2/summary.json"
   }
 }
