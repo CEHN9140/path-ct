@@ -83,16 +83,26 @@ def technical_key(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def anatomy_text(row: dict[str, Any]) -> str:
-    text = " ".join(
-        str(row.get(field, "") or "")
-        for field in ("series_description", "study_description", "protocol_name")
-    ).upper()
+def normalize_anatomy_text(value: Any) -> str:
+    text = str(value or "").upper()
     text = re.sub(r"CTCHESTABDPEL|CHESTABDPEL", " CHEST ABD PEL ", text)
     text = re.sub(r"CTCHEST", " CT CHEST ", text)
     text = re.sub(r"CTCAP", " CT CAP ", text)
     text = re.sub(r"C\s*[/\-]\s*A\s*[/\-]\s*P", " CAP ", text)
     return re.sub(r"[^A-Z0-9]+", " ", text)
+
+
+def non_abdominal_series(row: dict[str, Any]) -> bool:
+    series_text = normalize_anatomy_text(row.get("series_description"))
+    if not series_text:
+        series_text = normalize_anatomy_text(
+            " ".join(str(row.get(field, "") or "") for field in ("study_description", "protocol_name"))
+        )
+    has_thoracic_marker = bool(re.search(r"\b(?:CHEST|THORAX|LUNG)\b", series_text))
+    has_abdominal_marker = bool(
+        re.search(r"\b(?:ABD|ABDOMEN|PELVIS|RENAL|KIDNEY|CAP)\b", series_text)
+    )
+    return has_thoracic_marker and not has_abdominal_marker
 
 
 def candidate_fail_reasons(row: dict[str, Any]) -> list[str]:
@@ -101,12 +111,7 @@ def candidate_fail_reasons(row: dict[str, Any]) -> list[str]:
         for field in ("eligible_candidate", "prefilter_pass", "nifti_qc_pass", "totalseg_pass")
         if not as_bool(row.get(field))
     ]
-    text = anatomy_text(row)
-    has_thoracic_marker = bool(re.search(r"\b(?:CHEST|THORAX|LUNG)\b", text))
-    has_abdominal_marker = bool(
-        re.search(r"\b(?:ABD|ABDOMEN|PELVIS|RENAL|KIDNEY|CAP)\b", text)
-    )
-    if has_thoracic_marker and not has_abdominal_marker:
+    if non_abdominal_series(row):
         reasons.append("non_abdominal_chest_series")
     return list(dict.fromkeys(reasons))
 
