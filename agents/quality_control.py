@@ -21,13 +21,13 @@ def failed_qc_state(
     return state
 
 
-def run_ct_qc_cohort(
+def ct_qc(
     patient_states: list[Mapping[str, Any]], *, output_root: str, config_dir: str
 ) -> list[dict[str, Any]]:
-    from tools.ct_qc import run_ct_qc_cohort as run_ct_qc_cohort_tool
+    from tools.ct_qc import run_ct_qc
 
     cases = [case_from_state(item) for item in patient_states]
-    ct_result = run_ct_qc_cohort_tool(cases, output_root=output_root, config_dir=config_dir)
+    ct_result = run_ct_qc(cases, output_root=output_root, config_dir=config_dir)
     summaries = dict(ct_result.get("selection_summaries", {}) or {})
     updated_states = []
     for patient_state in patient_states:
@@ -45,10 +45,10 @@ def run_ct_qc_cohort(
     return updated_states
 
 
-def run_wsi_qc_cohort(
+def wsi_qc(
     patient_states: list[Mapping[str, Any]], *, output_root: str, config_dir: str
 ) -> list[dict[str, Any]]:
-    from tools.wsi_qc import run_wsi_qc_cohort as run_wsi_qc_cohort_tool
+    from tools.wsi_qc import run_wsi_qc_cohort as wsi_qc_cohort_tool
 
     cases = [
         case_from_state(item)
@@ -57,7 +57,7 @@ def run_wsi_qc_cohort(
     ]
     if not cases:
         return [dict(item) for item in patient_states]
-    wsi_result = run_wsi_qc_cohort_tool(cases, output_root=output_root, config_dir=config_dir)
+    wsi_result = wsi_qc_cohort_tool(cases, output_root=output_root, config_dir=config_dir)
     summaries = dict(wsi_result.get("selection_summaries", {}) or {})
     updated_states = []
     for patient_state in patient_states:

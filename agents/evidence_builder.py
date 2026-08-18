@@ -883,7 +883,7 @@ def finalize_ct_tumor_seg(
     return dict(patient_state)
 
 
-def ct_tumor_seg(
+def ct_tumor_seg_case(
     state: Mapping[str, Any], *, output_root: str, config_dir: str
 ) -> Mapping[str, Any]:
     context = ct_tumor_seg_context(
@@ -906,7 +906,7 @@ def ct_tumor_seg(
     return finalize_ct_tumor_seg(state, result, context, output_root)
 
 
-def build_ct_tumor_seg_cohort(
+def ct_tumor_seg(
     states: list[dict[str, Any]], *, output_root: str, config_dir: str
 ) -> list[dict[str, Any]]:
     contexts = {

@@ -486,7 +486,7 @@ def prepare_ct_cases(cases: list[Mapping[str, Any]], ct_qc_dir: Path, config: Ma
 
 def build_case_summary(case_id: str, records: list[dict[str, Any]], prefilter_report_path: str) -> dict[str, Any]:
     records = annotate_phases(records)
-    selected = min(records, key=lambda row: (phase_priority(row), technical_key(row))) if records else None
+    selected = select_best_series(records).get(case_id)
     selected_ok = bool(selected and pretreatment_pass(selected))
     case_output_dir = Path(prefilter_report_path).parent
     selected_file = ""
@@ -536,7 +536,7 @@ def build_case_summary(case_id: str, records: list[dict[str, Any]], prefilter_re
     }
 
 
-def run_ct_qc_cohort(cases: list[Mapping[str, Any]], output_root: str = "", config_dir: str = "") -> dict[str, Any]:
+def run_ct_qc(cases: list[Mapping[str, Any]], output_root: str = "", config_dir: str = "") -> dict[str, Any]:
     config = yaml.safe_load((Path(config_dir).expanduser() / "ct_qc.yaml").read_text(encoding="utf-8"))
     ct_qc_dir = Path(output_root) / "ct_qc"
     ct_qc_dir.mkdir(parents=True, exist_ok=True)
@@ -589,8 +589,3 @@ def run_ct_qc_cohort(cases: list[Mapping[str, Any]], output_root: str = "", conf
         "filtered_case_ids": [case_id for case_id, summary in summaries.items() if not summary.get("case_qc_passes_threshold")],
         "selection_summaries": summaries,
     }
-
-
-def run_ct_qc(case_id: str, item: list[Mapping[str, Any]], output_root: str = "", config_dir: str = "") -> dict[str, Any]:
-    result = run_ct_qc_cohort([{"Case_ID": str(case_id), "CT": list(item)}], output_root=output_root, config_dir=config_dir)
-    return dict(result.get("selection_summaries", {}).get(str(case_id), {}))
