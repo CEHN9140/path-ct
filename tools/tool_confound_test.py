@@ -17,6 +17,7 @@ from tools.subtype_review_common import (
 )
 
 CATEGORICAL_FIELDS = (
+    "ct_phase",
     "ct_manufacturer",
     "ct_scanner_model",
     "ct_reconstruction_kernel",
@@ -152,6 +153,7 @@ def selected_ct_metadata(
     selection_path = qc_dir / "selection_summary.json"
     selected_ct_id = ""
     selected_source_file = ""
+    selected_phase = ""
 
     if selection_path.exists():
         try:
@@ -160,6 +162,12 @@ def selected_ct_metadata(
             selected = dict(selected_files[0] if selected_files else {})
             selected_ct_id = str(selected.get("selected_ct_id", "") or "")
             selected_source_file = str(selected.get("selected_source_file", "") or "")
+            selected_phase = str(
+                dict(selection.get("selected_series", {}) or {}).get(
+                    "inferred_phase", ""
+                )
+                or ""
+            ).strip().upper()
         except Exception:
             pass
 
@@ -224,6 +232,7 @@ def selected_ct_metadata(
 
     if matched_entry is None:
         return {
+            "phase": selected_phase,
             "scanner_model": scanner_model,
             "reconstruction_kernel": kernel,
             "n_images": "1",
@@ -235,6 +244,7 @@ def selected_ct_metadata(
         }
 
     return {
+        "phase": selected_phase,
         "scanner_model": scanner_model
         or str(
             matched_entry.get("ManufacturersModelName", "")
@@ -296,6 +306,7 @@ def confounder_values(
                 ct_study_year = float("nan")
 
         values[str(case_id)] = {
+            "ct_phase": ct_meta["phase"],
             "gender": str(record.get("gender", "") or "").strip(),
             "race": str(record.get("race", "") or "").strip(),
             "ct_manufacturer": selected_ct_manufacturer(

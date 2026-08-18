@@ -618,18 +618,21 @@ def file_identity(path: str) -> dict[str, Any]:
 
 
 def nifti_geometry_matches(ct_path: str, mask_path: str) -> bool:
-    import nibabel as nib
     import numpy as np
+    import SimpleITK as sitk
 
     if not Path(ct_path).is_file() or not Path(mask_path).is_file():
         return False
     try:
-        ct_image = nib.load(ct_path)
-        mask_image = nib.load(mask_path)
+        ct_image = sitk.ReadImage(ct_path)
+        mask_image = sitk.ReadImage(mask_path)
     except Exception:
         return False
-    return ct_image.shape[:3] == mask_image.shape[:3] and bool(
-        np.allclose(ct_image.affine, mask_image.affine, rtol=0.0, atol=1e-5)
+    return (
+        ct_image.GetSize() == mask_image.GetSize()
+        and np.allclose(ct_image.GetSpacing(), mask_image.GetSpacing(), atol=1e-4)
+        and np.allclose(ct_image.GetOrigin(), mask_image.GetOrigin(), atol=1e-4)
+        and np.allclose(ct_image.GetDirection(), mask_image.GetDirection(), atol=1e-4)
     )
 
 
@@ -694,16 +697,13 @@ def ct_tumor_seg_context(
         == expected_model
         and str(cached_provenance.get("output_label", ""))
         == str(expected_label if expected_label is not None else "")
-        and (
-            not cached_config_signature
-            or cached_config_signature == current_config_signature
-        )
+        and bool(cached_config_signature)
+        and cached_config_signature == current_config_signature
     )
     cached_ct_identity = dict(cached_payload.get("ct_identity", {}) or {})
     cached_input_matches = (
-        cached_ct_identity == current_ct_identity
-        if cached_ct_identity
-        else str(cached_tool_result.get("status", "") or "").lower() == "success"
+        bool(cached_ct_identity)
+        and cached_ct_identity == current_ct_identity
     )
     reuse_existing_mask = (
         cached_mask_path.exists()

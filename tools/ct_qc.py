@@ -24,6 +24,7 @@ PHASE_PRIORITY = {
     "NEPH": 0, "MAIN_CE_HIGH": 1, "MAIN_CE_MEDIUM": 2,
     "CE_UNSPECIFIED": 3, "ART": 4, "DEL": 5, "NC": 6, "UNKNOWN": 6,
 }
+CT_QC_CACHE_VERSION = "2026-08-18-final"
 PHASE_PATTERNS = {
     "NC": (
         r"\bPRE[- ]?CONTRAST\b", r"\bUNENHANCED\b", r"\bNON[- ]?CONTRAST\b",
@@ -39,10 +40,17 @@ PHASE_PATTERNS = {
     ),
 }
 CE_PATTERNS = (r"\bPOST[- ]?CONTRAST\b", r"\bWITH CONTRAST\b", r"\bW CONTRAST\b", r"\bVENOUS\b")
+POST_TREATMENT_MARKER = re.compile(
+    r"(?:\b(?:STATUS\s+POST|S/P|POST[- ]?(?:OPERATIVE|OP))\b[^\n]{0,80}\b(?:NEPHRECTOMY|RENAL\s+ABLATION)\b|\bPOST[- ]?NEPHRECTOMY\b)",
+    re.IGNORECASE,
+)
 
 
 def ct_qc_config_signature(config: Mapping[str, Any]) -> str:
-    payload = json.dumps(to_jsonable(dict(config)), sort_keys=True).encode()
+    payload = json.dumps(
+        {"version": CT_QC_CACHE_VERSION, "config": to_jsonable(dict(config))},
+        sort_keys=True,
+    ).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -84,6 +92,18 @@ def candidate_pass(row: Mapping[str, Any]) -> bool:
         str(row.get(field, "")).strip().lower() == "true"
         for field in ("prefilter_pass", "nifti_qc_pass", "totalseg_pass")
     ) and not candidate_fail_reasons(row)
+
+
+def pretreatment_pass(row: Mapping[str, Any]) -> bool:
+    metadata = " ".join(
+        str(row.get(field, "") or "")
+        for field in (
+            "Series Description", "series_description",
+            "Study Description", "study_description",
+            "Protocol Name", "protocol_name",
+        )
+    )
+    return POST_TREATMENT_MARKER.search(metadata) is None
 
 
 def phase_priority(phase_or_row: Any) -> int:
@@ -433,34 +453,52 @@ def prepare_ct_cases(cases: list[Mapping[str, Any]], ct_qc_dir: Path, config: Ma
 def build_case_summary(case_id: str, records: list[dict[str, Any]], prefilter_report_path: str) -> dict[str, Any]:
     records = annotate_phases(records)
     selected = min(records, key=lambda row: (phase_priority(row), technical_key(row))) if records else None
+    selected_ok = bool(selected and pretreatment_pass(selected))
     case_output_dir = Path(prefilter_report_path).parent
     selected_file = ""
     selected_series = {}
     if selected:
         selected_file = str(case_output_dir / f"{safe_identifier(case_id)}.nii.gz")
         shutil.copy2(str(selected["ct_path"]), selected_file)
-        selected_series = {**selected, "ct_path": selected_file, "passes_threshold": True, "quality_label": "selected_for_case_qc"}
+        selected_series = {
+            **selected,
+            "ct_path": selected_file,
+            "passes_threshold": selected_ok,
+            "quality_label": "selected_for_case_qc" if selected_ok else "post_treatment_excluded",
+        }
     selected_entry = {
         "case_id": case_id,
         "selected_file": selected_file,
         "selected_source_file": str(selected.get("ct_source_path", "") if selected else ""),
         "selected_input_path": str(selected.get("input_case_path", "") if selected else ""),
         "selected_ct_id": str(selected.get("ct_id", "") if selected else ""),
-        "passes_threshold": bool(selected),
+        "passes_threshold": selected_ok,
     }
     return {
         "case_id": case_id,
         "cacheable": True,
         "series_count": len(records),
-        "case_qc_passes_threshold": bool(selected),
-        "quality_label": "selected_for_case_qc" if selected else "no_valid_series",
-        "errors": [] if selected else ["no_valid_candidate_series"],
+        "case_qc_passes_threshold": selected_ok,
+        "quality_label": (
+            "selected_for_case_qc"
+            if selected_ok
+            else "post_treatment_excluded"
+            if selected
+            else "no_valid_series"
+        ),
+        "errors": (
+            []
+            if selected_ok
+            else ["post_treatment_marker_detected"]
+            if selected
+            else ["no_valid_candidate_series"]
+        ),
         "dicom_prefilter_report_path": prefilter_report_path,
         "series_summaries": [{**row, "selected_by_current_qc": bool(selected and row.get("series_uid") == selected.get("series_uid"))} for row in records],
         "selected_series": selected_series,
         "selected_files": [selected_entry] if selected else [],
-        "passed_case_ids": [case_id] if selected else [],
-        "filtered_cases": [] if selected else [selected_entry],
+        "passed_case_ids": [case_id] if selected_ok else [],
+        "filtered_cases": [] if selected_ok else [selected_entry],
     }
 
 
@@ -478,7 +516,8 @@ def run_ct_qc_cohort(cases: list[Mapping[str, Any]], output_root: str = "", conf
         summaries = {case_id: json.loads(path.read_text(encoding="utf-8")) for case_id, path in summary_paths.items()}
         if all(not summary.get("case_qc_passes_threshold") or Path(str(summary.get("selected_series", {}).get("ct_path", ""))).is_file() for summary in summaries.values()):
             return {"case_count": len(cases), "passed_case_ids": [case_id for case_id, summary in summaries.items() if summary.get("case_qc_passes_threshold")], "filtered_case_ids": [case_id for case_id, summary in summaries.items() if not summary.get("case_qc_passes_threshold")], "selection_summaries": summaries}
-    prepared = prepare_ct_cases(cases, ct_qc_dir, config, reuse_cached_rows=True)
+    reuse_cached_rows = previous.get("config_signature") == config_signature
+    prepared = prepare_ct_cases(cases, ct_qc_dir, config, reuse_cached_rows=reuse_cached_rows)
     summaries = {}
     for case_id, item in tqdm(prepared.items(), desc="CT case selection", unit="case", disable=not sys.stderr.isatty()):
         summary = build_case_summary(case_id, item["series_records"], item["prefilter_report_path"])
