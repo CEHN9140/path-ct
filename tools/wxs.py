@@ -366,7 +366,10 @@ def run_case_cnv_features(
                 "case_features_path": cache["case_features_path"],
                 "manifest_path": cache["manifest_path"],
             },
-            provenance={"backend": "ascat3_segments", "signature": cache["signature"]},
+            provenance={
+                "backend": "gdc_copy_number_segment",
+                "signature": cache["signature"],
+            },
             errors=[] if status == "success" else ["CNV features are unavailable for this case."],
             payload=payload,
         ),

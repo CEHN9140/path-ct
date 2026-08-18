@@ -19,6 +19,15 @@ ASSOCIATION_FIELDS = (
 )
 
 
+def coarse_phase_group(value: str) -> str:
+    phase = str(value or "UNKNOWN").strip().upper()
+    if phase in {"NC", "ART", "NEPH", "DEL", "UNKNOWN"}:
+        return phase
+    if phase in {"MAIN_CE_HIGH", "MAIN_CE_MEDIUM", "CE_UNSPECIFIED"}:
+        return "OTHER_CE"
+    return "UNKNOWN"
+
+
 def cramers_v(table: list[list[int]], chi2: float) -> float:
     n = sum(sum(row) for row in table)
     rows = len(table)
@@ -95,7 +104,8 @@ def read_selected_metadata(phase_csv: Path, qc_root: Path) -> list[dict[str, Any
                 "selected_ct_id": ct_id,
                 "explicit_phase": phase_row.get("explicit_phase", ""),
                 "inferred_phase": phase_row.get("inferred_phase", ""),
-                "phase_group": phase_row.get("inferred_phase", "") or "UNKNOWN",
+                "phase_label": phase_row.get("inferred_phase", "") or "UNKNOWN",
+                "phase_group": coarse_phase_group(phase_row.get("inferred_phase", "")),
                 "phase_confidence": phase_row.get("inferred_confidence", ""),
                 "phase_source": phase_row.get("phase_source", ""),
                 "manufacturer": str(sidecar.get("Manufacturer", "") or "").strip(),
@@ -216,6 +226,14 @@ def run(
             "missing_metadata_is_not_imputed": True,
             "no_enhancement_score_included": True,
             "association_effect_size": "Cramer's V",
+            "phase_grouping": {
+                "NC": "NC",
+                "ART": "ART",
+                "NEPH": "NEPH",
+                "DEL": "DEL",
+                "MAIN_CE_HIGH/MAIN_CE_MEDIUM/CE_UNSPECIFIED": "OTHER_CE",
+                "unrecognized_or_missing": "UNKNOWN",
+            },
         },
         "output_files": {
             "selected_cases": str(experiment_root / "selected_ct_confounders.csv"),
