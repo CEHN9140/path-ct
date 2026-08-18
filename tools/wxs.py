@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import gzip
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -13,6 +12,7 @@ from scipy.spatial.distance import cdist
 from snf.compute import affinity_matrix
 
 from utils.io import ensure_dir, write_json
+from utils.cache_utils import hash_payload, semantic_config
 from utils.omics_utils import (
     build_cohort_signature,
     collect_case_file_paths,
@@ -147,7 +147,20 @@ def build_genomic_discovery_artifacts(
     validation = out / "wxs_validation_features.csv"
     cnv_path, genomic_path = out / "cnv_affinity.npy", out / "genomic_affinity.npy"
     order_path, audit_path = out / "wxs_discovery_patient_order.json", out / "wxs_discovery_audit.json"
-    signature = hashlib.sha256(json.dumps({"wxs": wxs_cache["signature"], "cnv": cnv_cache["signature"], "config": config, "snf": snf}, sort_keys=True).encode()).hexdigest()[:16]
+    signature = hash_payload(
+        {
+            "cache_version": 1,
+            "upstream": {
+                "wxs": wxs_cache["signature"],
+                "cnv": cnv_cache["signature"],
+            },
+            "semantic_config": {
+                "wxs": semantic_config(config),
+                "snf": semantic_config(snf),
+            },
+            "patient_ids": patients,
+        }
+    )
     if audit_path.is_file() and genomic_path.is_file() and cnv_path.is_file() and order_path.is_file() and discovery.is_file() and validation.is_file():
         if json.loads(audit_path.read_text()).get("artifact_signature") == signature:
             return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "cnv_affinity_path": str(cnv_path), "genomic_affinity_path": str(genomic_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}

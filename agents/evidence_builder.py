@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,13 +12,13 @@ from agents.common import (
     case_from_state,
     convert_slide_embedding_to_npy,
     ct_input_identity,
-    file_identity,
     load_selected_ct_record,
     load_selected_wsi_record,
     load_tool_snapshot,
 )
 from utils.llm_utils import load_yaml_file
 from utils.omics_utils import build_cohort_signature, collect_case_file_paths
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.tool_utils import (
     safe_identifier,
     save_snapshot,
@@ -45,36 +44,48 @@ def wsi_embedding_cache_signature(
 ) -> str:
     code_root = Path(str(embedding_config["prov_gigapath_code_root"])).expanduser()
     checkpoint_dir = code_root / "checkpoints"
-    signature_config = {
-        key: value
-        for key, value in embedding_config.items()
-        if key not in WSI_EMBEDDING_RUNTIME_KEYS
-    }
-    signature_config["device"] = "cuda"
+    signature_config = semantic_config(embedding_config, WSI_EMBEDDING_RUNTIME_KEYS)
     patch_artifacts = dict(
         dict(patch_bundle.get("tool_result", {}) or {}).get("artifacts", {}) or {}
     )
-    identity = {
-        "embedding_config": signature_config,
-        "selected_slide_path": selected_slide_path,
-        "patch_payload": dict(patch_bundle.get("payload", {}) or {}),
-        "tumor_selection": file_identity(
-            str(patch_artifacts["tumor_coordinates_h5_path"])
-        ),
-        "model_files": {
-            name: file_identity(str(checkpoint_dir / name))
-            for name in ("config.json", "pytorch_model.bin", "slide_encoder.pth")
-        },
-        "embedding_code": file_identity(
-            str(Path(__file__).resolve().parent.parent / "tools" / "wsi_embeddings.py")
-        ),
-        "slide_encoder_code": file_identity(
-            str(code_root / "gigapath" / "slide_encoder.py")
-        ),
-    }
-    return hashlib.sha256(
-        json.dumps(identity, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    return hash_payload(
+        {
+            "cache_version": 2,
+            "semantic_config": signature_config,
+            "upstream": {
+                "wsi_tumor_seg": str(
+                    dict(patch_bundle.get("payload", {}) or {}).get(
+                        "cache_signature", ""
+                    )
+                ),
+            },
+            "inputs": {
+                "tumor_coordinates": file_identity(
+                    str(patch_artifacts["tumor_coordinates_h5_path"])
+                ),
+            },
+            "models": {
+                name: file_identity(str(checkpoint_dir / name))
+                for name in (
+                    "config.json",
+                    "pytorch_model.bin",
+                    "slide_encoder.pth",
+                )
+            },
+            "code": {
+                "embedding": file_identity(
+                    str(
+                        Path(__file__).resolve().parent.parent
+                        / "tools"
+                        / "wsi_embeddings.py"
+                    )
+                ),
+                "slide_encoder": file_identity(
+                    str(code_root / "gigapath" / "slide_encoder.py")
+                ),
+            },
+        }
+    )
 
 
 def wsi_embedding_context(
@@ -166,15 +177,11 @@ def wsi_embedding_context(
         and str(cached_artifacts.get("tumor_coordinates_h5_path", "") or "")
         == str(tumor_coordinates_h5_path)
     )
-    legacy_v1_cache = int(cached_payload.get("semantic_cache_version", 0) or 0) == 1
     reuse_cached_embeddings = (
         cached_bundle
         and str(cached_payload.get("slide_path", "") or "") == selected_slide_path
         and cached_inputs_match
-        and (
-            cached_payload.get("cache_signature") == current_cache_signature
-            or legacy_v1_cache
-        )
+        and cached_payload.get("cache_signature") == current_cache_signature
         and cached_embeddings_are_current
     )
     if reuse_cached_embeddings:
@@ -261,7 +268,7 @@ def wsi_embeddings(
         {
             "slide_path": context["selected_slide_path"],
             "cache_signature": context["current_cache_signature"],
-            "semantic_cache_version": 1,
+            "semantic_cache_version": 2,
         }
     )
     save_snapshot(
@@ -335,6 +342,31 @@ def ct_radiomics(
     )
     extraction_cache_config = dict(current_radiomics_config)
     extraction_cache_config.pop("confound_correction", None)
+    tumor_seg_bundle = load_tool_snapshot(
+        output_root,
+        "ct_tumor_seg",
+        case_id,
+        required_artifact_keys=["segmentation_path"],
+    )
+    current_radiomics_cache_signature = hash_payload(
+        {
+            "cache_version": 1,
+            "semantic_config": extraction_cache_config,
+            "upstream": {
+                "ct_tumor_seg": str(
+                    dict(tumor_seg_bundle.get("payload", {}) or {}).get(
+                        "cache_signature", ""
+                    )
+                    if tumor_seg_bundle
+                    else ""
+                )
+            },
+            "inputs": {
+                "ct": file_identity(ct_path) if Path(ct_path).is_file() else {"path": ct_path},
+                "mask": current_mask_identity,
+            },
+        }
+    )
     comparison_artifact_keys = []
     for value in current_radiomics_config["ccc_comparison_bin_widths"]:
         bin_width = float(value)
@@ -358,13 +390,9 @@ def ct_radiomics(
     cached_payload = (
         dict(cached_bundle.get("payload", {}) or {}) if cached_bundle else {}
     )
-    cached_radiomics_config = dict(cached_payload.get("radiomics_config", {}) or {})
-    cached_radiomics_config.pop("confound_correction", None)
     if (
         cached_bundle
-        and dict(cached_payload.get("ct_identity", {}) or {}) == current_ct_identity
-        and dict(cached_payload.get("mask_identity", {}) or {}) == current_mask_identity
-        and cached_radiomics_config == extraction_cache_config
+        and cached_payload.get("cache_signature") == current_radiomics_cache_signature
     ):
         announce_tool_action(
             "ct_radiomics", case_id, "Reuse cached tool `ct_radiomics`."
@@ -396,6 +424,17 @@ def ct_radiomics(
     ]
     if str(radiomics_result.get("status", "") or "") == "failure":
         raise RuntimeError(errors[0] if errors else "CT radiomics failed.")
+    snapshot_path = Path(output_root) / "ct_radiomics" / f"{safe_identifier(case_id)}.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot_payload = dict(snapshot.get("payload", {}) or {})
+    snapshot_payload["cache_signature"] = current_radiomics_cache_signature
+    snapshot_payload["cache_version"] = 1
+    save_snapshot(
+        output_root,
+        "ct_radiomics",
+        case_id,
+        {"tool_result": radiomics_result, "payload": snapshot_payload},
+    )
     return add_tool_result(
         state,
         bucket_name="ct_evidence",
@@ -591,21 +630,77 @@ def build_evidence_states(
         for state in eligible_states
     ):
         return updated_states
-    from tools.evidence_features import build_modality_affinity_artifacts
-
-    feature_payload = build_modality_affinity_artifacts(
-        eligible_states,
-        config_dir=config_dir,
-        output_root=output_root,
-    )
     patient_ids = [str(state.get("case_id", "")) for state in eligible_states]
-    affinity_paths = save_modality_affinity_artifacts(
-        output_root=output_root,
-        patient_ids=patient_ids,
-        modality_affinities=feature_payload["modality_affinities"],
-        genomic_discovery=genomic_discovery,
-        audit=feature_payload.get("audit", {}),
+    affinity_dir = Path(output_root) / "candidate_subtype"
+    affinity_manifest_path = affinity_dir / "affinity_cache.json"
+    snf_config = load_yaml_file(Path(config_dir).expanduser() / "snf.yaml")
+    upstream_inputs = []
+    for state in eligible_states:
+        for bucket_name in ("ct_evidence", "wsi_evidence", "omics_evidence"):
+            for key, value in dict(state.get(bucket_name, {}) or {}).items():
+                path = str(value or "")
+                if path and Path(path).is_file():
+                    upstream_inputs.append(
+                        {
+                            "case_id": str(state.get("case_id", "")),
+                            "bucket": bucket_name,
+                            "key": key,
+                            "file": file_identity(path),
+                        }
+                    )
+    for key, value in genomic_discovery.items():
+        path = str(value or "")
+        if path and Path(path).is_file():
+            upstream_inputs.append({"key": key, "file": file_identity(path)})
+    affinity_cache_signature = hash_payload(
+        {
+            "cache_version": 1,
+            "patient_ids": patient_ids,
+            "semantic_config": {"snf": snf_config},
+            "upstream_inputs": sorted(
+                upstream_inputs, key=lambda item: json.dumps(item, sort_keys=True)
+            ),
+        }
     )
+    affinity_paths = {}
+    affinity_manifest = {}
+    if affinity_manifest_path.is_file():
+        affinity_manifest = json.loads(
+            affinity_manifest_path.read_text(encoding="utf-8")
+        )
+    cached_paths = dict(affinity_manifest.get("paths", {}) or {})
+    if (
+        affinity_manifest.get("cache_signature") == affinity_cache_signature
+        and bool(cached_paths)
+        and all(Path(path).is_file() for path in cached_paths.values())
+        and (affinity_dir / "feature_engineering_audit.json").is_file()
+    ):
+        affinity_paths = cached_paths
+    else:
+        from tools.evidence_features import build_modality_affinity_artifacts
+
+        feature_payload = build_modality_affinity_artifacts(
+            eligible_states,
+            config_dir=config_dir,
+            output_root=output_root,
+        )
+        affinity_paths = save_modality_affinity_artifacts(
+            output_root=output_root,
+            patient_ids=patient_ids,
+            modality_affinities=feature_payload["modality_affinities"],
+            genomic_discovery=genomic_discovery,
+            audit=feature_payload.get("audit", {}),
+        )
+        affinity_manifest = {
+            "cache_version": 1,
+            "cache_signature": affinity_cache_signature,
+            "patient_ids": patient_ids,
+            "paths": affinity_paths,
+        }
+        affinity_manifest_path.write_text(
+            json.dumps(affinity_manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     affinity_dir = Path(output_root) / "candidate_subtype"
     audit_path = affinity_dir / "feature_engineering_audit.json"
     patient_order_path = Path(genomic_discovery["wxs_patient_order_path"])
@@ -615,5 +710,7 @@ def build_evidence_states(
                 "modality_affinity_paths": affinity_paths,
                 "multimodal_audit_path": str(audit_path),
                 "modality_affinity_patient_order_path": str(patient_order_path),
+                "modality_affinity_cache_signature": affinity_cache_signature,
+                "modality_affinity_cache_path": str(affinity_manifest_path),
             })
     return updated_states

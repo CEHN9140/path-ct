@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from utils.cache_utils import artifacts_valid, file_identity, hash_payload
 
 
 def collect_case_file_paths(
@@ -31,11 +32,17 @@ def build_cohort_signature(
     extra: Mapping[str, Any],
 ) -> str:
     payload = {
-        "case_file_rows": [[case_id, file_path] for case_id, file_path in case_file_rows],
+        "cache_version": 1,
+        "case_file_rows": [
+            {
+                "case_id": case_id,
+                "input": file_identity(file_path) if Path(file_path).exists() else {"path": file_path},
+            }
+            for case_id, file_path in case_file_rows
+        ],
         "extra": dict(extra),
     }
-    content = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+    return hash_payload(payload)
 
 
 def load_manifest_if_valid(
@@ -52,7 +59,6 @@ def load_manifest_if_valid(
         return None
     if str(manifest.get("signature", "")) != signature:
         return None
-    for required_path in required_paths:
-        if not required_path.exists():
-            return None
+    if not artifacts_valid(required_paths):
+        return None
     return manifest

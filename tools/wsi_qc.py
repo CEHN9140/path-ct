@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -13,26 +12,38 @@ from tqdm.auto import tqdm
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.tool_utils import (
     quiet_tool_logs,
     run_json_workers,
     save_snapshot,
-    semantic_execution_config,
     split_device_requests,
     to_jsonable,
 )
+
+WSI_QC_CACHE_VERSION = 1
+WSI_QC_RUNTIME_KEYS = {
+    "device",
+    "devices",
+    "workers",
+    "workers_per_gpu",
+    "num_workers",
+    "batch_size",
+    "pin_memory",
+    "prefetch_factor",
+}
 
 
 def wsi_qc_config_signature(
     config: Mapping[str, Any], *, include_device_indices: bool = False
 ) -> str:
-    signature_config = (
-        to_jsonable(dict(config))
-        if include_device_indices
-        else semantic_execution_config(dict(config))
+    runtime_keys = set() if include_device_indices else WSI_QC_RUNTIME_KEYS
+    return hash_payload(
+        {
+            "cache_version": WSI_QC_CACHE_VERSION,
+            "semantic_config": semantic_config(config, runtime_keys),
+        }
     )
-    content = json.dumps(signature_config, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(content).hexdigest()
 
 
 def wsi_qc_stage_config_signature(config: Mapping[str, Any]) -> str:
@@ -50,27 +61,20 @@ def wsi_case_cache_signature(
     for raw_record in list(case.get("WSI", []) or []):
         record = dict(raw_record)
         source_path = str(record.get("File Path", "") or "").strip()
-        file_identity: dict[str, Any] = {"path": source_path}
-        if source_path:
-            path = Path(source_path).expanduser().resolve()
-            file_identity["path"] = str(path)
-            if path.is_file():
-                stat = path.stat()
-                file_identity.update(
-                    {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
-                )
+        input_identity = (
+            file_identity(source_path) if source_path and Path(source_path).exists()
+            else {"path": source_path}
+        )
         records.append(
-            {"record": to_jsonable(record), "file_identity": file_identity}
+            {"record": to_jsonable(record), "file_identity": input_identity}
         )
     records.sort(key=lambda item: json.dumps(item, sort_keys=True))
-    payload = {
+    return hash_payload({
+        "cache_version": WSI_QC_CACHE_VERSION,
         "case_id": case_id_from_case(case),
         "config_signature": config_signature,
         "wsi_records": records,
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    })
 
 
 def case_id_from_case(case: Mapping[str, Any]) -> str:
@@ -482,10 +486,6 @@ def run_wsi_qc_cohort(
         )
     )
     config_signature = wsi_qc_config_signature(tool_config)
-    legacy_config_signature = wsi_qc_config_signature(
-        tool_config, include_device_indices=True
-    )
-    stage_config_signature = wsi_qc_stage_config_signature(tool_config)
     summaries: dict[str, Any] = {}
     pending_cases = []
     case_cache_signatures = {}
@@ -494,12 +494,8 @@ def run_wsi_qc_cohort(
     for case in cases:
         case_id = case_id_from_case(case)
         cache_signature = wsi_case_cache_signature(case, config_signature)
-        legacy_device_cache_signature = wsi_case_cache_signature(
-            case, legacy_config_signature
-        )
-        stage_signature = wsi_case_cache_signature(case, stage_config_signature)
         case_cache_signatures[case_id] = cache_signature
-        case_stage_signatures[case_id] = stage_signature
+        case_stage_signatures[case_id] = cache_signature
         summary_path = Path(output_root) / "wsi_qc" / case_id / "selection_summary.json"
         summary = {}
         if summary_path.exists() and summary_path.read_text(encoding="utf-8").strip():
@@ -508,31 +504,29 @@ def run_wsi_qc_cohort(
                 summary.get("cacheable", not list(summary.get("errors", []) or []))
             )
             saved_cache_signature = str(summary.get("cache_signature", "") or "")
-            if saved_cache_signature in {
-                cache_signature,
-                legacy_device_cache_signature,
-            }:
-                if summary_cacheable:
-                    if saved_cache_signature != cache_signature:
-                        summary["cache_signature"] = cache_signature
-                        summary_path.write_text(
-                            json.dumps(to_jsonable(summary), ensure_ascii=False, indent=2),
-                            encoding="utf-8",
-                        )
-                    summaries[case_id] = summary
-                    continue
+            selected_path = str(
+                dict(summary.get("selected_slide") or {}).get("selected_slide_path", "")
+                or ""
+            )
+            selected_mask_path = next(
+                (
+                    str(slide.get("mask_path", "") or "")
+                    for slide in list(summary.get("slide_summaries", []) or [])
+                    if str(slide.get("slide_path", "") or "") == selected_path
+                ),
+                "",
+            )
+            if (
+                summary_cacheable
+                and saved_cache_signature == cache_signature
+                and selected_mask_path
+                and Path(selected_mask_path).is_file()
+            ):
+                summaries[case_id] = summary
+                continue
+            if not summary_cacheable or saved_cache_signature != cache_signature:
                 force_case_ids.append(case_id)
         pending_cases.append(case)
-        previous_stage_signature = str(
-            summary.get("grandqc_stage_signature", "") or ""
-        )
-        if previous_stage_signature:
-            if (
-                previous_stage_signature != stage_signature
-                and case_id not in force_case_ids
-            ):
-                force_case_ids.append(case_id)
-            continue
     if not pending_cases:
         return {"case_count": len(cases), "selection_summaries": summaries}
 

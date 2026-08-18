@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -11,19 +11,18 @@ from agents.common import (
     announce_tool_action,
     case_from_state,
     ct_input_identity,
-    file_identity,
     load_selected_ct_record,
     load_selected_wsi_record,
     load_tool_snapshot,
     selected_ct_from_result,
 )
 from agents.inventory import build_patient_state
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import (
     make_tool_result,
     safe_identifier,
     save_snapshot,
-    semantic_execution_config,
 )
 
 WSI_PATCH_RUNTIME_KEYS = {"batch_size", "num_workers"}
@@ -54,14 +53,36 @@ def wsi_patch(
     patch_config = load_yaml_file(Path(config_dir).expanduser() / "wsi_patch.yaml")
     patch_size = int(patch_config["patch_size"])
     target_mpp = float(patch_config["target_mpp"])
-    patch_semantic_config = {
-        key: value
-        for key, value in patch_config.items()
-        if key not in WSI_PATCH_RUNTIME_KEYS
-    }
-    patch_config_signature = hashlib.sha256(
-        json.dumps(patch_semantic_config, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    patch_semantic_config = semantic_config(patch_config, WSI_PATCH_RUNTIME_KEYS)
+    wsi_qc_summary_path = (
+        Path(output_root) / "wsi_qc" / case_id / "selection_summary.json"
+    )
+    if not wsi_qc_summary_path.is_file():
+        raise FileNotFoundError(f"WSI QC summary is missing for {case_id}.")
+    wsi_qc_summary = json.loads(wsi_qc_summary_path.read_text(encoding="utf-8"))
+    selected_slide_summary = dict(wsi_qc_summary.get("selected_slide") or {})
+    qc_mask_path = next(
+        (
+            str(slide.get("mask_path", "") or "")
+            for slide in list(wsi_qc_summary.get("slide_summaries", []) or [])
+            if str(slide.get("slide_path", "") or "") == selected_slide_path
+        ),
+        "",
+    )
+    if not qc_mask_path:
+        output_dir = str(selected_slide_summary.get("selected_output_dir", "") or "")
+        slide_name = str(selected_slide_summary.get("selected_slide_name", "") or "")
+        qc_mask_path = str(Path(output_dir) / "mask_qc" / f"{slide_name}_mask.png")
+    patch_cache_signature = hash_payload(
+        {
+            "cache_version": 1,
+            "semantic_config": patch_semantic_config,
+            "inputs": {
+                "slide": file_identity(selected_slide_path),
+                "qc_mask": file_identity(qc_mask_path),
+            },
+        }
+    )
     cached_bundle = load_tool_snapshot(
         output_root,
         "wsi_patch",
@@ -75,10 +96,7 @@ def wsi_patch(
     )
     if (
         cached_bundle is not None
-        and str(cached_payload.get("slide_path", "") or "") == selected_slide_path
-        and int(cached_payload.get("patch_size", 0) or 0) == patch_size
-        and float(cached_payload.get("target_mpp", 0.0) or 0.0) == target_mpp
-        and cached_payload.get("config_signature") == patch_config_signature
+        and cached_payload.get("cache_signature") == patch_cache_signature
     ):
         announce_tool_action("wsi_patch", case_id, "Reuse cached tool `wsi_patch`.")
         return add_tool_result(
@@ -105,7 +123,7 @@ def wsi_patch(
         "patch_dir": str(patch_slide.get("patch_dir", "") or ""),
         "patch_count": int(patch_slide.get("patch_count", 0) or 0),
         "patch_size": int(patch_result.get("patch_size", 0) or 0),
-        "config_signature": patch_config_signature,
+        "cache_signature": patch_cache_signature,
         "level": int(patch_slide.get("level", 0) or 0),
         "coordinate_space": str(
             patch_slide.get(
@@ -175,27 +193,31 @@ def wsi_patch(
 def wsi_tumor_seg_cache_signature(
     config: Mapping[str, Any], slide_path: str, patch_bundle: Mapping[str, Any]
 ) -> str:
-    semantic_config = {
-        key: value
-        for key, value in config.items()
-        if key not in WSI_TUMOR_SEG_RUNTIME_KEYS
-    }
+    semantic_config_value = semantic_config(config, WSI_TUMOR_SEG_RUNTIME_KEYS)
     artifacts = dict(
         dict(patch_bundle.get("tool_result", {}) or {}).get("artifacts", {}) or {}
     )
-    identity = {
-        "config": semantic_config,
-        "slide_path": slide_path,
-        "coordinates": file_identity(str(artifacts["coordinates_h5_path"])),
-        "model": file_identity(str(config["model_path"])),
-        "inference_config": file_identity(str(config["inference_config_path"])),
-        "code": file_identity(
-            str(Path(__file__).resolve().parent.parent / "tools" / "wsi_tumor_seg.py")
-        ),
-    }
-    return hashlib.sha256(
-        json.dumps(identity, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    return hash_payload(
+        {
+            "cache_version": 1,
+            "semantic_config": semantic_config_value,
+            "upstream": {
+                "wsi_patch": str(
+                    dict(patch_bundle.get("payload", {}) or {}).get(
+                        "cache_signature", ""
+                    )
+                ),
+                "coordinates": file_identity(str(artifacts["coordinates_h5_path"])),
+            },
+            "model": {
+                "model": file_identity(str(config["model_path"])),
+                "inference_config": file_identity(str(config["inference_config_path"])),
+                "code": file_identity(
+                    str(Path(__file__).resolve().parent.parent / "tools" / "wsi_tumor_seg.py")
+                ),
+            },
+        }
+    )
 
 
 def wsi_tumor_seg_context(
@@ -327,16 +349,24 @@ def nifti_geometry_matches(ct_path: str, mask_path: str) -> bool:
 
 
 def ct_tumor_seg_config_signature(config: Mapping[str, Any]) -> str:
-    semantic_config = {
-        key: value
-        for key, value in config.items()
-        if key not in CT_TUMOR_SEG_RUNTIME_KEYS
-    }
-    return hashlib.sha256(
-        json.dumps(
-            semantic_execution_config(semantic_config), sort_keys=True
-        ).encode("utf-8")
-    ).hexdigest()
+    return hash_payload(
+        {
+            "cache_version": 1,
+            "semantic_config": semantic_config(config, CT_TUMOR_SEG_RUNTIME_KEYS),
+        }
+    )
+
+
+def ct_tumor_seg_cache_signature(
+    config: Mapping[str, Any], ct_path: str, ct_identity: Mapping[str, Any]
+) -> str:
+    return hash_payload(
+        {
+            "cache_version": 1,
+            "semantic_config": semantic_config(config, CT_TUMOR_SEG_RUNTIME_KEYS),
+            "inputs": {"ct_identity": dict(ct_identity), "ct_file": file_identity(ct_path)},
+        }
+    )
 
 
 def ct_tumor_seg_context(
@@ -354,14 +384,9 @@ def ct_tumor_seg_context(
         / f"{case_id}_mask.nii.gz"
     )
     tool_config = load_yaml_file(Path(config_dir).expanduser() / "ct_tumor_seg.yaml")
-    current_config_signature = ct_tumor_seg_config_signature(tool_config)
-    expected_backend = str(tool_config["backend"]).strip().lower()
-    expected_model = (
-        str(Path(str(tool_config["model_folder"])).expanduser().resolve())
-        if "model_folder" in tool_config
-        else str(tool_config["task_name"])
+    current_cache_signature = ct_tumor_seg_cache_signature(
+        tool_config, ct_path, current_ct_identity
     )
-    expected_label = tool_config["output_label"]
     snapshot_path = (
         Path(output_root) / "ct_tumor_seg" / f"{safe_identifier(case_id)}.json"
     )
@@ -376,31 +401,15 @@ def ct_tumor_seg_context(
             cached_tool_result = {}
             cached_payload = {}
     cached_provenance = dict(cached_tool_result.get("provenance", {}) or {})
-    cached_config_signature = str(cached_payload.get("config_signature", "") or "")
-    cached_config_matches = (
-        str(cached_provenance.get("backend", "")).lower() == expected_backend
-        and str(
-            cached_provenance.get("model_folder")
-            or cached_provenance.get("task_name")
-            or ""
-        )
-        == expected_model
-        and str(cached_provenance.get("output_label", ""))
-        == str(expected_label if expected_label is not None else "")
-        and bool(cached_config_signature)
-        and cached_config_signature == current_config_signature
-    )
-    cached_ct_identity = dict(cached_payload.get("ct_identity", {}) or {})
-    cached_input_matches = (
-        bool(cached_ct_identity)
-        and cached_ct_identity == current_ct_identity
-    )
     reuse_existing_mask = (
         cached_mask_path.exists()
-        and cached_config_matches
-        and cached_input_matches
+        and cached_payload.get("cache_signature") == current_cache_signature
         and nifti_geometry_matches(ct_path, str(cached_mask_path))
     )
+    if snapshot_path.exists() and not reuse_existing_mask:
+        if cached_mask_path.parent.is_dir():
+            shutil.rmtree(cached_mask_path.parent)
+        snapshot_path.unlink()
     reused_tool_result = {}
     if reuse_existing_mask:
         reused_tool_result = make_tool_result(
@@ -411,10 +420,11 @@ def ct_tumor_seg_context(
             metrics={"returncode": 0},
             artifacts={"segmentation_path": str(cached_mask_path)},
             provenance=cached_provenance
-            or {"backend": expected_backend, "case_id": case_id},
+            or {"case_id": case_id},
             payload={
                 "case_id": case_id,
                 "segmentation_path": str(cached_mask_path),
+                "cache_signature": current_cache_signature,
                 "reused_existing_mask": True,
             },
         )
@@ -422,7 +432,7 @@ def ct_tumor_seg_context(
         "case_id": case_id,
         "ct_path": ct_path,
         "ct_identity": current_ct_identity,
-        "config_signature": current_config_signature,
+        "cache_signature": current_cache_signature,
         "mask_path": str(cached_mask_path),
         "reused_tool_result": reused_tool_result,
         "reuse_existing_mask": reuse_existing_mask,
@@ -444,7 +454,7 @@ def finalize_ct_tumor_seg(
     tumor_seg_result = dict(tumor_seg_result)
     tumor_seg_payload = {
         "ct_identity": current_ct_identity,
-        "config_signature": str(context["config_signature"]),
+        "cache_signature": str(context["cache_signature"]),
         "reused_existing_mask": bool(context["reuse_existing_mask"]),
     }
     errors = [
@@ -467,7 +477,7 @@ def finalize_ct_tumor_seg(
                 "payload": {
                     "case_id": case_id,
                     "ct_identity": current_ct_identity,
-                    "config_signature": str(context["config_signature"]),
+                    "cache_signature": str(context["cache_signature"]),
                     "input_ct_path": ct_path,
                 },
             },
@@ -704,9 +714,18 @@ def wsi_qc(
         if state.get("qc") != "success":
             patched_states.append(dict(state))
             continue
-        patched_states.append(
-            dict(wsi_patch(state, output_root=output_root, config_dir=config_dir))
-        )
+        try:
+            patched_states.append(
+                dict(wsi_patch(state, output_root=output_root, config_dir=config_dir))
+            )
+        except Exception as exc:
+            patched_states.append(
+                add_execution_errors(
+                    {**dict(state), "qc": "fail"},
+                    "wsi_patch",
+                    [f"{type(exc).__name__}: {exc}"],
+                )
+            )
     return wsi_tumor_seg(
         patched_states, output_root=output_root, config_dir=config_dir
     )

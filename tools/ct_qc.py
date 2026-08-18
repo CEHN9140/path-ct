@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -17,6 +16,7 @@ import SimpleITK as sitk
 import yaml
 from tqdm.auto import tqdm
 
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.tool_utils import safe_identifier, run_command, split_device_requests, to_jsonable
 
 
@@ -24,7 +24,7 @@ PHASE_PRIORITY = {
     "NEPH": 0, "MAIN_CE_HIGH": 1, "MAIN_CE_MEDIUM": 2,
     "CE_UNSPECIFIED": 3, "ART": 4, "DEL": 5, "NC": 6, "UNKNOWN": 6,
 }
-CT_QC_CACHE_VERSION = "2026-08-18-final"
+CT_QC_CACHE_VERSION = 2
 CT_QC_RUNTIME_KEYS = {
     "device",
     "devices",
@@ -57,33 +57,35 @@ POST_TREATMENT_MARKER = re.compile(
 
 
 def semantic_ct_qc_config(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): semantic_ct_qc_config(item)
-            for key, item in value.items()
-            if str(key) not in CT_QC_RUNTIME_KEYS
-        }
-    if isinstance(value, list):
-        return [semantic_ct_qc_config(item) for item in value]
-    return value
+    return semantic_config(value, CT_QC_RUNTIME_KEYS)
 
 
 def ct_qc_config_signature(config: Mapping[str, Any]) -> str:
-    payload = json.dumps(
-        {"version": CT_QC_CACHE_VERSION, "config": to_jsonable(semantic_ct_qc_config(config))},
-        sort_keys=True,
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
+    return hash_payload(
+        {
+            "cache_version": CT_QC_CACHE_VERSION,
+            "semantic_config": semantic_ct_qc_config(config),
+        }
+    )
 
 
 def ct_case_signature(case: Mapping[str, Any]) -> str:
-    records = [to_jsonable(dict(record)) for record in list(case.get("CT", []) or [])]
+    records = []
+    for raw_record in list(case.get("CT", []) or []):
+        record = dict(raw_record)
+        source_path = str(record.get("File Path", "") or "")
+        records.append(
+            {
+                "record": to_jsonable(record),
+                "file": file_identity(source_path) if Path(source_path).exists() else {"path": source_path},
+            }
+        )
     records.sort(key=lambda record: json.dumps(record, sort_keys=True))
-    payload = {
+    return hash_payload({
+        "cache_version": CT_QC_CACHE_VERSION,
         "case_id": str(case.get("Case_ID", case.get("case_id", "")) or ""),
         "ct_records": records,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    })
 
 
 def load_case_summary(path: Path) -> dict[str, Any] | None:
@@ -574,6 +576,7 @@ def run_ct_qc(cases: list[Mapping[str, Any]], output_root: str = "", config_dir:
     manifest_path.write_text(
         json.dumps(
             {
+                "cache_version": CT_QC_CACHE_VERSION,
                 "semantic_config_signature": semantic_config_signature,
                 "case_signatures": case_signatures,
                 "case_ids": sorted(summaries),
