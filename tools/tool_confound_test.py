@@ -18,6 +18,7 @@ from tools.subtype_review_common import (
 
 CATEGORICAL_FIELDS = (
     "ct_phase",
+    "ct_phase_group",
     "ct_manufacturer",
     "ct_scanner_model",
     "ct_reconstruction_kernel",
@@ -307,6 +308,13 @@ def confounder_values(
 
         values[str(case_id)] = {
             "ct_phase": ct_meta["phase"],
+            "ct_phase_group": (
+                ct_meta["phase"]
+                if ct_meta["phase"] in {"NC", "ART", "NEPH", "DEL", "UNKNOWN"}
+                else "OTHER_CE"
+                if ct_meta["phase"] in {"MAIN_CE_HIGH", "MAIN_CE_MEDIUM", "CE_UNSPECIFIED"}
+                else "UNKNOWN"
+            ),
             "gender": str(record.get("gender", "") or "").strip(),
             "race": str(record.get("race", "") or "").strip(),
             "ct_manufacturer": selected_ct_manufacturer(

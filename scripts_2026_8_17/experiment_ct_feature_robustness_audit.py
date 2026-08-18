@@ -149,6 +149,7 @@ def run(
     table = pd.read_csv(selected_csv)
     selected = table.loc[
         table["selected_by_current_qc"].astype(str).str.lower().eq("true")
+        & table["final_status"].astype(str).str.upper().eq("PASS")
     ].copy()
     phase_counts = dict(
         Counter(phase_group(value) for value in selected.get("selected_phase", []))
@@ -189,7 +190,7 @@ def run(
             case_limit,
         )
     summary = {
-        "experiment": "ct_feature_robustness_audit_v1",
+        "experiment": "ct_feature_robustness_audit_v2",
         "inputs": {"selected_csv": str(selected_csv), "mask_root": str(mask_root), "config": str(config_path)},
         "selected_case_count": int(len(selected)),
         "phase_group_counts": phase_counts,
@@ -227,7 +228,7 @@ def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit CT phase groups, HU clipping and mask robustness.")
     parser.add_argument("--selected-csv", type=Path, default=Path("output_kirc_v9/experiment_ct_final_pass_fail_v2/selected_series.csv"))
-    parser.add_argument("--mask-root", type=Path, default=Path("output_kirc_v9/experiment_ct_final_pass_fail_v2/ct_tumor_seg"))
+    parser.add_argument("--mask-root", type=Path, default=Path("output_kirc/ct_tumor_seg"))
     parser.add_argument("--config", type=Path, default=Path("configs/ct_radiomics.yaml"))
     parser.add_argument("--experiment-root", type=Path, default=Path("output_kirc_v9/experiment_ct_feature_robustness_audit"))
     parser.add_argument("--run-mask-perturbation", action="store_true")

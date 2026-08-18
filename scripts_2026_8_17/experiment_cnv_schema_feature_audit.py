@@ -127,7 +127,7 @@ def run(
     schema_rows = audit_schema(records)
     correlation = audit_feature_correlations(feature_csv, correlation_threshold)
     summary = {
-        "experiment": "cnv_schema_feature_audit_v1",
+        "experiment": "cnv_schema_feature_audit_v2",
         "inputs": {
             "inventory": str(inventory_path),
             "feature_csv": str(feature_csv),
@@ -165,7 +165,7 @@ def main() -> None:
     parser.add_argument(
         "--feature-csv",
         type=Path,
-        default=Path("output_kirc_v9/cnv/case_features.csv"),
+        default=Path("output_kirc/cnv/case_features.csv"),
     )
     parser.add_argument(
         "--experiment-root",
