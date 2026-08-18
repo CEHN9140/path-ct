@@ -79,12 +79,12 @@ def run_pipeline(
         output_root=args.output_root,
         config_dir=args.config_dir,
     )
-    patient_states = run_wsi_qc_cohort(
+    patient_states = build_ct_tumor_seg_cohort(
         patient_states,
         output_root=args.output_root,
         config_dir=args.config_dir,
     )
-    patient_states = build_ct_tumor_seg_cohort(
+    patient_states = run_wsi_qc_cohort(
         patient_states,
         output_root=args.output_root,
         config_dir=args.config_dir,

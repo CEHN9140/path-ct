@@ -67,12 +67,24 @@ def run_wsi_qc_cohort(
             updated_states.append(dict(patient_state))
             continue
         if not case.get("WSI"):
-            updated_states.append({**build_patient_state(case, overall="fail"), "qc": "fail"})
+            updated_states.append(
+                add_execution_errors(
+                    {**dict(patient_state), "qc": "fail"},
+                    "wsi_qc",
+                    ["No WSI record is available."],
+                )
+            )
             continue
         summary = dict(summaries.get(case_id, {}) or {})
         selected_wsi = dict(summary.get("selected_slide") or {})
         if not selected_wsi.get("passes_threshold", False):
-            updated_states.append(failed_qc_state(case, summary, "wsi_qc"))
+            updated_states.append(
+                add_execution_errors(
+                    {**dict(patient_state), "qc": "fail"},
+                    "wsi_qc",
+                    list(summary.get("errors", []) or []) or ["WSI QC failed."],
+                )
+            )
             continue
-        updated_states.append(build_patient_state(case, overall="success"))
+        updated_states.append({**dict(patient_state), "qc": "success"})
     return updated_states
