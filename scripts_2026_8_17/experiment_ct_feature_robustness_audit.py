@@ -68,7 +68,7 @@ def run_mask_perturbation(
         }
         if not ct_path.is_file() or not mask_path.is_file():
             record["error"] = "ct_or_mask_missing"
-            results.append(record)
+            case_results.append(record)
             continue
         try:
             image = sitk.ReadImage(str(ct_path))
