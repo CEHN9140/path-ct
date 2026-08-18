@@ -424,6 +424,7 @@ def ct_tumor_seg_context(
             payload={
                 "case_id": case_id,
                 "segmentation_path": str(cached_mask_path),
+                "input_ct_path": ct_path,
                 "cache_signature": current_cache_signature,
                 "reused_existing_mask": True,
             },
@@ -453,6 +454,7 @@ def finalize_ct_tumor_seg(
     current_ct_identity = dict(context["ct_identity"])
     tumor_seg_result = dict(tumor_seg_result)
     tumor_seg_payload = {
+        "input_ct_path": ct_path,
         "ct_identity": current_ct_identity,
         "cache_signature": str(context["cache_signature"]),
         "reused_existing_mask": bool(context["reuse_existing_mask"]),

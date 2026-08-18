@@ -24,7 +24,7 @@ PHASE_PRIORITY = {
     "NEPH": 0, "MAIN_CE_HIGH": 1, "MAIN_CE_MEDIUM": 2,
     "CE_UNSPECIFIED": 3, "ART": 4, "DEL": 5, "NC": 6, "UNKNOWN": 6,
 }
-CT_QC_CACHE_VERSION = 2
+CT_QC_CACHE_VERSION = 3
 CT_QC_RUNTIME_KEYS = {
     "device",
     "devices",
@@ -313,7 +313,7 @@ def check_nifti_volume(nifti_path: str | Path, config: Mapping[str, Any]) -> dic
 
 def check_totalsegmentator_rois(nifti_path: str | Path, output_dir: Path, config: Mapping[str, Any]) -> dict[str, Any]:
     rois = [str(item) for item in config["roi_subset"]]
-    result = {"totalseg_pass": False, "totalseg_execution_success": False, "totalseg_reasons": [], "totalseg_output_dir": str(output_dir), "totalseg_detected_rois": [], "totalseg_missing_rois": [], "totalseg_roi_voxels": {}, "totalseg_roi_volumes_ml": {}, "totalseg_total_roi_volume_ml": 0.0}
+    result = {"totalseg_pass": False, "totalseg_execution_success": False, "totalseg_reasons": [], "totalseg_output_dir": str(output_dir), "totalseg_overlay_png": "", "totalseg_detected_rois": [], "totalseg_missing_rois": [], "totalseg_roi_voxels": {}, "totalseg_roi_volumes_ml": {}, "totalseg_total_roi_volume_ml": 0.0}
     remove_path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     os.environ["TOTALSEG_HOME_DIR"] = str(Path(config["home_dir"]).resolve())
@@ -325,13 +325,18 @@ def check_totalsegmentator_rois(nifti_path: str | Path, output_dir: Path, config
         return result
     result["totalseg_execution_success"] = True
     image = sitk.ReadImage(str(nifti_path))
+    ct_array = sitk.GetArrayFromImage(image)
     voxel_volume_ml = float(np.prod(image.GetSpacing()) / 1000.0)
+    roi_masks = {}
     for roi in rois:
         mask_path = output_dir / f"{roi}.nii.gz"
         voxels = 0
         if mask_path.is_file():
             try:
-                voxels = int(np.count_nonzero(sitk.GetArrayFromImage(sitk.ReadImage(str(mask_path))) > 0))
+                mask_array = sitk.GetArrayFromImage(sitk.ReadImage(str(mask_path))) > 0
+                if mask_array.shape == ct_array.shape:
+                    roi_masks[roi] = mask_array
+                    voxels = int(np.count_nonzero(mask_array))
             except Exception:
                 voxels = 0
         volume = float(voxels * voxel_volume_ml)
@@ -339,6 +344,25 @@ def check_totalsegmentator_rois(nifti_path: str | Path, output_dir: Path, config
         result["totalseg_roi_volumes_ml"][roi] = volume
         result["totalseg_total_roi_volume_ml"] += volume
         (result["totalseg_detected_rois"] if volume > float(config["min_single_roi_volume_ml"]) else result["totalseg_missing_rois"]).append(roi)
+    if roi_masks:
+        combined_mask = np.logical_or.reduce(list(roi_masks.values()))
+        slice_index = int(np.argmax(combined_mask.sum(axis=(1, 2))))
+        image_slice = ct_array[slice_index].astype(np.float32)
+        low, high = np.percentile(image_slice[np.isfinite(image_slice)], [1, 99])
+        gray = np.clip((image_slice - low) / max(high - low, 1), 0, 1)
+        rgb = np.repeat((gray * 255).astype(np.uint8)[..., None], 3, axis=2)
+        colors = [(255, 64, 64), (64, 160, 255), (64, 255, 128), (255, 220, 64)]
+        for color, roi in zip(colors, rois):
+            if roi in roi_masks:
+                mask_slice = roi_masks[roi][slice_index]
+                rgb[mask_slice] = (
+                    0.55 * rgb[mask_slice] + 0.45 * np.asarray(color)
+                ).astype(np.uint8)
+        overlay_path = output_dir / "roi_overlay.png"
+        from PIL import Image
+
+        Image.fromarray(rgb).save(overlay_path)
+        result["totalseg_overlay_png"] = str(overlay_path)
     result["totalseg_pass"] = bool(result["totalseg_detected_rois"])
     if not result["totalseg_pass"]: result["totalseg_reasons"].append("kidney_coverage_not_detected")
     return result
@@ -447,7 +471,7 @@ def prepare_ct_series(case_id: str, ct_records: list[Mapping[str, Any]], dcm2nii
         summary = summarize_dicom_series(headers, ct_record, prefilter_config) if headers else {"modality": "", "n_slices": 0, "rows": None, "columns": None, "image_type_union": [], "slice_thickness_median": None, "pixel_spacing_row": None, "pixel_spacing_col": None, "normal_z_median": None, "z_spacing_median": None, "z_gap_max": None, "duplicate_z_count": 0, "missing_spatial_tags": True, "prefilter_reasons": ["no_readable_dicom_header"], "prefilter_pass": False}
         converted_path, convert_errors, generated_nifti, generated_json = "", [], [], []
         nifti_qc = {"nifti_qc_pass": False, "nifti_qc_reasons": [], "hu_min": None, "hu_max": None, "hu_p1": None, "hu_p99": None, "hu_range_p99_p1": None}
-        totalseg_qc = {"totalseg_pass": False, "totalseg_execution_success": False, "totalseg_reasons": [], "totalseg_output_dir": "", "totalseg_detected_rois": [], "totalseg_missing_rois": [], "totalseg_roi_voxels": {}, "totalseg_roi_volumes_ml": {}, "totalseg_total_roi_volume_ml": 0.0}
+        totalseg_qc = {"totalseg_pass": False, "totalseg_execution_success": False, "totalseg_reasons": [], "totalseg_output_dir": "", "totalseg_overlay_png": "", "totalseg_detected_rois": [], "totalseg_missing_rois": [], "totalseg_roi_voxels": {}, "totalseg_roi_volumes_ml": {}, "totalseg_total_roi_volume_ml": 0.0}
         if summary["prefilter_pass"]:
             converted_path, convert_errors, generated_nifti, generated_json = convert_dicom_series(source_path, dcm2nii_dir, dcm2niix_config)
             if converted_path and not convert_errors:

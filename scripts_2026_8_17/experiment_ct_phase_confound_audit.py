@@ -79,13 +79,26 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def read_selected_metadata(phase_csv: Path, qc_root: Path) -> list[dict[str, Any]]:
+def read_selected_metadata(
+    phase_csv: Path, qc_root: Path, patient_states_path: Path
+) -> list[dict[str, Any]]:
     selected: dict[str, dict[str, Any]] = {}
     with phase_csv.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             if row.get("selected_by_current_qc", "").lower() != "true":
                 continue
             selected.setdefault(row["case_id"], row)
+
+    formal_values = {}
+    if patient_states_path.is_file():
+        states = {}
+        with patient_states_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                state = json.loads(line)
+                states[str(state.get("case_id", "") or "")] = state
+        from tools.tool_confound_test import confounder_values
+
+        formal_values = confounder_values(states, str(qc_root.parent))
 
     output = []
     for case_id, phase_row in sorted(selected.items()):
@@ -98,20 +111,22 @@ def read_selected_metadata(phase_csv: Path, qc_root: Path) -> list[dict[str, Any
             sidecar_path = qc_root / case_id / "dcm2nii" / f"{ct_id}.json"
             if sidecar_path.is_file():
                 sidecar = read_json(sidecar_path)
+        formal = dict(formal_values.get(case_id, {}) or {})
+        phase = str(formal.get("ct_phase", "") or phase_row.get("inferred_phase", "") or "UNKNOWN").strip().upper()
         output.append(
             {
                 "case_id": case_id,
                 "selected_ct_id": ct_id,
                 "explicit_phase": phase_row.get("explicit_phase", ""),
-                "inferred_phase": phase_row.get("inferred_phase", ""),
-                "phase_label": phase_row.get("inferred_phase", "") or "UNKNOWN",
-                "phase_group": coarse_phase_group(phase_row.get("inferred_phase", "")),
+                "inferred_phase": phase,
+                "phase_label": phase,
+                "phase_group": formal.get("ct_phase_group") or coarse_phase_group(phase),
                 "phase_confidence": phase_row.get("inferred_confidence", ""),
                 "phase_source": phase_row.get("phase_source", ""),
-                "manufacturer": str(sidecar.get("Manufacturer", "") or "").strip(),
-                "scanner_model": str(sidecar.get("ManufacturerModelName", "") or "").strip(),
-                "reconstruction_kernel": str(sidecar.get("ConvolutionKernel", "") or "").strip(),
-                "slice_thickness": selected_series.get("slice_thickness_median", ""),
+                "manufacturer": formal.get("ct_manufacturer") or str(sidecar.get("Manufacturer", "") or "").strip(),
+                "scanner_model": formal.get("ct_scanner_model") or str(sidecar.get("ManufacturerModelName", "") or "").strip(),
+                "reconstruction_kernel": formal.get("ct_reconstruction_kernel") or str(sidecar.get("ConvolutionKernel", "") or "").strip(),
+                "slice_thickness": formal.get("ct_slice_thickness") or selected_series.get("slice_thickness_median", ""),
                 "acquisition_time": phase_row.get("acquisition_time", ""),
                 "series_number": phase_row.get("series_number", ""),
                 "series_uid": phase_row.get("series_uid", ""),
@@ -121,6 +136,15 @@ def read_selected_metadata(phase_csv: Path, qc_root: Path) -> list[dict[str, Any
 
 
 def read_cluster_labels(path: Path) -> dict[str, str]:
+    if path.suffix.lower() == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        clusters = payload if isinstance(payload, list) else payload.get("clusters", [])
+        return {
+            str(case_id): str(cluster.get("cluster_id", ""))
+            for cluster in clusters
+            for case_id in list(cluster.get("member_ids", []) or [])
+            if cluster.get("cluster_id") and case_id
+        }
     labels = {}
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
@@ -157,9 +181,10 @@ def run(
     phase_csv: Path,
     qc_root: Path,
     cluster_paths: list[Path],
+    patient_states_path: Path,
     experiment_root: Path,
 ) -> dict[str, Any]:
-    metadata = read_selected_metadata(phase_csv, qc_root)
+    metadata = read_selected_metadata(phase_csv, qc_root, patient_states_path)
     metadata_by_case = {row["case_id"]: row for row in metadata}
     association_rows = []
     contingency_rows = []
@@ -210,11 +235,12 @@ def run(
             association["q_value"] = q_by_field.get(association["field"])
 
     summary = {
-        "experiment": "ct_phase_confound_audit_v1",
+        "experiment": "ct_phase_confound_audit_v2",
         "inputs": {
             "phase_audit_csv": str(phase_csv),
             "qc_root": str(qc_root),
             "cluster_files": [str(path) for path in cluster_paths],
+            "patient_states": str(patient_states_path),
             "rerun_radiomics": False,
             "new_aorta_segmentation": False,
         },
@@ -260,6 +286,12 @@ def main() -> None:
     )
     parser.add_argument("--qc-root", type=Path, default=Path("output_kirc/ct_qc"))
     parser.add_argument(
+        "--patient-states",
+        type=Path,
+        default=Path("output_kirc/storage/patient_states/patient_states.jsonl"),
+    )
+    parser.add_argument("--cluster-json", type=Path, default=None)
+    parser.add_argument(
         "--cluster-dir",
         type=Path,
         default=Path("output_kirc_v8/experiment_06_four_modal_consensus_stability"),
@@ -270,10 +302,10 @@ def main() -> None:
         default=Path("output_kirc_v9/experiment_ct_phase_confound_audit"),
     )
     args = parser.parse_args()
-    cluster_paths = sorted(args.cluster_dir.glob("consensus_labels_k*.csv"))
+    cluster_paths = [args.cluster_json] if args.cluster_json else sorted(args.cluster_dir.glob("consensus_labels_k*.csv"))
     if not cluster_paths:
         raise FileNotFoundError(f"No consensus label CSV found in {args.cluster_dir}")
-    summary = run(args.phase_csv, args.qc_root, cluster_paths, args.experiment_root)
+    summary = run(args.phase_csv, args.qc_root, cluster_paths, args.patient_states, args.experiment_root)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

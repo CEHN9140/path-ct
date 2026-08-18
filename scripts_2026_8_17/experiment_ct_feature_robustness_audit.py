@@ -3,12 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -20,15 +18,6 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def phase_group(value: str) -> str:
-    phase = str(value or "UNKNOWN").strip().upper()
-    if phase in {"NC", "ART", "NEPH", "DEL", "UNKNOWN"}:
-        return phase
-    if phase in {"MAIN_CE_HIGH", "MAIN_CE_MEDIUM", "CE_UNSPECIFIED"}:
-        return "OTHER_CE"
-    return "UNKNOWN"
-
-
 def ccc(left: np.ndarray, right: np.ndarray) -> float:
     left_mean = float(left.mean())
     right_mean = float(right.mean())
@@ -38,9 +27,7 @@ def ccc(left: np.ndarray, right: np.ndarray) -> float:
 
 def run_mask_perturbation(
     rows: list[dict[str, Any]],
-    mask_root: Path,
     config_path: Path,
-    experiment_root: Path,
     case_limit: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     import SimpleITK as sitk
@@ -57,7 +44,7 @@ def run_mask_perturbation(
     for row in selected_rows:
         case_id = str(row.get("case_id", "") or "")
         ct_path = Path(str(row.get("ct_path", "") or ""))
-        mask_path = mask_root / case_id / f"{case_id}_mask.nii.gz"
+        mask_path = Path(str(row.get("mask_path", "") or ""))
         record = {
             "case_id": case_id,
             "ct_path": str(ct_path),
@@ -138,34 +125,51 @@ def run_mask_perturbation(
     return case_results, feature_rows
 
 
+def load_snapshot_rows(snapshot_root: Path) -> list[dict[str, Any]]:
+    rows = []
+    for snapshot_path in sorted(snapshot_root.glob("*.json")):
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        tool_result = dict(snapshot.get("tool_result", {}) or {})
+        if str(tool_result.get("status", "") or "").lower() != "success":
+            continue
+        payload = dict(snapshot.get("payload", {}) or {})
+        artifacts = dict(tool_result.get("artifacts", {}) or {})
+        case_id = str(payload.get("case_id", "") or snapshot_path.stem)
+        rows.append(
+            {
+                "case_id": case_id,
+                "ct_path": str(payload.get("input_ct_path", "") or ""),
+                "mask_path": str(
+                    artifacts.get("segmentation_path", "")
+                    or payload.get("segmentation_path", "")
+                    or ""
+                ),
+            }
+        )
+    return rows
+
+
 def run(
-    selected_csv: Path,
-    mask_root: Path,
+    snapshot_root: Path,
     config_path: Path,
     experiment_root: Path,
     run_mask_audit: bool,
     case_limit: int,
 ) -> dict[str, Any]:
-    table = pd.read_csv(selected_csv)
-    selected = table.loc[
-        table["selected_by_current_qc"].astype(str).str.lower().eq("true")
-        & table["final_status"].astype(str).str.upper().eq("PASS")
-    ].copy()
-    phase_counts = dict(
-        Counter(phase_group(value) for value in selected.get("selected_phase", []))
-    )
+    selected = load_snapshot_rows(snapshot_root)
+    selected = selected[:case_limit] if case_limit else selected
     hu_rows = []
-    if not selected.empty:
+    if selected:
         import SimpleITK as sitk
         import yaml
 
         radiomics_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         lower, upper = [float(value) for value in radiomics_config["hu_clip_range"]]
         label = int(radiomics_config["label"])
-        for row in selected.to_dict(orient="records"):
+        for row in selected:
             case_id = str(row.get("case_id", "") or "")
             ct_path = Path(str(row.get("ct_path", "") or ""))
-            mask_path = mask_root / case_id / f"{case_id}_mask.nii.gz"
+            mask_path = Path(str(row.get("mask_path", "") or ""))
             record = {"case_id": case_id, "ct_path": str(ct_path), "mask_path": str(mask_path), "status": "failure", "clipped_voxel_fraction": "", "error": ""}
             if ct_path.is_file() and mask_path.is_file():
                 try:
@@ -183,17 +187,14 @@ def run(
     perturbation_feature_rows: list[dict[str, Any]] = []
     if run_mask_audit:
         perturbation_rows, perturbation_feature_rows = run_mask_perturbation(
-            selected.to_dict(orient="records"),
-            mask_root,
+            selected,
             config_path,
-            experiment_root,
             case_limit,
         )
     summary = {
-        "experiment": "ct_feature_robustness_audit_v2",
-        "inputs": {"selected_csv": str(selected_csv), "mask_root": str(mask_root), "config": str(config_path)},
+        "experiment": "ct_feature_robustness_audit_v3",
+        "inputs": {"ct_tumor_seg_snapshot_root": str(snapshot_root), "config": str(config_path)},
         "selected_case_count": int(len(selected)),
-        "phase_group_counts": phase_counts,
         "hu_clipping": {
             "case_count": len(hu_rows),
             "successful_case_count": sum(row["status"] == "success" for row in hu_rows),
@@ -227,14 +228,13 @@ def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit CT phase groups, HU clipping and mask robustness.")
-    parser.add_argument("--selected-csv", type=Path, default=Path("output_kirc_v9/experiment_ct_final_pass_fail_v2/selected_series.csv"))
-    parser.add_argument("--mask-root", type=Path, default=Path("output_kirc/ct_tumor_seg"))
+    parser.add_argument("--snapshot-root", type=Path, default=Path("output_kirc/ct_tumor_seg"))
     parser.add_argument("--config", type=Path, default=Path("configs/ct_radiomics.yaml"))
     parser.add_argument("--experiment-root", type=Path, default=Path("output_kirc_v9/experiment_ct_feature_robustness_audit"))
     parser.add_argument("--run-mask-perturbation", action="store_true")
     parser.add_argument("--case-limit", type=int, default=0)
     args = parser.parse_args()
-    print(json.dumps(run(args.selected_csv, args.mask_root, args.config, args.experiment_root, args.run_mask_perturbation, args.case_limit), ensure_ascii=False, indent=2))
+    print(json.dumps(run(args.snapshot_root, args.config, args.experiment_root, args.run_mask_perturbation, args.case_limit), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
