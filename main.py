@@ -8,10 +8,8 @@ from typing import Any, Mapping
 
 from agents.candidate_proposer import candidate_proposer
 from agents.evidence_builder import (
-    ct_tumor_seg,
     build_evidence_states,
     build_wsi_embeddings_cohort,
-    build_wsi_tumor_seg_cohort,
     evidence_builder,
 )
 from agents.inventory import inventory_case
@@ -79,11 +77,6 @@ def run_pipeline(
         output_root=args.output_root,
         config_dir=args.config_dir,
     )
-    patient_states = ct_tumor_seg(
-        patient_states,
-        output_root=args.output_root,
-        config_dir=args.config_dir,
-    )
     patient_states = wsi_qc(
         patient_states,
         output_root=args.output_root,
@@ -98,12 +91,6 @@ def run_pipeline(
                 config_dir=args.config_dir,
             )
         patient_states[index] = dict(patient_state)
-    save_patient_states(args.output_root, patient_states)
-    patient_states = build_wsi_tumor_seg_cohort(
-        patient_states,
-        output_root=args.output_root,
-        config_dir=args.config_dir,
-    )
     save_patient_states(args.output_root, patient_states)
     patient_states = build_wsi_embeddings_cohort(
         patient_states,

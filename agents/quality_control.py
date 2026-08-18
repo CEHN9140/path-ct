@@ -7,6 +7,7 @@ from agents.common import (
     case_from_state,
     selected_ct_from_result,
 )
+from agents.evidence_builder import ct_tumor_seg, wsi_patch, wsi_tumor_seg
 from agents.inventory import build_patient_state
 
 
@@ -42,7 +43,9 @@ def ct_qc(
             updated_states.append(failed_qc_state(case, summary, "ct_qc"))
             continue
         updated_states.append(build_patient_state(case, overall="success"))
-    return updated_states
+    return ct_tumor_seg(
+        updated_states, output_root=output_root, config_dir=config_dir
+    )
 
 
 def wsi_qc(
@@ -87,4 +90,14 @@ def wsi_qc(
             )
             continue
         updated_states.append({**dict(patient_state), "qc": "success"})
-    return updated_states
+    patched_states = []
+    for state in updated_states:
+        if state.get("qc") != "success":
+            patched_states.append(dict(state))
+            continue
+        patched_states.append(
+            dict(wsi_patch(state, output_root=output_root, config_dir=config_dir))
+        )
+    return wsi_tumor_seg(
+        patched_states, output_root=output_root, config_dir=config_dir
+    )

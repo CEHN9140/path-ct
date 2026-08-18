@@ -277,7 +277,7 @@ def add_wsi_tumor_seg_result(
     return dict(updated) if tumor_count > 0 else {**dict(updated), "qc": "fail"}
 
 
-def build_wsi_tumor_seg_cohort(
+def wsi_tumor_seg(
     states: list[dict[str, Any]], *, output_root: str, config_dir: str
 ) -> list[dict[str, Any]]:
     contexts = {
@@ -1049,7 +1049,7 @@ def evidence_builder(
     state: Mapping[str, Any], *, output_root: str, config_dir: str
 ) -> Mapping[str, Any]:
     patient_state = dict(state)
-    for build_step in (ct_radiomics, wsi_patch):
+    for build_step in (ct_radiomics,):
         if patient_state.get("qc") != "success":
             break
         patient_state = build_step(
