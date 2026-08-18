@@ -83,11 +83,36 @@ def technical_key(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def candidate_pass(row: dict[str, Any]) -> bool:
-    return all(
-        as_bool(row.get(field))
+def anatomy_text(row: dict[str, Any]) -> str:
+    text = " ".join(
+        str(row.get(field, "") or "")
+        for field in ("series_description", "study_description", "protocol_name")
+    ).upper()
+    text = re.sub(r"CTCHESTABDPEL|CHESTABDPEL", " CHEST ABD PEL ", text)
+    text = re.sub(r"CTCHEST", " CT CHEST ", text)
+    text = re.sub(r"CTCAP", " CT CAP ", text)
+    text = re.sub(r"C\s*[/\-]\s*A\s*[/\-]\s*P", " CAP ", text)
+    return re.sub(r"[^A-Z0-9]+", " ", text)
+
+
+def candidate_fail_reasons(row: dict[str, Any]) -> list[str]:
+    reasons = [
+        "candidate_qc_failed"
         for field in ("eligible_candidate", "prefilter_pass", "nifti_qc_pass", "totalseg_pass")
+        if not as_bool(row.get(field))
+    ]
+    text = anatomy_text(row)
+    has_thoracic_marker = bool(re.search(r"\b(?:CHEST|THORAX|LUNG)\b", text))
+    has_abdominal_marker = bool(
+        re.search(r"\b(?:ABD|ABDOMEN|PELVIS|RENAL|KIDNEY|CAP)\b", text)
     )
+    if has_thoracic_marker and not has_abdominal_marker:
+        reasons.append("non_abdominal_chest_series")
+    return list(dict.fromkeys(reasons))
+
+
+def candidate_pass(row: dict[str, Any]) -> bool:
+    return not candidate_fail_reasons(row)
 
 
 def select_best_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -250,10 +275,16 @@ def run(
     selected_rows = list(selected.values())
     assert len(selected_rows) == len({row["case_id"] for row in selected_rows})
 
-    candidate_audit = [
-        {**row, "candidate_status": "PASS" if candidate_pass(row) else "FAIL"}
-        for row in rows
-    ]
+    candidate_audit = []
+    for row in rows:
+        reasons = candidate_fail_reasons(row)
+        candidate_audit.append(
+            {
+                **row,
+                "candidate_status": "PASS" if not reasons else "FAIL",
+                "candidate_fail_reasons": ";".join(reasons),
+            }
+        )
     segmentation_rows = [row for row in selected_rows if pretreatment_pass(row)]
     if run_segmentation:
         run_tumor_segmentation(segmentation_rows, experiment_root, config_dir)
@@ -291,7 +322,7 @@ def run(
             )
         ),
         "policy": {
-            "series_candidate_gate": "structural_and_existing_kidney_qc_only",
+            "series_candidate_gate": "structural_existing_kidney_and_non_thoracic_coverage_qc",
             "series_selection": "phase_priority_then_thickness_spacing_z_continuity_coverage_uid",
             "one_series_per_case": True,
             "unknown_phase_allowed": True,
