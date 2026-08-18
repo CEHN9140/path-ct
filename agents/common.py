@@ -109,6 +109,25 @@ def load_selected_ct_record(case: Mapping[str, Any], output_root: str, case_id: 
     return selected_ct_record(case, selected_ct_from_result(ct_result, case_id))
 
 
+def ct_input_identity(selected_ct_record: Mapping[str, Any]) -> dict[str, str]:
+    series_uid = str(selected_ct_record.get("Series UID", "") or "")
+    study_uid = str(selected_ct_record.get("Study UID", "") or "")
+    if series_uid:
+        return {"series_uid": series_uid, "study_uid": study_uid}
+    source_path = str(selected_ct_record.get("File Path", "") or "")
+    return {"source_path": str(Path(source_path).expanduser().resolve())}
+
+
+def file_identity(path: str) -> dict[str, Any]:
+    file_path = Path(path).expanduser().resolve()
+    stat = file_path.stat()
+    return {
+        "path": str(file_path),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+
+
 def announce_tool_action(node: str, case_id: str, message: str) -> None:
     print(f"[{node}] {case_id}: {message}", flush=True)
 
