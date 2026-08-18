@@ -25,6 +25,16 @@ PHASE_PRIORITY = {
     "CE_UNSPECIFIED": 3, "ART": 4, "DEL": 5, "NC": 6, "UNKNOWN": 6,
 }
 CT_QC_CACHE_VERSION = "2026-08-18-final"
+CT_QC_RUNTIME_KEYS = {
+    "device",
+    "devices",
+    "workers",
+    "workers_per_gpu",
+    "num_workers",
+    "batch_size",
+    "pin_memory",
+    "prefetch_factor",
+}
 PHASE_PATTERNS = {
     "NC": (
         r"\bPRE[- ]?CONTRAST\b", r"\bUNENHANCED\b", r"\bNON[- ]?CONTRAST\b",
@@ -46,12 +56,52 @@ POST_TREATMENT_MARKER = re.compile(
 )
 
 
+def semantic_ct_qc_config(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): semantic_ct_qc_config(item)
+            for key, item in value.items()
+            if str(key) not in CT_QC_RUNTIME_KEYS
+        }
+    if isinstance(value, list):
+        return [semantic_ct_qc_config(item) for item in value]
+    return value
+
+
 def ct_qc_config_signature(config: Mapping[str, Any]) -> str:
     payload = json.dumps(
-        {"version": CT_QC_CACHE_VERSION, "config": to_jsonable(dict(config))},
+        {"version": CT_QC_CACHE_VERSION, "config": to_jsonable(semantic_ct_qc_config(config))},
         sort_keys=True,
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def ct_case_signature(case: Mapping[str, Any]) -> str:
+    records = [to_jsonable(dict(record)) for record in list(case.get("CT", []) or [])]
+    records.sort(key=lambda record: json.dumps(record, sort_keys=True))
+    payload = {
+        "case_id": str(case.get("Case_ID", case.get("case_id", "")) or ""),
+        "ct_records": records,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def load_case_summary(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(summary, dict):
+        return None
+    selected_series = summary.get("selected_series", {})
+    selected_path = str(
+        selected_series.get("ct_path", "") if isinstance(selected_series, Mapping) else ""
+    )
+    if summary.get("case_qc_passes_threshold") and not Path(selected_path).is_file():
+        return None
+    return summary
 
 
 def remove_path(path: Path) -> None:
@@ -385,28 +435,12 @@ def annotate_phases(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return annotated
 
 
-def prepare_ct_series(case_id: str, ct_records: list[Mapping[str, Any]], dcm2nii_dir: Path, dcm2niix_config: Mapping[str, Any], prefilter_config: Mapping[str, Any], nifti_qc_config: Mapping[str, Any], totalseg_config: Mapping[str, Any], reuse_cached_rows: bool = True) -> tuple[list[dict[str, Any]], str]:
+def prepare_ct_series(case_id: str, ct_records: list[Mapping[str, Any]], dcm2nii_dir: Path, dcm2niix_config: Mapping[str, Any], prefilter_config: Mapping[str, Any], nifti_qc_config: Mapping[str, Any], totalseg_config: Mapping[str, Any]) -> tuple[list[dict[str, Any]], str]:
     report_path = dcm2nii_dir.parent / "dicom_prefilter_report.csv"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_rows = {}
-    if report_path.is_file():
-        try:
-            table = pd.read_csv(report_path).fillna("")
-            existing_rows = {str(row["source_path"]): row.to_dict() for _, row in table.iterrows() if str(row.get("source_path", "")).strip()}
-        except Exception:
-            existing_rows = {}
     report_rows, records = [], []
     for index, ct_record in tqdm(list(enumerate(ct_records, start=1)), desc=f"{case_id} CT series", unit="series", leave=False, disable=not sys.stderr.isatty()):
         source_path = Path(str(ct_record.get("File Path", "") or ""))
-        cached = existing_rows.get(str(source_path))
-        if reuse_cached_rows and cached and all(str(cached.get(key, "")).lower() == "true" for key in ("prefilter_pass", "nifti_qc_pass", "totalseg_pass")) and not non_abdominal_series(ct_record):
-            converted_path = str(cached.get("converted_path", "") or "")
-            output_dir = Path(str(cached.get("totalseg_output_dir", "") or ""))
-            if Path(converted_path).is_file() and output_dir.is_dir():
-                metadata = series_metadata(ct_record, read_sidecar_metadata(str(cached.get("generated_json_files", "") or "").split(";")))
-                report_rows.append({**cached, "record_index": index, "cacheable": True})
-                records.append({**metadata, "case_id": case_id, "ct_id": Path(converted_path).name.removesuffix(".nii.gz"), "ct_path": converted_path, "ct_source_path": str(source_path), "qa_source_path": str(source_path), "input_case_path": str(source_path), "file_exists": True, **{key: cached.get(key) for key in ("n_slices", "slice_thickness_median", "pixel_spacing_row", "pixel_spacing_col", "normal_z_median", "z_spacing_median", "z_gap_max", "duplicate_z_count", "prefilter_pass", "nifti_qc_pass", "totalseg_pass", "image_type_union", "prefilter_reasons", "nifti_qc_reasons", "totalseg_reasons", "totalseg_output_dir", "totalseg_detected_rois", "totalseg_missing_rois", "totalseg_roi_volumes_ml", "totalseg_roi_voxels", "hu_min", "hu_max", "hu_p1", "hu_p99", "hu_range_p99_p1")}})
-                continue
         headers = read_dicom_headers(source_path) if source_path.is_dir() else []
         summary = summarize_dicom_series(headers, ct_record, prefilter_config) if headers else {"modality": "", "n_slices": 0, "rows": None, "columns": None, "image_type_union": [], "slice_thickness_median": None, "pixel_spacing_row": None, "pixel_spacing_col": None, "normal_z_median": None, "z_spacing_median": None, "z_gap_max": None, "duplicate_z_count": 0, "missing_spatial_tags": True, "prefilter_reasons": ["no_readable_dicom_header"], "prefilter_pass": False}
         converted_path, convert_errors, generated_nifti, generated_json = "", [], [], []
@@ -429,13 +463,13 @@ def prepare_ct_series(case_id: str, ct_records: list[Mapping[str, Any]], dcm2nii
     return records, str(report_path)
 
 
-def prepare_ct_cases(cases: list[Mapping[str, Any]], ct_qc_dir: Path, config: Mapping[str, Any], reuse_cached_rows: bool) -> dict[str, dict[str, Any]]:
+def prepare_ct_cases(cases: list[Mapping[str, Any]], ct_qc_dir: Path, config: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     total_seg_config = dict(config["totalsegmentator"])
     skipped_task_ids = prepare_totalsegmentator_weights(total_seg_config) if cases else set()
 
     def prepare(case: Mapping[str, Any], device: str) -> tuple[str, list[dict[str, Any]], str]:
         case_id = str(case.get("Case_ID", case.get("case_id", "unknown_case")) or "unknown_case")
-        records, report_path = prepare_ct_series(case_id, list(case.get("CT", []) or []), ct_qc_dir / case_id / "dcm2nii", config["dcm2niix"], config["dicom_prefilter"], config["nifti_qc"], {**config["totalsegmentator"], "device": device}, reuse_cached_rows)
+        records, report_path = prepare_ct_series(case_id, list(case.get("CT", []) or []), ct_qc_dir / case_id / "dcm2nii", config["dcm2niix"], config["dicom_prefilter"], config["nifti_qc"], {**config["totalsegmentator"], "device": device})
         return case_id, records, report_path
 
     assignments, _ = split_device_requests(cases, list(total_seg_config["devices"]), workers_per_device=int(total_seg_config["workers_per_gpu"]))
@@ -507,25 +541,54 @@ def run_ct_qc_cohort(cases: list[Mapping[str, Any]], output_root: str = "", conf
     ct_qc_dir = Path(output_root) / "ct_qc"
     ct_qc_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = ct_qc_dir / "cohort_cache.json"
-    cohort_records = [{"case_id": str(case.get("Case_ID", case.get("case_id", "unknown_case")) or "unknown_case"), "ct_records": list(case.get("CT", []) or [])} for case in cases]
-    cohort_signature = hashlib.sha256(json.dumps(to_jsonable(sorted(cohort_records, key=lambda row: row["case_id"])), sort_keys=True).encode()).hexdigest()
-    config_signature = ct_qc_config_signature(config)
+    cases_by_id = {
+        str(case.get("Case_ID", case.get("case_id", "unknown_case")) or "unknown_case"): dict(case)
+        for case in cases
+    }
+    case_signatures = {case_id: ct_case_signature(case) for case_id, case in cases_by_id.items()}
+    semantic_config_signature = ct_qc_config_signature(config)
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-    summary_paths = {row["case_id"]: ct_qc_dir / row["case_id"] / "selection_summary.json" for row in cohort_records}
-    if previous.get("config_signature") == config_signature and previous.get("cohort_signature") == cohort_signature and all(path.is_file() for path in summary_paths.values()):
-        summaries = {case_id: json.loads(path.read_text(encoding="utf-8")) for case_id, path in summary_paths.items()}
-        if all(not summary.get("case_qc_passes_threshold") or Path(str(summary.get("selected_series", {}).get("ct_path", ""))).is_file() for summary in summaries.values()):
-            return {"case_count": len(cases), "passed_case_ids": [case_id for case_id, summary in summaries.items() if summary.get("case_qc_passes_threshold")], "filtered_case_ids": [case_id for case_id, summary in summaries.items() if not summary.get("case_qc_passes_threshold")], "selection_summaries": summaries}
-    reuse_cached_rows = previous.get("config_signature") == config_signature
-    prepared = prepare_ct_cases(cases, ct_qc_dir, config, reuse_cached_rows=reuse_cached_rows)
-    summaries = {}
+    previous_case_signatures = dict(previous.get("case_signatures", {}) or {})
+    config_matches = previous.get("semantic_config_signature") == semantic_config_signature
+    summaries: dict[str, dict[str, Any]] = {}
+    cases_to_prepare = []
+    for case_id, case in cases_by_id.items():
+        summary_path = ct_qc_dir / safe_identifier(case_id) / "selection_summary.json"
+        if config_matches and previous_case_signatures.get(case_id) == case_signatures[case_id]:
+            summary = load_case_summary(summary_path)
+            if summary is not None:
+                summaries[case_id] = summary
+                continue
+        remove_path(summary_path.parent)
+        cases_to_prepare.append(case)
+
+    for case_id in set(previous_case_signatures) - set(cases_by_id):
+        remove_path(ct_qc_dir / safe_identifier(case_id))
+
+    prepared = prepare_ct_cases(cases_to_prepare, ct_qc_dir, config) if cases_to_prepare else {}
     for case_id, item in tqdm(prepared.items(), desc="CT case selection", unit="case", disable=not sys.stderr.isatty()):
         summary = build_case_summary(case_id, item["series_records"], item["prefilter_report_path"])
-        path = ct_qc_dir / case_id / "selection_summary.json"
+        path = ct_qc_dir / safe_identifier(case_id) / "selection_summary.json"
         path.write_text(json.dumps(to_jsonable(summary), ensure_ascii=False, indent=2), encoding="utf-8")
         summaries[case_id] = summary
-    manifest_path.write_text(json.dumps({"config_signature": config_signature, "cohort_signature": cohort_signature, "case_ids": sorted(summaries)}, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"case_count": len(cases), "passed_case_ids": [case_id for case_id, summary in summaries.items() if summary.get("case_qc_passes_threshold")], "filtered_case_ids": [case_id for case_id, summary in summaries.items() if not summary.get("case_qc_passes_threshold")], "selection_summaries": summaries}
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "semantic_config_signature": semantic_config_signature,
+                "case_signatures": case_signatures,
+                "case_ids": sorted(summaries),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "case_count": len(cases_by_id),
+        "passed_case_ids": [case_id for case_id, summary in summaries.items() if summary.get("case_qc_passes_threshold")],
+        "filtered_case_ids": [case_id for case_id, summary in summaries.items() if not summary.get("case_qc_passes_threshold")],
+        "selection_summaries": summaries,
+    }
 
 
 def run_ct_qc(case_id: str, item: list[Mapping[str, Any]], output_root: str = "", config_dir: str = "") -> dict[str, Any]:
