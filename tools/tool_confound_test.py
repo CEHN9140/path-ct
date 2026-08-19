@@ -11,8 +11,12 @@ import numpy as np
 from scipy.stats import chi2_contingency, fisher_exact, kruskal, mannwhitneyu
 
 from tools.subtype_review_common import (
+    bias_corrected_cramers_v,
     bh_fdr,
+    cliffs_delta,
     clinical_table,
+    epsilon_squared,
+    scoped_candidate_sets,
     tool_result,
 )
 
@@ -22,6 +26,8 @@ CATEGORICAL_FIELDS = (
     "ct_manufacturer",
     "ct_scanner_model",
     "ct_reconstruction_kernel",
+    "ct_pixel_spacing_row",
+    "ct_z_spacing",
 )
 NUMERIC_FIELDS = (
     "ct_slice_thickness",
@@ -47,11 +53,7 @@ def cramers_v(contingency: Any) -> float:
     table = np.asarray(contingency, dtype=float)
     if table.size == 0 or table.sum() <= 0:
         return 0.0
-    chi2 = float(chi2_contingency(table, correction=False).statistic)
-    n = float(table.sum())
-    rows, cols = table.shape
-    denom = n * max(min(rows - 1, cols - 1), 1)
-    return math.sqrt(chi2 / denom) if denom else 0.0
+    return float(bias_corrected_cramers_v(table) or 0.0)
 
 
 def normalized_manufacturer(value: Any) -> str:
@@ -114,30 +116,6 @@ def selected_ct_manufacturer(
         if manufacturer:
             return manufacturer
     return ""
-
-
-def candidate_set_members(
-    cluster_state: Mapping[str, Any], all_cluster_states: Any
-) -> dict[str, list[str]]:
-    clusters = list(all_cluster_states or [])
-    if not clusters:
-        clusters = [cluster_state]
-    memberships: dict[str, list[str]] = {}
-    assigned = set()
-    for index, cluster in enumerate(clusters):
-        item = dict(cluster or {})
-        cluster_id = str(
-            item.get("cluster_id") or item.get("candidate_set_id") or f"C{index + 1}"
-        )
-        members = []
-        for case_id in list(item.get("member_ids", []) or []):
-            case_key = str(case_id)
-            if case_key not in assigned:
-                members.append(case_key)
-                assigned.add(case_key)
-        if members:
-            memberships[cluster_id] = members
-    return memberships
 
 
 def selected_ct_metadata(
@@ -555,6 +533,11 @@ def global_numeric(
         "kruskal_p_value": round_value(p_value),
         "q_value": None,
         "max_pairwise_smd": round_value(max_pairwise_smd(per_set)),
+        "epsilon_squared": round_value(epsilon_squared(list(set_values.values()))),
+        "max_pairwise_cliffs_delta": round_value(max(
+            (abs(cliffs_delta(a, b) or 0.0) for a, b in combinations(set_values.values(), 2)),
+            default=0.0,
+        )),
         "eta_squared_by_set_label": round_value(eta_squared_by_set_label(set_values)),
     }
 
@@ -658,6 +641,7 @@ def set_numeric(
         for _, value in rows
     ]
     smd = smd_or_none(member_values, rest_values)
+    delta = cliffs_delta(member_values, rest_values)
     p_value = None
     if member_values and rest_values and len(set(member_values + rest_values)) > 1:
         p_value = float(
@@ -685,6 +669,7 @@ def set_numeric(
             else None
         ),
         "standardized_mean_difference": round_value(smd),
+        "cliffs_delta": round_value(delta),
         "mannwhitney_p_value": round_value(p_value),
         "q_value": None,
         "direction": direction,
@@ -745,6 +730,8 @@ def confound_decision_metrics(global_metrics, set_metrics):
                 "q_value",
                 "cramers_v",
                 "max_pairwise_smd",
+                "epsilon_squared",
+                "max_pairwise_cliffs_delta",
             )
             if row.get(key) is not None
         }
@@ -763,7 +750,8 @@ def confound_decision_metrics(global_metrics, set_metrics):
                             "field_type",
                             "q_value",
                             "mannwhitney_p_value",
-                            "standardized_mean_difference",
+                        "standardized_mean_difference",
+                            "cliffs_delta",
                             "set_mean",
                             "rest_mean",
                         )
@@ -799,7 +787,33 @@ def confound_decision_metrics(global_metrics, set_metrics):
 
         associations.sort(key=association_p)
         per_set[set_id] = associations[:5]
-    return {"global": global_rows, "sets": per_set}
+    categorical_conflicts = [
+        field for field, row in global_rows.items()
+        if row.get("q_value") is not None
+        and float(row["q_value"]) <= 0.05
+        and float(row.get("cramers_v", 0) or 0) >= 0.50
+    ]
+    numeric_conflicts = [
+        field for field, row in global_rows.items()
+        if row.get("q_value") is not None
+        and float(row["q_value"]) <= 0.05
+        and float(row.get("max_pairwise_cliffs_delta", 0) or 0) >= 0.474
+    ]
+    return {
+        "global": global_rows,
+        "sets": per_set,
+        "deterministic_flags": {
+            "strong_technical_conflict": bool(categorical_conflicts or numeric_conflicts),
+            "categorical_strong_fields": categorical_conflicts,
+            "numeric_large_effect_fields": numeric_conflicts,
+            "thresholds": {
+                "alpha": 0.05,
+                "categorical_strong_v": 0.50,
+                "numeric_large_cliffs_delta": 0.474,
+                "threshold_semantics": "project protocol thresholds, not universal domain cutoffs",
+            },
+        },
+    }
 
 
 def tool_confound_test(
@@ -808,9 +822,15 @@ def tool_confound_test(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    scope="set_identity",
+    target_ids=None,
+    proposal=None,
 ):
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
-    memberships = candidate_set_members(cluster_state, all_cluster_states)
+    memberships = {
+        key: sorted(value)
+        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal).items()
+    }
     if not memberships:
         return tool_result(
             tool_name="tool_confound_test",

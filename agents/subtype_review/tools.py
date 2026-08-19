@@ -26,9 +26,9 @@ DEFAULT_TOOL_DEFINITIONS = {
         "module": "tools.tool_multimodal_consistency_check",
         "function": "tool_multimodal_consistency_check",
     },
-    "tool_structural_adequacy": {
-        "module": "tools.tool_structural_adequacy",
-        "function": "tool_structural_adequacy",
+    "tool_cnv_characterization": {
+        "module": "tools.tool_cnv_characterization",
+        "function": "tool_cnv_characterization",
     },
 }
 
@@ -88,6 +88,10 @@ def run_validation_function(
     output_root: str,
     config_dir: str,
     all_cluster_states: list[dict[str, Any]],
+    *,
+    scope: str = "set_identity",
+    target_ids: list[str] | None = None,
+    proposal: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         raw = tool_function(
@@ -96,6 +100,9 @@ def run_validation_function(
             output_root,
             config_dir=config_dir,
             all_cluster_states=all_cluster_states,
+            scope=scope,
+            target_ids=list(target_ids or []),
+            proposal=dict(proposal or {}),
         )
     except Exception as exc:
         raw = {
@@ -115,16 +122,20 @@ def execute_capability(
     output_root: str,
     config_dir: str,
     all_cluster_states: list[dict[str, Any]],
+    *,
+    scope: str = "set_identity",
+    target_ids: list[str] | None = None,
+    proposal: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     mapping = {
         "biological_support": [
             "tool_mutation_enrichment",
             "tool_pathway_enrichment",
+            "tool_cnv_characterization",
         ],
         "cross_modal_consistency": ["tool_multimodal_consistency_check"],
         "confounder_exclusion": ["tool_confound_test"],
         "known_label_echo": ["tool_known_label_echo_test"],
-        "structural_adequacy": ["tool_structural_adequacy"],
     }
     names = mapping.get(str(capability), [])
     results = [
@@ -136,6 +147,9 @@ def execute_capability(
             output_root,
             config_dir,
             all_cluster_states,
+            scope=scope,
+            target_ids=target_ids,
+            proposal=proposal,
         )
         for name in names
         if name in tool_functions
@@ -156,7 +170,7 @@ def build_validation_tools() -> list[Any]:
         return tool(name, description=description)(func)
 
     def biological_support() -> str:
-        """Compute RNA and WXS biological-support evidence for the current partition."""
+        """Compute RNA, WXS and CNV biological evidence for the requested scope."""
         return "biological_support"
 
     def cross_modal_consistency() -> str:
@@ -171,14 +185,9 @@ def build_validation_tools() -> list[Any]:
         """Compute whole-partition stage and grade echo evidence."""
         return "known_label_echo"
 
-    def structural_adequacy() -> str:
-        """Compute legal Split and Merge evidence for the current partition."""
-        return "structural_adequacy"
-
     return [
         make("biological_support", biological_support.__doc__ or "", biological_support),
         make("cross_modal_consistency", cross_modal_consistency.__doc__ or "", cross_modal_consistency),
         make("confounder_exclusion", confounder_exclusion.__doc__ or "", confounder_exclusion),
         make("known_label_echo", known_label_echo.__doc__ or "", known_label_echo),
-        make("structural_adequacy", structural_adequacy.__doc__ or "", structural_adequacy),
     ]

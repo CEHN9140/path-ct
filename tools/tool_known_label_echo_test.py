@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.metrics import (
+    adjusted_rand_score,
     adjusted_mutual_info_score,
     completeness_score,
     homogeneity_score,
@@ -10,6 +11,7 @@ from sklearn.metrics import (
 from tools.subtype_review_common import (
     clinical_table,
     member_case_ids,
+    subtype_review_config,
     tool_result,
 )
 
@@ -53,6 +55,8 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
             ),
             "contingency_table": {},
             "adjusted_mutual_information": None,
+            "adjusted_rand_index": None,
+            "optimal_mapping_accuracy": None,
             "homogeneity": None,
             "completeness": None,
         }
@@ -87,6 +91,10 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
         for case_id in case_ids
     ]
     candidate_labels = [cluster_labels[case_id] for case_id in case_ids]
+    from scipy.optimize import linear_sum_assignment
+    overlap = np.asarray(table, dtype=float)
+    rows, cols = linear_sum_assignment(-overlap)
+    mapping_accuracy = float(overlap[rows, cols].sum() / len(case_ids))
     return {
         "label": label_name,
         "available_n": len(case_ids),
@@ -98,6 +106,8 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
             float(adjusted_mutual_info_score(known_labels, candidate_labels)),
             6,
         ),
+        "adjusted_rand_index": round(float(adjusted_rand_score(known_labels, candidate_labels)), 6),
+        "optimal_mapping_accuracy": round(mapping_accuracy, 6),
         "homogeneity": round(
             float(homogeneity_score(known_labels, candidate_labels)), 6
         ),
@@ -113,19 +123,67 @@ def tool_known_label_echo_test(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    scope="partition",
+    target_ids=None,
+    proposal=None,
 ):
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     clinical = clinical_table(patient_states_by_id)
     cluster_labels = cluster_labels_by_case(all_cluster_states, cluster_state)
     structure_comparison = {}
+    current_labels = cluster_labels_by_case(all_cluster_states, cluster_state)
+    proposed_labels = dict(current_labels)
+    if scope == "split_proposal" and proposal:
+        source = str(proposal.get("source_set_id", ""))
+        for index, group in enumerate(proposal.get("groups", []) or [], 1):
+            for case_id in group:
+                proposed_labels[str(case_id)] = f"{source}_S{index}"
+    elif scope == "merge_proposal" and proposal:
+        merged = "_M_".join(sorted(str(item) for item in proposal.get("set_ids", []) or []))
+        for set_id in proposal.get("set_ids", []) or []:
+            for case_id, label in current_labels.items():
+                if label == str(set_id):
+                    proposed_labels[case_id] = merged
     for label_name, clinical_field in KNOWN_LABEL_FIELDS.items():
-        structure_comparison[label_name] = compare_label_structures(
-            label_name, clinical_field, cluster_labels, clinical
+        current = compare_label_structures(label_name, clinical_field, current_labels, clinical)
+        if scope in {"split_proposal", "merge_proposal"}:
+            proposed = compare_label_structures(label_name, clinical_field, proposed_labels, clinical)
+            structure_comparison[label_name] = {
+                "current": current,
+                "proposed": proposed,
+                "delta_ami": None if current["adjusted_mutual_information"] is None or proposed["adjusted_mutual_information"] is None else round(proposed["adjusted_mutual_information"] - current["adjusted_mutual_information"], 6),
+                "delta_ari": None if current["adjusted_rand_index"] is None or proposed["adjusted_rand_index"] is None else round(proposed["adjusted_rand_index"] - current["adjusted_rand_index"], 6),
+            }
+        else:
+            structure_comparison[label_name] = current
+    thresholds = {
+        "ami": 0.80,
+        "ari": 0.80,
+        "optimal_mapping_accuracy": 0.90,
+    }
+    if config_dir:
+        config = subtype_review_config(config_dir).get("known_label_echo", {})
+        thresholds.update(
+            {
+                "ami": float(config.get("near_identity_ami", thresholds["ami"])),
+                "ari": float(config.get("near_identity_ari", thresholds["ari"])),
+                "optimal_mapping_accuracy": float(config.get("near_identity_mapping_accuracy", thresholds["optimal_mapping_accuracy"])),
+            }
         )
+    for comparison in structure_comparison.values():
+        rows = [comparison]
+        if "current" in comparison:
+            rows = [comparison["current"], comparison["proposed"]]
+        for row in rows:
+            row["near_identity"] = bool(
+                (row.get("adjusted_mutual_information") or 0) >= thresholds["ami"]
+                or (row.get("adjusted_rand_index") or 0) >= thresholds["ari"]
+            ) and (row.get("optimal_mapping_accuracy") or 0) >= thresholds["optimal_mapping_accuracy"]
+            row["near_identity_thresholds"] = thresholds
     metrics = {
         "known_label_structure_comparison": structure_comparison,
         "analysis_scope": (
-            "complete current partition versus stage and grade partitions"
+            f"{scope} comparison of the current partition versus stage and grade partitions"
         ),
         "decision_semantics": (
             "AMI measures chance-adjusted whole-structure overlap; homogeneity "

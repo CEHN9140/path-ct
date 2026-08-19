@@ -7,23 +7,15 @@ import numpy as np
 from scipy.stats import mannwhitneyu
 
 from tools.subtype_review_common import (
-    assign_groupwise_fdr,
+    bh_fdr,
     enrichment_decision_metrics,
     fisher_exact_result,
-    member_case_ids,
+    odds_ratio_ci,
     read_case_feature_table,
+    scoped_candidate_sets,
     standardized_mean_difference,
     tool_result,
 )
-
-
-def candidate_set_members(all_cluster_states, fallback_cluster_state):
-    states = list(all_cluster_states or [fallback_cluster_state])
-    return {
-        str(state.get("cluster_id", "") or ""): member_case_ids(state)
-        for state in states
-        if str(state.get("cluster_id", "") or "")
-    }
 
 
 def round_value(value):
@@ -68,6 +60,12 @@ def enrichment_rows(feature_names, table, candidate_sets):
                         rest_positive,
                         len(rest_values) - rest_positive,
                     )
+                    odds_ratio, odds_ratio_ci_value = odds_ratio_ci(
+                        set_positive,
+                        len(set_values) - set_positive,
+                        rest_positive,
+                        len(rest_values) - rest_positive,
+                    )
                 elif len(unique_values) > 1:
                     p_value = float(
                         mannwhitneyu(
@@ -100,11 +98,14 @@ def enrichment_rows(feature_names, table, candidate_sets):
                         standardized_mean_difference(set_values, rest_values)
                     ),
                     "odds_ratio": round_value(odds_ratio),
+                    "odds_ratio_ci95": [round_value(value) for value in odds_ratio_ci_value] if odds_ratio_ci_value else None,
                     "p_value": p_value,
                     "q_value": None,
                 }
             )
-    assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
+    q_values = bh_fdr([row.get("p_value") for row in rows])
+    for row, q_value in zip(rows, q_values):
+        row["q_value"] = q_value
     for row in rows:
         row["p_value"] = (
             float(row["p_value"]) if row["p_value"] is not None else None
@@ -148,6 +149,9 @@ def tool_mutation_enrichment(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    scope="set_identity",
+    target_ids=None,
+    proposal=None,
 ):
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     wxs_dir = Path(output_root) / "wxs"
@@ -171,7 +175,7 @@ def tool_mutation_enrichment(
             output_root,
             "missing_wxs_feature_tables",
         )
-    candidate_sets = candidate_set_members(all_cluster_states, cluster_state)
+    candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
     if not candidate_sets:
         return empty_result(cluster_id, output_root, "missing_candidate_sets")
     rows = enrichment_rows(feature_names, table, candidate_sets)

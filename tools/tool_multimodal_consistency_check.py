@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 
 from tools.subtype_review_common import (
-    member_case_ids,
+    bh_fdr,
+    scoped_candidate_sets,
     tool_result,
 )
 
@@ -25,20 +26,6 @@ def modality_affinity_path(output_root: str, modality: str) -> Path:
 
 def round_value(value: float) -> float | None:
     return round(float(value), 6) if np.isfinite(value) else None
-
-
-def candidate_set_members(
-    cluster_state: Mapping[str, Any],
-    all_cluster_states: Any,
-) -> dict[str, list[str]]:
-    states = list(all_cluster_states or []) or [cluster_state]
-    return {
-        str(state.get("set_id") or state.get("cluster_id")): sorted(
-            member_case_ids(state)
-        )
-        for state in states
-        if member_case_ids(state)
-    }
 
 
 def normalize_affinity(network: np.ndarray) -> np.ndarray:
@@ -97,6 +84,15 @@ def partition_separation(
         }
         nearest = max(between_by_set, key=between_by_set.get)
         set_between = between_by_set[nearest]
+        margins = []
+        for patient in inside:
+            own = float(np.delete(similarity[patient, inside], np.where(inside == patient)[0][0]).mean())
+            other = max(
+                float(similarity[patient, np.flatnonzero(labels == other_set)].mean())
+                for other_set in np.unique(labels)
+                if other_set != set_id
+            )
+            margins.append(own - other)
         per_set[str(set_id)] = {
             "member_n": int(len(inside)),
             "mean_within_affinity": round_value(set_within),
@@ -105,6 +101,9 @@ def partition_separation(
             "normalized_affinity_separation": round_value(
                 separation_score(set_within, set_between)
             ),
+            "mean_affinity_margin": round_value(float(np.mean(margins))),
+            "median_affinity_margin": round_value(float(np.median(margins))),
+            "fraction_affinity_margin_positive": round_value(float(np.mean(np.asarray(margins) > 0))),
         }
     return global_row, per_set
 
@@ -137,15 +136,23 @@ def permanova_statistic(
 def permanova_metrics(
     similarity: np.ndarray,
     labels: np.ndarray,
+    permutations: int = 199,
+    seed: int = 0,
 ) -> dict[str, Any]:
     distance = 1.0 - similarity
     np.fill_diagonal(distance, 0.0)
     gower = gower_matrix(distance)
-    r2, _ = permanova_statistic(gower, labels)
+    r2, pseudo_f = permanova_statistic(gower, labels)
+    rng = np.random.default_rng(seed)
+    null = [permanova_statistic(gower, rng.permutation(labels))[0] for _ in range(permutations)]
+    p_value = (1 + sum(value >= r2 for value in null)) / (permutations + 1)
     return {
         "available_n": len(labels),
         "set_count": int(len(np.unique(labels))),
         "permanova_r2": round_value(r2),
+        "pseudo_f": round_value(pseudo_f),
+        "permanova_p_value": round_value(p_value),
+        "permutations": int(permutations),
     }
 
 
@@ -155,6 +162,7 @@ def compute_cross_modal_consistency(
     memberships: Mapping[str, list[str]],
     *,
     min_per_set_separation: float | None = None,
+    permanova_permutations: int = 199,
 ) -> dict[str, Any]:
     labels_by_case = {
         case_id: set_id
@@ -171,15 +179,79 @@ def compute_cross_modal_consistency(
     for modality in MODALITIES:
         similarity = normalize_affinity(affinities[modality])
         global_row, per_set = partition_separation(similarity, labels)
+        distance = 1.0 - similarity
+        np.fill_diagonal(distance, 0.0)
+        if len(np.unique(labels)) > 1 and min(np.sum(labels == label) for label in np.unique(labels)) > 1:
+            from sklearn.metrics import silhouette_samples
+            silhouettes = silhouette_samples(distance, labels, metric="precomputed")
+            global_row["mean_silhouette"] = round_value(float(np.mean(silhouettes)))
+            global_row["median_silhouette"] = round_value(float(np.median(silhouettes)))
+            global_row["fraction_silhouette_positive"] = round_value(float(np.mean(silhouettes > 0)))
+            for label in np.unique(labels):
+                per_set[str(label)]["mean_silhouette"] = round_value(float(np.mean(silhouettes[labels == label])))
+                per_set[str(label)]["median_silhouette"] = round_value(float(np.median(silhouettes[labels == label])))
+                per_set[str(label)]["fraction_silhouette_positive"] = round_value(float(np.mean(silhouettes[labels == label] > 0)))
         global_row.update(
             {
-                **permanova_metrics(similarity, labels),
+                **permanova_metrics(similarity, labels, permanova_permutations, MODALITIES.index(modality)),
                 "per_set": per_set,
             }
         )
         rows[modality] = global_row
+    permanova_rows = [rows[modality] for modality in MODALITIES]
+    for row, q_value in zip(
+        permanova_rows,
+        bh_fdr([float(row.get("permanova_p_value", 1.0) or 1.0) for row in permanova_rows]),
+    ):
+        row["permanova_q_value"] = round_value(q_value)
+    modality_flags = {}
+    identity_modalities_by_set = {set_id: [] for set_id in memberships}
+    for modality, row in rows.items():
+        per_set = row.get("per_set", {})
+        weak_boundary = all(
+            float(values.get("median_silhouette", 0) or 0) <= 0
+            and float(values.get("median_affinity_margin", 0) or 0) <= 0
+            for values in per_set.values()
+        )
+        strong_boundary = all(
+            float(values.get("median_silhouette", 0) or 0) > 0
+            and float(values.get("median_affinity_margin", 0) or 0) > 0
+            for values in per_set.values()
+        )
+        modality_flags[modality] = {
+            "identity_support": all(
+                float(values.get(key, 0) or 0) > 0
+                for values in per_set.values()
+                for key in ("mean_silhouette", "normalized_affinity_separation")
+            ) and all(
+                float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
+                for values in per_set.values()
+            ),
+            "split_support": (
+                float(row.get("normalized_affinity_separation", 0) or 0) > 0
+                and float(row.get("permanova_q_value", 1) or 1) <= 0.05
+                and all(float(values.get("mean_silhouette", 0) or 0) > 0 for values in per_set.values())
+            ),
+            "merge_support": weak_boundary,
+            "merge_strong_boundary": strong_boundary,
+        }
+        for set_id, values in per_set.items():
+            if (
+                float(values.get("mean_silhouette", 0) or 0) > 0
+                and float(values.get("normalized_affinity_separation", 0) or 0) > 0
+                and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
+            ):
+                identity_modalities_by_set.setdefault(set_id, []).append(modality)
     return {
         "modality_partition_support": rows,
+        "decision_metrics": {
+            "modality_flags": modality_flags,
+            "identity_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["identity_support"]],
+            "identity_supporting_modalities_by_set": identity_modalities_by_set,
+            "split_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["split_support"]],
+            "merge_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_support"]],
+            "merge_strong_boundary_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_strong_boundary"]],
+        },
         "analysis_scope": (
             "fixed candidate memberships on CT, WSI, RNA, and WXS+CNV genomic affinity "
             "networks; raw within/between affinity, normalized separation and "
@@ -194,9 +266,15 @@ def tool_multimodal_consistency_check(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    scope="set_identity",
+    target_ids=None,
+    proposal=None,
 ):
     cluster_id = str(cluster_state.get("cluster_id", "GLOBAL"))
-    memberships = candidate_set_members(cluster_state, all_cluster_states)
+    memberships = {
+        key: sorted(value)
+        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal).items()
+    }
     candidate_dir = Path(output_root) / "candidate_subtype"
     patient_order = json.loads(
         (candidate_dir / "affinity_patient_order.json").read_text()
@@ -214,10 +292,15 @@ def tool_multimodal_consistency_check(
         ]
         for modality in MODALITIES
     }
+    parameters = {}
+    if config_dir:
+        from tools.subtype_review_common import tool_parameters
+        parameters = tool_parameters(config_dir, "cross_modal")
     metrics = compute_cross_modal_consistency(
         affinities,
         case_ids,
         memberships,
+        permanova_permutations=int(parameters.get("permanova_permutations_dev", 199)),
     )
     return tool_result(
         tool_name="tool_multimodal_consistency_check",
@@ -226,7 +309,7 @@ def tool_multimodal_consistency_check(
         output_root=output_root,
         summary="Fixed candidate memberships were evaluated in four modality affinity networks.",
         metrics=metrics,
-        decision_metrics=metrics,
+        decision_metrics=metrics.get("decision_metrics", {}),
         support_level="informational",
         concern_level="none",
         figures={},

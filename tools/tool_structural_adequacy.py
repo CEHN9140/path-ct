@@ -355,7 +355,7 @@ def merge_group_evidence(
     }
 
 
-def tool_structural_adequacy(
+def generate_structure_proposal_metrics(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -387,7 +387,7 @@ def tool_structural_adequacy(
     ]
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = dict(review_config["budget"])
-    parameters = tool_parameters(config_dir, "structural_adequacy")
+    parameters = tool_parameters(config_dir, "structure_proposals")
     split_plans = local_split_plans(
         memberships,
         affinities,
@@ -486,7 +486,7 @@ def tool_structural_adequacy(
         ),
     }
     return tool_result(
-        tool_name="tool_structural_adequacy",
+        tool_name="structure_proposal_generator",
         status="success",
         cluster_id=str(cluster_state.get("cluster_id", "GLOBAL")),
         output_root=output_root,

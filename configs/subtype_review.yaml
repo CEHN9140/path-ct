@@ -11,7 +11,7 @@ llm:
 prompt_dir: agents/subtype_review/prompts
 
 budget:
-  max_rounds: 16
+  max_rounds: 20
   max_failures: 3
   min_split_size: 10
   max_split_children: 4
@@ -32,6 +32,35 @@ tools:
   tool_multimodal_consistency_check:
     module: tools.tool_multimodal_consistency_check
     function: tool_multimodal_consistency_check
-  tool_structural_adequacy:
-    module: tools.tool_structural_adequacy
-    function: tool_structural_adequacy
+  tool_cnv_characterization:
+    module: tools.tool_cnv_characterization
+    function: tool_cnv_characterization
+
+structure_proposals:
+  min_split_size: 10
+  max_split_children: 4
+  max_split_proposals_per_set: 3
+  split_null_permutations_dev: 199
+  split_null_permutations_final: 1999
+
+cross_modal:
+  permanova_permutations_dev: 199
+  permanova_permutations_final: 1999
+  accept_min_supporting_modalities: 2
+  split_min_supporting_modalities: 2
+  split_require_molecular_or_biology: true
+  merge_min_supporting_modalities: 2
+
+confounder:
+  alpha: 0.05
+  categorical_strong_v: 0.50
+  numeric_large_cliffs_delta: 0.474
+
+known_label_echo:
+  near_identity_ami: 0.80
+  near_identity_ari: 0.80
+  near_identity_mapping_accuracy: 0.90
+
+statistics:
+  alpha: 0.05
+  fdr_method: fdr_bh

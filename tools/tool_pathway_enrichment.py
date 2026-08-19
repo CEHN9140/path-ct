@@ -4,25 +4,16 @@ import math
 import numpy as np
 
 from tools.subtype_review_common import (
-    assign_groupwise_fdr,
+    bh_fdr,
     enrichment_decision_metrics,
     feature_dataframe,
-    member_case_ids,
     read_gmt_gene_sets,
+    scoped_candidate_sets,
     standardized_mean_difference,
     tool_parameters,
     tool_result,
 )
 from utils.visualization import configure_matplotlib
-
-
-def candidate_set_members(all_cluster_states, fallback_cluster_state):
-    states = list(all_cluster_states or [fallback_cluster_state])
-    return {
-        str(state.get("cluster_id", "") or ""): member_case_ids(state)
-        for state in states
-        if str(state.get("cluster_id", "") or "")
-    }
 
 
 def round_float(value, digits=6):
@@ -140,9 +131,9 @@ def pathway_rows(score_frame, pathway_gene_counts, candidate_sets):
                     "q_value": None,
                 }
             )
-    assign_groupwise_fdr(rows, "candidate_set_id", "mannwhitney_p_value", "q_value")
-    for row in rows:
-        row["q_value"] = round_float(row["q_value"])
+    q_values = bh_fdr([row.get("mannwhitney_p_value") for row in rows])
+    for row, q_value in zip(rows, q_values):
+        row["q_value"] = round_float(q_value)
     return sorted(
         rows,
         key=lambda row: (
@@ -209,9 +200,9 @@ def gene_differential_expression_rows(feature_frame, candidate_sets):
                     "q_value": None,
                 }
             )
-    assign_groupwise_fdr(rows, "candidate_set_id", "mannwhitney_p_value", "q_value")
-    for row in rows:
-        row["q_value"] = round_float(row["q_value"])
+    q_values = bh_fdr([row.get("mannwhitney_p_value") for row in rows])
+    for row, q_value in zip(rows, q_values):
+        row["q_value"] = round_float(q_value)
     return sorted(
         rows,
         key=lambda row: (
@@ -236,6 +227,9 @@ def tool_pathway_enrichment(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    scope="set_identity",
+    target_ids=None,
+    proposal=None,
 ):
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     params = tool_parameters(config_dir, "rna")
@@ -268,7 +262,7 @@ def tool_pathway_enrichment(
             "missing_intersected_genes",
         )
 
-    candidate_sets = candidate_set_members(all_cluster_states, cluster_state)
+    candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
     if not candidate_sets:
         return empty_pathway_result(
             cluster_id,

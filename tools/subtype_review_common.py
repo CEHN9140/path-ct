@@ -162,30 +162,28 @@ def member_case_ids(cluster_state: Mapping[str, Any]) -> set[str]:
     return {str(item) for item in list(cluster_state.get("member_ids", []) or [])}
 
 
-def split_member_states(
+def scoped_candidate_sets(
+    scope: str,
     cluster_state: Mapping[str, Any],
-    patient_states_by_id: Mapping[str, Mapping[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    members = member_case_ids(cluster_state)
-    inside, outside = [], []
-    for case_id, patient_state in patient_states_by_id.items():
-        target = inside if str(case_id) in members else outside
-        target.append(dict(patient_state))
-    return inside, outside
-
-
-def cluster_vs_rest_ids(
-    cluster_state: Mapping[str, Any],
-    patient_states_by_id: Mapping[str, Mapping[str, Any]],
-) -> tuple[list[str], list[str]]:
-    members = member_case_ids(cluster_state)
-    member_ids = [
-        str(case_id) for case_id in patient_states_by_id if str(case_id) in members
-    ]
-    rest_ids = [
-        str(case_id) for case_id in patient_states_by_id if str(case_id) not in members
-    ]
-    return member_ids, rest_ids
+    all_cluster_states: list[Mapping[str, Any]] | None,
+    proposal: Mapping[str, Any] | None = None,
+) -> dict[str, set[str]]:
+    current = {
+        str(state.get("set_id") or state.get("cluster_id") or ""): member_case_ids(state)
+        for state in list(all_cluster_states or [cluster_state])
+        if str(state.get("set_id") or state.get("cluster_id") or "")
+    }
+    if scope == "split_proposal":
+        proposal = dict(proposal or {})
+        proposal_id = str(proposal.get("plan_id", "split") or "split")
+        return {
+            f"{proposal_id}:child_{index}": {str(case_id) for case_id in group}
+            for index, group in enumerate(list(proposal.get("groups", []) or []), 1)
+        }
+    if scope == "merge_proposal":
+        ids = [str(item) for item in list(dict(proposal or {}).get("set_ids", []) or [])]
+        return {set_id: current[set_id] for set_id in ids if set_id in current}
+    return current
 
 
 def clinical_dict(patient_state: Mapping[str, Any]) -> dict[str, Any]:
@@ -353,6 +351,46 @@ def standardized_mean_difference(values_a, values_b) -> float | None:
     return float((np.mean(array_a) - np.mean(array_b)) / pooled_sd)
 
 
+def cliffs_delta(values_a, values_b) -> float | None:
+    a = np.asarray(list(values_a), dtype=float)
+    b = np.asarray(list(values_b), dtype=float)
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    if not len(a) or not len(b):
+        return None
+    return float((np.greater.outer(a, b).sum() - np.less.outer(a, b).sum()) / (len(a) * len(b)))
+
+
+def epsilon_squared(groups: list[list[float]]) -> float | None:
+    values = [np.asarray(group, dtype=float) for group in groups]
+    values = [group[np.isfinite(group)] for group in values if len(group)]
+    n = sum(len(group) for group in values)
+    k = len(values)
+    if n <= k or k < 2:
+        return None
+    from scipy.stats import kruskal
+
+    statistic = float(kruskal(*values).statistic)
+    return float(max(0.0, (statistic - k + 1.0) / (n - k)))
+
+
+def bias_corrected_cramers_v(table: np.ndarray) -> float | None:
+    table = np.asarray(table, dtype=float)
+    if table.ndim != 2 or min(table.shape) < 2 or table.sum() <= 1:
+        return None
+    from scipy.stats import chi2_contingency
+
+    chi2 = float(chi2_contingency(table, correction=False)[0])
+    n = float(table.sum())
+    phi2 = chi2 / n
+    rows, cols = table.shape
+    phi2corr = max(0.0, phi2 - ((cols - 1) * (rows - 1)) / (n - 1.0))
+    rows_corr = rows - ((rows - 1) ** 2) / (n - 1.0)
+    cols_corr = cols - ((cols - 1) ** 2) / (n - 1.0)
+    denominator = min(cols_corr - 1.0, rows_corr - 1.0)
+    return float(math.sqrt(phi2corr / denominator)) if denominator > 0 else None
+
+
 def bh_fdr(p_values: list[float]) -> list[float]:
     from statsmodels.stats.multitest import multipletests
 
@@ -384,3 +422,15 @@ def fisher_exact_result(
 
     result = fisher_exact([[a, b], [c, d]], alternative="two-sided")
     return float(result.statistic), float(result.pvalue)
+
+
+def odds_ratio_ci(a: int, b: int, c: int, d: int) -> tuple[float | None, list[float] | None]:
+    cells = [float(a), float(b), float(c), float(d)]
+    if any(value == 0 for value in cells):
+        cells = [value + 0.5 for value in cells]
+    aa, bb, cc, dd = cells
+    odds = aa * dd / (bb * cc)
+    import math
+    se = math.sqrt(1 / aa + 1 / bb + 1 / cc + 1 / dd)
+    log_odds = math.log(odds)
+    return odds, [math.exp(log_odds - 1.96 * se), math.exp(log_odds + 1.96 * se)]
