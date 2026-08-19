@@ -121,6 +121,13 @@ class RouterAction(BaseModel):
                 raise ValueError("need_more_evidence requires dimension and scope")
             if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
                 raise ValueError("proposal evidence requests require proposal_id")
+        elif self.action in {"split", "merge"}:
+            if self.dimension is not None or self.scope is not None:
+                raise ValueError("scientific actions must clear evidence fields")
+            if not self.proposal_id:
+                raise ValueError(f"{self.action} requires proposal_id")
+            if len(self.target_ids) != 1:
+                raise ValueError("scientific actions require one target_id")
         else:
             if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
                 raise ValueError("scientific actions must clear evidence fields")

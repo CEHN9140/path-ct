@@ -262,11 +262,16 @@ def metric_refs_for_action(action: RouterAction, state: Mapping[str, Any]) -> li
     if action.action == "need_more_evidence":
         return sorted(set(action.metric_refs))
     target = action.target_ids[0]
-    scopes = {"set_identity", "partition"} if action.action in {"accept", "drop"} else {f"{action.action}_proposal"}
+    if action.action in {"accept", "drop"}:
+        scopes = {"set_identity", "partition"}
+    else:
+        scopes = {f"{action.action}_proposal"}
+    proposal_id = str(action.proposal_id or "")
     return sorted({
         str(ref)
         for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
         if finding.get("scope") in scopes
+        and (action.action in {"accept", "drop"} or str(finding.get("proposal_id", "")) == proposal_id)
         and (
             not finding.get("target_ids")
             or target in {str(item) for item in finding.get("target_ids", []) or []}
@@ -1119,6 +1124,14 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         positive = any(invalidates_set(finding, action.target_ids[0]) for finding in findings)
         if not positive:
             raise ValueError("Drop requires positive confounder set-identity invalidating evidence")
+    if action.action in {"split", "merge"}:
+        proposal_id = str(action.proposal_id or "")
+        supported = supported_structure_proposals(state, action.action, action.target_ids[0])
+        if not any(
+            str(item.get("proposal_id") or item.get("plan_id") or "") == proposal_id
+            for item in supported
+        ):
+            raise ValueError("Structural action requires the exact eligible supported proposal")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
@@ -1165,26 +1178,28 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         if str(item.get("status", "active")) != "active":
             continue
         target = set_id(item)
-        refs = sorted({
-            str(ref)
-            for finding in findings
-            if target in {str(value) for value in finding.get("target_ids", []) or []}
-            for ref in finding.get("metric_refs", []) or []
-        })
         for action_name in ("accept", "drop", "split", "merge"):
-            try:
-                validate_router_action(
-                    RouterAction(
-                        action=action_name,
-                        target_ids=[target],
-                        metric_refs=refs,
-                    ),
-                    state,
+            proposal_ids = [None]
+            if action_name in {"split", "merge"}:
+                proposal_ids = [
+                    str(item.get("proposal_id") or item.get("plan_id") or "")
+                    for item in supported_structure_proposals(state, action_name, target)
+                ]
+            for proposal_id in proposal_ids:
+                candidate = RouterAction(
+                    action=action_name,
+                    target_ids=[target],
+                    proposal_id=proposal_id,
                 )
-                actionable = True
+                candidate.metric_refs = metric_refs_for_action(candidate, state)
+                try:
+                    validate_router_action(candidate, state)
+                    actionable = True
+                    break
+                except ValueError:
+                    continue
+            if actionable:
                 break
-            except ValueError:
-                continue
         if actionable:
             break
     if not requestable and not actionable:
@@ -1345,6 +1360,12 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
     target = str((action.get("target_ids") or [""])[0])
     partition_before = partition_signature(current_sets(state))
     candidates = supported_structure_proposals(state, str(action.get("action", "")), target)
+    requested_proposal = str(action.get("proposal_id", "") or "")
+    if requested_proposal:
+        candidates = [
+            row for row in candidates
+            if str(row.get("proposal_id") or row.get("plan_id") or "") == requested_proposal
+        ]
     visited = set(dict(state.get("control", {}) or {}).get("visited_partitions", []) or [])
     candidates = [row for row in candidates if candidate_partition_signature(state, str(action.get("action", "")), row) not in visited]
     if not candidates:
