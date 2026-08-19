@@ -222,7 +222,7 @@ def compute_cross_modal_consistency(
             "identity_support": all(
                 float(values.get(key, 0) or 0) > 0
                 for values in per_set.values()
-                for key in ("mean_silhouette", "normalized_affinity_separation")
+                for key in ("median_silhouette", "normalized_affinity_separation")
             ) and all(
                 float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
                 for values in per_set.values()
@@ -230,14 +230,14 @@ def compute_cross_modal_consistency(
             "split_support": (
                 float(row.get("normalized_affinity_separation", 0) or 0) > 0
                 and float(row.get("permanova_q_value", 1) or 1) <= 0.05
-                and all(float(values.get("mean_silhouette", 0) or 0) > 0 for values in per_set.values())
+                and all(float(values.get("median_silhouette", 0) or 0) > 0 for values in per_set.values())
             ),
             "merge_support": weak_boundary,
             "merge_strong_boundary": strong_boundary,
         }
         for set_id, values in per_set.items():
             if (
-                float(values.get("mean_silhouette", 0) or 0) > 0
+                float(values.get("median_silhouette", 0) or 0) > 0
                 and float(values.get("normalized_affinity_separation", 0) or 0) > 0
                 and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
             ):
@@ -300,7 +300,7 @@ def tool_multimodal_consistency_check(
         affinities,
         case_ids,
         memberships,
-        permanova_permutations=int(parameters.get("permanova_permutations_dev", 199)),
+        permanova_permutations=int(parameters.get("permanova_permutations", 199)),
     )
     return tool_result(
         tool_name="tool_multimodal_consistency_check",

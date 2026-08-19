@@ -3,9 +3,9 @@
 Choose exactly one action:
 `need_more_evidence`, `accept`, `drop`, `split`, or `merge`.
 
-Request evidence only from `requestable_evidence`, copying its dimension,
-scope, target IDs, and proposal ID. Do not request an
-already attempted request.
+Request evidence only from `requestable_evidence`, which includes mandatory
+Python requirements and additional Verifier gaps. Copy its dimension, scope,
+target IDs, and proposal ID. Do not request an already attempted request.
 
 Accept requires supporting `cross_modal_consistency` at `set_identity` in
 at least two original modalities. Biology can be supporting, mixed, or

@@ -11,6 +11,8 @@ Every finding and gap must contain `dimension`, `scope`, `target_ids`,
 and `proposal_id` when proposal-scoped. Python derives `subject_signature`; do
 not calculate or return hashes. A
 non-unavailable finding must cite a real metric reference from its own tool.
+That metric must come from the exact matching dimension, scope, signature, and
+proposal; never reuse a metric from another evidence request.
 
 Use these semantics:
 
@@ -29,3 +31,6 @@ request.
 
 In acquisition mode, call only the requested dimension tool. Do not recommend
 an action or modify membership.
+
+Python supplies mandatory requests independently, so do not invent gaps merely
+to satisfy an action contract. Add only scientifically useful extra gaps.

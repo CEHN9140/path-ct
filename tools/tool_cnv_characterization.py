@@ -155,7 +155,11 @@ def tool_cnv_characterization(
             )[:10],
             "top_by_effect": sorted(
                 comparison_rows,
-                key=lambda row: abs(float(row.get("delta_mean", 0) or 0)),
+                key=lambda row: abs(float(row.get(
+                    "delta_mean" if row.get("feature_type") == "binary_event"
+                    else "cliffs_delta",
+                    0,
+                ) or 0)),
                 reverse=True,
             )[:10],
         }
