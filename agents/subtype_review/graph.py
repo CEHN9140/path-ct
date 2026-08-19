@@ -258,6 +258,23 @@ def metric_refs_from_findings(audit: Mapping[str, Any]) -> set[str]:
     }
 
 
+def metric_refs_for_action(action: RouterAction, state: Mapping[str, Any]) -> list[str]:
+    if action.action == "need_more_evidence":
+        return sorted(set(action.metric_refs))
+    target = action.target_ids[0]
+    scopes = {"set_identity", "partition"} if action.action in {"accept", "drop"} else {f"{action.action}_proposal"}
+    return sorted({
+        str(ref)
+        for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+        if finding.get("scope") in scopes
+        and (
+            not finding.get("target_ids")
+            or target in {str(item) for item in finding.get("target_ids", []) or []}
+        )
+        for ref in list(finding.get("metric_refs", []) or [])
+    })
+
+
 def require_metric_refs(metric_refs: list[str], context: str) -> None:
     if not metric_refs:
         raise ValueError(f"{context} requires metric_refs")
@@ -1206,6 +1223,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             return state
         try:
             action = parse_router_action(result)
+            action.metric_refs = metric_refs_for_action(action, state)
             validate_router_action(action, state)
             break
         except Exception as exc:
