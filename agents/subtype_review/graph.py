@@ -699,7 +699,11 @@ def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
         return finding.get("dimension") == "known_label_echo"
     return (
         finding.get("scope") == "set_identity"
-        and finding.get("dimension") in {"cross_modal_consistency", "confounder_exclusion"}
+        and finding.get("dimension") in {
+            "biological_support",
+            "cross_modal_consistency",
+            "confounder_exclusion",
+        }
         and target in {str(value) for value in finding.get("target_ids", []) or []}
     )
 

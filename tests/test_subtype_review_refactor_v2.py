@@ -198,6 +198,44 @@ def test_inconclusive_biology_does_not_block_accept_when_identity_is_supported()
     )
 
 
+def test_conflicting_set_identity_biology_blocks_accept_but_not_drop():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    cross_ref = "tool_results.tool_multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    biology_ref = "tool_results.tool_pathway_enrichment.metrics.signal"
+    state["evidence"]["results"].extend([
+        evidence_row(
+            state, "cross_modal_consistency", "set_identity", ["C1"], {},
+            "tool_multimodal_consistency_check",
+            {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}},
+            cross_ref,
+        ),
+        evidence_row(
+            state, "biological_support", "set_identity", ["C1"], {},
+            "tool_pathway_enrichment", {"signal": "opposes_identity"}, biology_ref,
+        ),
+    ])
+    state["audit"] = {"findings": [
+        {
+            "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+            "scope": "set_identity", "status": "supporting", "metric_refs": [cross_ref],
+        },
+        {
+            "target_ids": ["C1"], "dimension": "biological_support",
+            "scope": "set_identity", "status": "conflicting", "metric_refs": [biology_ref],
+        },
+    ], "gaps": []}
+    add_identity_controls(state)
+
+    with pytest.raises(ValueError, match="Accept is vetoed"):
+        validate_router_action(
+            RouterAction(action="accept", target_ids=["C1"], metric_refs=[cross_ref]), state
+        )
+    with pytest.raises(ValueError, match="positive confounder"):
+        validate_router_action(
+            RouterAction(action="drop", target_ids=["C1"], metric_refs=[biology_ref]), state
+        )
+
+
 def test_drop_requires_positive_invalidating_evidence():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     with pytest.raises(ValueError, match="unavailable metrics"):
