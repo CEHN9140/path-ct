@@ -26,7 +26,9 @@ membership in at least two original modalities, molecular/biology support, and
 no technical or known-label veto. Imaging-only Split requests more biology
 evidence. Merge requires positive weak-boundary evidence in at least two
 modalities and no biological distinction veto. Drop requires positive
-confounder or near-identity known-label evidence; it never removes patients.
+set-identity confounder evidence; proposal conflicts veto only their exact
+Split or Merge, while partition-level known-label conflict blocks taxonomy
+acceptance rather than dropping an individual set. Drop never removes patients.
 
 When all decision-relevant evidence is exhausted but no action is justified,
 retain the partition and mark the review unresolved rather than forcing Drop.

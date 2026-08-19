@@ -428,6 +428,71 @@ def test_drop_evidence_does_not_reactivate_a_provisionally_dropped_set():
     assert state["sets"][0]["status"] == "provisionally_dropped"
 
 
+def test_split_proposal_confound_blocks_split_without_invalidating_parent():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]}])
+    proposal = {
+        "proposal_id": "p1", "plan_id": "p1", "source_set_id": "C1",
+        "eligible_for_review": True,
+        "groups": [[f"P{i}" for i in range(10)], [f"P{i}" for i in range(10, 20)]],
+    }
+    state["structure_proposals"] = {"split_proposals": [proposal], "merge_proposals": []}
+    identity_ref = "tool_results.tool_multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    split_ref = "tool_results.tool_multimodal_consistency_check.metrics.split_supporting_modalities"
+    state["evidence"]["results"].extend([
+        evidence_row(state, "cross_modal_consistency", "set_identity", ["C1"], {}, "tool_multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, identity_ref),
+        evidence_row(state, "cross_modal_consistency", "split_proposal", ["C1"], proposal, "tool_multimodal_consistency_check", {"split_supporting_modalities": ["ct", "rna"]}, split_ref),
+    ])
+    state["audit"] = {"findings": [
+        {"target_ids": ["C1"], "dimension": "cross_modal_consistency", "scope": "set_identity", "status": "supporting", "metric_refs": [identity_ref]},
+        {"target_ids": ["C1"], "proposal_id": "p1", "dimension": "cross_modal_consistency", "scope": "split_proposal", "status": "supporting", "metric_refs": [split_ref]},
+    ], "gaps": []}
+    add_identity_controls(state)
+    add_proposal_checks(state, proposal, "split_proposal", ["C1"])
+    state["audit"]["findings"][-2]["status"] = "conflicting"
+    state["sets"][0]["status"] = "provisionally_accepted"
+    audit = VerifierOutput.model_validate(state["audit"])
+
+    assert not supported_structure_proposals(state, "split", "C1")
+    reactivate_provisional_sets(state, audit)
+    assert state["sets"][0]["status"] == "provisionally_accepted"
+    state["sets"][0]["status"] = "active"
+    validate_router_action(RouterAction(action="accept", target_ids=["C1"], metric_refs=[identity_ref]), state)
+    with pytest.raises(ValueError, match="positive confounder"):
+        validate_router_action(RouterAction(action="drop", target_ids=["C1"], metric_refs=[split_ref]), state)
+
+
+def test_merge_known_label_conflict_does_not_invalidate_parent_sets():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    proposal = {
+        "proposal_id": "m1", "plan_id": "m1", "set_ids": ["C1", "C2"],
+        "memberships": [["P1", "P2"], ["P3", "P4"]], "eligible_for_review": True,
+    }
+    state["structure_proposals"] = {"split_proposals": [], "merge_proposals": [proposal]}
+    merge_ref = "tool_results.tool_multimodal_consistency_check.metrics.merge_supporting_modalities"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "merge_proposal", ["C1", "C2"], proposal,
+        "tool_multimodal_consistency_check",
+        {"merge_supporting_modalities": ["ct", "wsi"], "merge_strong_boundary_modalities": []},
+        merge_ref,
+    ))
+    state["audit"] = {"findings": [{
+        "target_ids": ["C1", "C2"], "proposal_id": "m1",
+        "dimension": "cross_modal_consistency", "scope": "merge_proposal",
+        "status": "supporting", "metric_refs": [merge_ref],
+    }], "gaps": []}
+    add_proposal_checks(state, proposal, "merge_proposal", ["C1", "C2"], include_biology=True)
+    state["audit"]["findings"][-2]["status"] = "conflicting"
+    state["sets"][0]["status"] = "provisionally_dropped"
+
+    reactivate_provisional_sets(state, VerifierOutput.model_validate(state["audit"]))
+    assert state["sets"][0]["status"] == "active"
+    with pytest.raises(ValueError, match="positive confounder"):
+        validate_router_action(RouterAction(action="drop", target_ids=["C1"], metric_refs=[merge_ref]), state)
+
+
 def test_partition_known_label_conflict_reopens_an_accepted_set():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]}
@@ -444,6 +509,30 @@ def test_partition_known_label_conflict_reopens_an_accepted_set():
     assert not complete_audit(state)
     reactivate_provisional_sets(state, audit)
     assert state["sets"][0]["status"] == "active"
+
+
+def test_successful_mandatory_evidence_without_finding_is_contract_failure():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    cross_ref = "tool_results.tool_multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    confound_ref = "tool_results.tool_confound_test.metrics.strong_technical_conflict"
+    known_ref = "tool_results.tool_known_label_echo_test.metrics.near_identity"
+    state["evidence"] = {"results": [
+        evidence_row(state, "cross_modal_consistency", "set_identity", ["C1"], {}, "tool_multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, cross_ref),
+        evidence_row(state, "confounder_exclusion", "set_identity", ["C1"], {}, "tool_confound_test", {"strong_technical_conflict": False}, confound_ref),
+        evidence_row(state, "known_label_echo", "partition", [], {}, "tool_known_label_echo_test", {"near_identity": False}, known_ref),
+    ]}
+    audit = VerifierOutput.model_validate({"findings": [
+        {"target_ids": ["C1"], "dimension": "confounder_exclusion", "scope": "set_identity", "subject_signature": subject_signature("confounder_exclusion", "set_identity", state["sets"], ["C1"]), "status": "supporting", "metric_refs": [confound_ref]},
+        {"target_ids": [], "dimension": "known_label_echo", "scope": "partition", "subject_signature": subject_signature("known_label_echo", "partition", state["sets"], []), "status": "supporting", "metric_refs": [known_ref]},
+    ], "gaps": []})
+
+    with pytest.raises(ValueError, match="mandatory evidence has no corresponding Finding"):
+        validate_verifier_audit(audit, state)
+
+
+def test_default_review_budget_allows_mandatory_evidence_rounds():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    assert state["control"]["max_rounds"] == 60
 
 
 def test_router_contract_failure_is_runtime_failure_not_scientific_unresolved():

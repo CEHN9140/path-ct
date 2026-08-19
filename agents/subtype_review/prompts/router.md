@@ -9,8 +9,9 @@ target IDs, and proposal ID. Do not request an already attempted request.
 
 Accept requires supporting `cross_modal_consistency` at `set_identity` in
 at least two original modalities. Biology can be supporting, mixed, or
-inconclusive. Drop requires positive `confounder_exclusion` or
-`known_label_echo` invalidating evidence. A tool failure, weak single
+inconclusive. Drop requires positive conflicting `confounder_exclusion` at
+`set_identity` for that exact set. Partition-level known-label conflict blocks
+taxonomy acceptance but does not justify dropping an individual set. A tool failure, weak single
 modality, biology inconclusive result, budget pressure, or non-significant p/q
 cannot justify Drop.
 

@@ -33,4 +33,6 @@ In acquisition mode, call only the requested dimension tool. Do not recommend
 an action or modify membership.
 
 Python supplies mandatory requests independently, so do not invent gaps merely
-to satisfy an action contract. Add only scientifically useful extra gaps.
+to satisfy an action contract. Every acquired mandatory evidence instance must
+have a corresponding finding; for `set_identity`, cover every requested set.
+Add only scientifically useful extra gaps.

@@ -80,7 +80,7 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "blocked_actions": [],
             "visited_partitions": [partition_signature(sets)],
             "trace": [],
-            "max_rounds": 20,
+            "max_rounds": 60,
             "max_failures": 3,
             "policy": {
                 "accept_min_supporting_modalities": 2,
@@ -625,13 +625,49 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
     })
     if repeated_gaps:
         raise ValueError(f"Verifier gap references an already attempted evidence request: {repeated_gaps}")
-    for capability in failed_capabilities(state):
-        if not any(
-            finding.dimension == capability and finding.status in {"unavailable", "inconclusive"}
+    for request in required_evidence_requests(state, include_available=True):
+        exact = matching_evidence_results(
+            evidence,
+            request["dimension"],
+            request["scope"],
+            request["subject_signature"],
+            request["proposal_id"],
+        )
+        if not exact:
+            continue
+        corresponding = [
+            finding
             for finding in audit.findings
+            if finding.dimension == request["dimension"]
+            and finding.scope == request["scope"]
+            and finding.subject_signature == request["subject_signature"]
+            and str(finding.proposal_id or "") == str(request["proposal_id"] or "")
+        ]
+        covered_targets = {
+            target for finding in corresponding for target in finding.target_ids
+        }
+        if not corresponding or not set(request["target_ids"]).issubset(covered_targets):
+            raise ValueError("Acquired mandatory evidence has no corresponding Finding")
+        fully_failed = all(
+            (
+                result.get("results")
+                and {
+                    str(child.get("status", ""))
+                    for child in result.get("results", []) or []
+                }.issubset({"failure", "unavailable"})
+            )
+            or (
+                not result.get("results")
+                and str(result.get("status", "")) == "failure"
+            )
+            for result in exact
+        )
+        if fully_failed and not any(
+            finding.status in {"unavailable", "inconclusive"}
+            for finding in corresponding
         ):
             raise ValueError(
-                f"Failed evidence capability requires an unavailable or inconclusive finding: {capability}"
+                "Failed mandatory evidence requires an unavailable or inconclusive Finding"
             )
     for finding in audit.findings:
         exact = matching_evidence_results(
@@ -656,29 +692,39 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
             raise ValueError("Verifier metric_refs are outside exact evidence")
 
 
-def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
-    conflicting_targets = {
-        str(target)
-        for finding in audit.findings
-        if finding.status == "conflicting"
-        for target in finding.target_ids
-    }
-    global_conflict = any(
-        finding.status == "conflicting" and not finding.target_ids
-        for finding in audit.findings
+def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
+    if finding.get("status") != "conflicting":
+        return False
+    if finding.get("scope") == "partition":
+        return finding.get("dimension") == "known_label_echo"
+    return (
+        finding.get("scope") == "set_identity"
+        and finding.get("dimension") in {"cross_modal_consistency", "confounder_exclusion"}
+        and target in {str(value) for value in finding.get("target_ids", []) or []}
     )
+
+
+def invalidates_set(finding: Mapping[str, Any], target: str) -> bool:
+    return (
+        finding.get("dimension") == "confounder_exclusion"
+        and finding.get("scope") == "set_identity"
+        and finding.get("status") == "conflicting"
+        and target in {str(value) for value in finding.get("target_ids", []) or []}
+    )
+
+
+def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
+    findings = [finding.model_dump() for finding in audit.findings]
     for item in state["sets"]:
         status = str(item.get("status", ""))
         target = set_id(item)
-        valid_drop = any(
-            finding.dimension in {"confounder_exclusion", "known_label_echo"}
-            and finding.status == "conflicting"
-            and target in finding.target_ids
-            for finding in audit.findings
-        )
-        if status == "provisionally_accepted" and (global_conflict or target in conflicting_targets):
+        if status == "provisionally_accepted" and any(
+            blocks_set_acceptance(finding, target) for finding in findings
+        ):
             item["status"] = "active"
-        elif status == "provisionally_dropped" and not valid_drop:
+        elif status == "provisionally_dropped" and not any(
+            invalidates_set(finding, target) for finding in findings
+        ):
             item["status"] = "active"
 
 
@@ -696,17 +742,9 @@ def structural_candidates(state: Mapping[str, Any]) -> tuple[list[dict[str, Any]
     )
 
 
-def failed_capabilities(state: Mapping[str, Any]) -> set[str]:
-    failed = set()
-    for item in current_partition_evidence(state).get("results", []):
-        children = list(item.get("results", []) or [])
-        statuses = {str(child.get("status", "")) for child in children}
-        if children and statuses and statuses.issubset({"failure", "unavailable"}):
-            failed.add(str(item.get("capability", "")))
-    return failed
-
-
-def required_evidence_requests(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+def required_evidence_requests(
+    state: Mapping[str, Any], include_available: bool = False
+) -> list[dict[str, Any]]:
     sets = current_sets(state)
     set_ids = [set_id(item) for item in sets]
     evidence = current_partition_evidence(state)
@@ -717,7 +755,7 @@ def required_evidence_requests(state: Mapping[str, Any]) -> list[dict[str, Any]]
         proposal = dict(proposal or {})
         proposal_id = str(proposal.get("proposal_id") or proposal.get("plan_id") or "")
         signature = subject_signature(dimension, scope, sets, targets, proposal)
-        if not matching_evidence_results(
+        if include_available or not matching_evidence_results(
             evidence, dimension, scope, signature, proposal_id or None
         ):
             requests.append({
@@ -790,22 +828,8 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
     findings = list(audit.get("findings", []) or [])
     for item in sets:
         target = set_id(item)
-        accept_blocker = any(
-            finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-            and finding.get("status") == "conflicting"
-            and (
-                not finding.get("target_ids")
-                or target
-                in {str(value) for value in finding.get("target_ids", []) or []}
-            )
-            for finding in findings
-        )
-        drop_evidence = any(
-            finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-            and finding.get("status") == "conflicting"
-            and target in {str(value) for value in finding.get("target_ids", []) or []}
-            for finding in findings
-        )
+        accept_blocker = any(blocks_set_acceptance(finding, target) for finding in findings)
+        drop_evidence = any(invalidates_set(finding, target) for finding in findings)
         if item.get("status") == "provisionally_accepted" and accept_blocker:
             return False
         if item.get("status") == "provisionally_dropped" and not drop_evidence:
@@ -1064,24 +1088,16 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
             row.get("status") != "unavailable" for row in known_label
         ):
             raise ValueError("Accept requires available confounder and known-label evidence")
-        if any(
-            finding.get("status") == "conflicting"
-            for finding in [*confound, *known_label]
-        ):
-            raise ValueError("Accept is vetoed by confounder or known-label evidence")
+        if any(blocks_set_acceptance(finding, action.target_ids[0]) for finding in findings):
+            raise ValueError("Accept is vetoed by conflicting set-identity or partition evidence")
     if action.action == "drop":
         if supported_structure_proposals(
             state, "split", action.target_ids[0]
         ) or supported_structure_proposals(state, "merge", action.target_ids[0]):
             raise ValueError("Drop is blocked by a supported structural correction")
-        positive = any(
-            finding.get("dimension") in {"confounder_exclusion", "known_label_echo"}
-            and finding.get("status") == "conflicting"
-            and action.target_ids[0] in {str(item) for item in finding.get("target_ids", [])}
-            for finding in findings
-        )
+        positive = any(invalidates_set(finding, action.target_ids[0]) for finding in findings)
         if not positive:
-            raise ValueError("Drop requires positive confounder or known-label invalidating evidence")
+            raise ValueError("Drop requires positive confounder set-identity invalidating evidence")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
