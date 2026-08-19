@@ -33,6 +33,13 @@ class AuditFinding(BaseModel):
     summary: str = ""
     metric_refs: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def require_metric_refs_field(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "metric_refs" not in value:
+            raise ValueError("metric_refs is required for every finding")
+        return value
+
     @field_validator("dimension")
     @classmethod
     def valid_dimension(cls, value: str) -> str:

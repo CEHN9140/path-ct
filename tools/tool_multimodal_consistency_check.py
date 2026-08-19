@@ -15,6 +15,7 @@ from tools.subtype_review_common import (
 
 
 MODALITIES = ("ct", "wsi", "rna", "genomic")
+DEFAULT_EFFECT_EPSILON = 0.001
 
 
 def modality_affinity_path(output_root: str, modality: str) -> Path:
@@ -163,6 +164,7 @@ def compute_cross_modal_consistency(
     *,
     min_per_set_separation: float | None = None,
     permanova_permutations: int = 199,
+    effect_epsilon: float = DEFAULT_EFFECT_EPSILON,
 ) -> dict[str, Any]:
     labels_by_case = {
         case_id: set_id
@@ -214,13 +216,13 @@ def compute_cross_modal_consistency(
             for values in per_set.values()
         )
         strong_boundary = all(
-            float(values.get("median_silhouette", 0) or 0) > 0
-            and float(values.get("median_affinity_margin", 0) or 0) > 0
+            float(values.get("median_silhouette", 0) or 0) > effect_epsilon
+            and float(values.get("median_affinity_margin", 0) or 0) > effect_epsilon
             for values in per_set.values()
         )
         modality_flags[modality] = {
             "identity_support": all(
-                float(values.get(key, 0) or 0) > 0
+                float(values.get(key, 0) or 0) > effect_epsilon
                 for values in per_set.values()
                 for key in ("median_silhouette", "normalized_affinity_separation")
             ) and all(
@@ -228,17 +230,17 @@ def compute_cross_modal_consistency(
                 for values in per_set.values()
             ),
             "split_support": (
-                float(row.get("normalized_affinity_separation", 0) or 0) > 0
+                float(row.get("normalized_affinity_separation", 0) or 0) > effect_epsilon
                 and float(row.get("permanova_q_value", 1) or 1) <= 0.05
-                and all(float(values.get("median_silhouette", 0) or 0) > 0 for values in per_set.values())
+                and all(float(values.get("median_silhouette", 0) or 0) > effect_epsilon for values in per_set.values())
             ),
             "merge_support": weak_boundary,
             "merge_strong_boundary": strong_boundary,
         }
         for set_id, values in per_set.items():
             if (
-                float(values.get("median_silhouette", 0) or 0) > 0
-                and float(values.get("normalized_affinity_separation", 0) or 0) > 0
+                float(values.get("median_silhouette", 0) or 0) > effect_epsilon
+                and float(values.get("normalized_affinity_separation", 0) or 0) > effect_epsilon
                 and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
             ):
                 identity_modalities_by_set.setdefault(set_id, []).append(modality)
@@ -251,6 +253,7 @@ def compute_cross_modal_consistency(
             "split_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["split_support"]],
             "merge_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_support"]],
             "merge_strong_boundary_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_strong_boundary"]],
+            "effect_epsilon": effect_epsilon,
         },
         "analysis_scope": (
             "fixed candidate memberships on CT, WSI, RNA, and WXS+CNV genomic affinity "
@@ -301,6 +304,7 @@ def tool_multimodal_consistency_check(
         case_ids,
         memberships,
         permanova_permutations=int(parameters.get("permanova_permutations", 199)),
+        effect_epsilon=float(parameters.get("effect_epsilon", DEFAULT_EFFECT_EPSILON)),
     )
     return tool_result(
         tool_name="tool_multimodal_consistency_check",

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents.subtype_review.schemas import ReviserOutput, RouterAction
+from agents.subtype_review.schemas import ReviserOutput, RouterAction, VerifierOutput
 from agents.subtype_review.tools import build_validation_tools
 from utils.llm_utils import (
     LocalLLMClient,
@@ -37,6 +37,10 @@ def parse_json_content(content: Any) -> dict[str, Any]:
     if not isinstance(parsed, dict) or parsed.get("_parse_error"):
         raise RuntimeError("LLM returned invalid JSON object")
     return parsed
+
+
+def validate_verifier_payload(payload: dict[str, Any]) -> None:
+    VerifierOutput.model_validate(payload)
 
 
 class JsonStructuredModel:
@@ -124,10 +128,11 @@ class ProtocolSelfReviewModel:
 
 
 class VerifierChatModel:
-    def __init__(self, model: Any, system_prompt: str, tools: list[Any]):
+    def __init__(self, model: Any, system_prompt: str, tools: list[Any], correction_attempts: int = 2):
         self.model = model
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
+        self.correction_attempts = correction_attempts
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = dict(payload)
@@ -152,10 +157,26 @@ class VerifierChatModel:
             "mode": "protocol_self_review",
             "proposed_audit": parse_json_content(getattr(response, "content", response)),
         }
-        return model.invoke([
+        reviewed = model.invoke([
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
         ])
+        for _ in range(self.correction_attempts + 1):
+            try:
+                validate_verifier_payload(parse_json_content(getattr(reviewed, "content", reviewed)))
+                return reviewed
+            except Exception as exc:
+                reviewed = model.invoke([
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": json.dumps({
+                        **request,
+                        "mode": "audit_correction",
+                        "proposed_audit": parse_json_content(getattr(reviewed, "content", reviewed)),
+                        "validation_error": f"{type(exc).__name__}: {exc}",
+                        "instruction": "Return the corrected complete VerifierOutput JSON.",
+                    }, ensure_ascii=False)},
+                ])
+        raise RuntimeError("Verifier audit failed schema correction")
 
 
 class LocalVerifierModel:
@@ -164,6 +185,7 @@ class LocalVerifierModel:
         self.client = LocalLLMClient(client_config)
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
+        self.correction_attempts = int(config.get("json_retries", 2) or 2)
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         if not local_llm_server_available(self.client.base_url):
@@ -206,7 +228,23 @@ class LocalVerifierModel:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
         ])
-        return parse_json_content(reviewed.get("content"))
+        for _ in range(self.correction_attempts + 1):
+            try:
+                audit = parse_json_content(reviewed.get("content"))
+                validate_verifier_payload(audit)
+                return audit
+            except Exception as exc:
+                reviewed = self.client.chat([
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": json.dumps({
+                        **payload,
+                        "mode": "audit_correction",
+                        "proposed_audit": parse_json_content(reviewed.get("content")),
+                        "validation_error": f"{type(exc).__name__}: {exc}",
+                        "instruction": "Return the corrected complete VerifierOutput JSON.",
+                    }, ensure_ascii=False)},
+                ])
+        raise RuntimeError("Verifier audit failed schema correction")
 
 
 def build_structured_model(config: dict[str, Any], schema: type, prompt: str) -> Any:
@@ -231,7 +269,7 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path) -> An
         max_tokens=int(cfg.get("max_new_tokens", 2048)),
         extra_body={"thinking": {"type": "disabled"}},
     )
-    return VerifierChatModel(model, prompt, tools)
+    return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2))
 
 
 def build_default_reviser(config: dict[str, Any], config_dir: str | Path) -> Any:

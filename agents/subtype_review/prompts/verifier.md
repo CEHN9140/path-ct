@@ -4,7 +4,18 @@ Audit the complete current partition and the supplied scoped evidence. Do not
 choose an action. In audit mode return exactly one JSON object:
 
 ```json
-{"findings": [], "gaps": []}
+{
+  "findings": [{
+    "target_ids": ["C0001"],
+    "dimension": "cross_modal_consistency",
+    "scope": "set_identity",
+    "proposal_id": null,
+    "status": "supporting",
+    "summary": "WSI and RNA support the set identity.",
+    "metric_refs": ["tool_results.tool_multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"]
+  }],
+  "gaps": []
+}
 ```
 
 Every finding and gap must contain `dimension`, `scope`, `target_ids`,
@@ -13,6 +24,10 @@ not calculate or return hashes. A
 non-unavailable finding must cite a real metric reference from its own tool.
 That metric must come from the exact matching dimension, scope, signature, and
 proposal; never reuse a metric from another evidence request.
+
+Every Finding MUST include `status`, `summary`, and `metric_refs` (including an
+empty list when the status is `unavailable`). `status` MUST be exactly one of:
+`supporting`, `conflicting`, `mixed`, `inconclusive`, or `unavailable`.
 
 Use these semantics:
 
