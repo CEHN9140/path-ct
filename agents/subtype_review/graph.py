@@ -4,7 +4,6 @@ import json
 import hashlib
 import re
 from collections.abc import Mapping
-from itertools import combinations
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -83,6 +82,12 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "trace": [],
             "max_rounds": 20,
             "max_failures": 3,
+            "policy": {
+                "accept_min_supporting_modalities": 2,
+                "split_min_supporting_modalities": 2,
+                "merge_min_supporting_modalities": 2,
+                "split_require_molecular_or_biology": True,
+            },
         },
     }
     return state
@@ -106,33 +111,51 @@ def partition_signature(sets: list[dict[str, Any]]) -> str:
 
 
 def subject_signature(
+    dimension: str,
     scope: str,
     sets: list[dict[str, Any]],
     target_ids: list[str] | None = None,
     proposal: Mapping[str, Any] | None = None,
 ) -> str:
     proposal = dict(proposal or {})
+    universe = sorted(
+        str(member) for item in sets for member in item.get("member_ids", [])
+    )
     if scope == "partition":
-        value = {"scope": scope, "partition": partition_signature(sets)}
+        subject = {"partition": partition_signature(sets)}
     elif scope == "set_identity":
         selected = [item for item in sets if set_id(item) in set(target_ids or [])]
-        value = {
-            "scope": scope,
-            "members": sorted(str(member) for item in selected for member in item.get("member_ids", [])),
-        }
+        subject = (
+            {"partition": partition_signature(sets)}
+            if dimension in {"cross_modal_consistency", "known_label_echo"}
+            else {
+                "members": sorted(str(member) for item in selected for member in item.get("member_ids", [])),
+                "cohort_universe": universe,
+            }
+        )
     elif scope == "split_proposal":
-        value = {
-            "scope": scope,
-            "parent_members": sorted(str(member) for member in proposal.get("parent_members", []) or []),
-            "groups": sorted(sorted(str(member) for member in group) for group in proposal.get("groups", []) or []),
+        groups = sorted(
+            sorted(str(member) for member in group)
+            for group in proposal.get("groups", []) or []
+        )
+        parent_members = proposal.get("parent_members", []) or [
+            member for group in groups for member in group
+        ]
+        subject = {
+            "parent_members": sorted(str(member) for member in parent_members),
+            "groups": groups,
         }
+        if dimension == "known_label_echo":
+            subject["partition"] = partition_signature(sets)
     elif scope == "merge_proposal":
-        value = {
-            "scope": scope,
+        subject = {
             "groups": sorted(sorted(str(member) for member in group) for group in proposal.get("memberships", []) or []),
         }
+        if dimension == "known_label_echo":
+            subject["partition"] = partition_signature(sets)
     else:
         raise ValueError(f"Unknown evidence scope: {scope}")
+    value = {"dimension": dimension, "scope": scope, "subject": subject}
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -281,7 +304,7 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
     all_sets = current_sets(state)
     proposal = proposal_by_id(state, proposal_id) if proposal_id else {}
     partition = partition_signature(all_sets)
-    signature = subject_signature(scope, all_sets, list(action.get("target_ids", []) or []), proposal)
+    signature = subject_signature(dimension, scope, all_sets, list(action.get("target_ids", []) or []), proposal)
     evidence = dict(state.get("evidence", {}) or {})
     results = list(evidence.get("results", []) or [])
     cached = {
@@ -327,10 +350,16 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
         payload["target_ids"] = list(action.get("target_ids", []) or [])
         payload["proposal_id"] = proposal_id or None
         payload["subject_signature"] = signature
-        payload["subject_signatures"] = {
-            set_id(item): subject_signature("set_identity", [item], [set_id(item)])
-            for item in all_sets
-        } if scope == "set_identity" else {}
+        payload["subject_signatures"] = (
+            {
+                set_id(item): subject_signature(
+                    dimension, "set_identity", all_sets, [set_id(item)]
+                )
+                for item in all_sets
+            }
+            if scope == "set_identity"
+            else {}
+        )
         results.append(payload)
         executed.append(payload)
         try:
@@ -377,27 +406,34 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
 
 def current_partition_evidence(state: Mapping[str, Any]) -> dict[str, Any]:
     sets = current_sets(state)
-    signatures = {
-        partition_signature(sets),
-        *{
-            subject_signature("set_identity", [item], [set_id(item)])
-            for item in sets
-        },
-    }
-    for key in ("split_proposals", "merge_proposals"):
-        for proposal in list(dict(state.get("structure_proposals", {}) or {}).get(key, []) or []):
-            scope = "split_proposal" if key == "split_proposals" else "merge_proposal"
-            targets = [str(proposal.get("source_set_id", ""))] if scope == "split_proposal" else list(proposal.get("set_ids", []) or [])
-            signatures.add(subject_signature(scope, sets, targets, proposal))
     evidence = dict(state.get("evidence", {}) or {})
+    current_results = []
+    for item in list(evidence.get("results", []) or []):
+        dimension = str(item.get("capability", ""))
+        signatures = {
+            subject_signature(dimension, "partition", sets),
+            *{
+                subject_signature(dimension, "set_identity", sets, [set_id(row)])
+                for row in sets
+            },
+        }
+        for key in ("split_proposals", "merge_proposals"):
+            for proposal in list(dict(state.get("structure_proposals", {}) or {}).get(key, []) or []):
+                scope = "split_proposal" if key == "split_proposals" else "merge_proposal"
+                targets = (
+                    [str(proposal.get("source_set_id", ""))]
+                    if scope == "split_proposal"
+                    else list(proposal.get("set_ids", []) or [])
+                )
+                signatures.add(subject_signature(dimension, scope, sets, targets, proposal))
+        if item.get("subject_signature") in signatures or signatures.intersection(
+            set(dict(item.get("subject_signatures", {}) or {}).values())
+        ):
+            current_results.append(item)
     return {
         **evidence,
         "structure_proposals": dict(state.get("structure_proposals", {}) or {}),
-        "results": [
-            item for item in list(evidence.get("results", []) or [])
-            if item.get("subject_signature") in signatures
-            or signatures.intersection(set(dict(item.get("subject_signatures", {}) or {}).values()))
-        ],
+        "results": current_results,
     }
 
 
@@ -409,7 +445,12 @@ def attempted_dimensions(state: Mapping[str, Any]) -> set[str]:
 
 
 def attempted_evidence_keys(state: Mapping[str, Any]) -> set[str]:
-    return {evidence_request_key(item) for item in current_partition_evidence(state).get("results", [])}
+    keys = set()
+    for item in current_partition_evidence(state).get("results", []):
+        keys.add(evidence_request_key(item))
+        for signature in dict(item.get("subject_signatures", {}) or {}).values():
+            keys.add(evidence_request_key({**dict(item), "subject_signature": signature}))
+    return keys
 
 
 def evidence_inventory(evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -506,6 +547,22 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         return state
     try:
         audit_payload = result if isinstance(result, Mapping) else parse_json_content(getattr(result, "content", result))
+        audit_payload = dict(audit_payload)
+        sets = current_sets(state)
+        for key in ("findings", "gaps"):
+            rows = []
+            for raw_row in list(audit_payload.get(key, []) or []):
+                row = dict(raw_row)
+                proposal = proposal_by_id(state, str(row.get("proposal_id", "") or ""))
+                row["subject_signature"] = subject_signature(
+                    str(row.get("dimension", "")),
+                    str(row.get("scope", "")),
+                    sets,
+                    list(row.get("target_ids", []) or []),
+                    proposal,
+                )
+                rows.append(row)
+            audit_payload[key] = rows
         parsed = VerifierOutput.model_validate(audit_payload)
         validate_verifier_audit(parsed, state)
     except Exception as exc:
@@ -527,13 +584,8 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     control["next"] = "router"
     if complete_audit(state):
         control["status"] = "complete"
-    elif current_sets(state) and all(
-        str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
-        for item in current_sets(state)
-    ) and any(str(item.get("status", "")) == "provisionally_dropped" for item in current_sets(state)):
-        control["status"] = "final_validation_failed"
     elif int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 12) or 12):
-        control["status"] = "final_validation_failed"
+        control["status"] = "unresolved_due_to_budget"
     state["control"] = control
     return state
 
@@ -562,6 +614,7 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
                 raise ValueError(f"{row.scope} evidence cannot set proposal_id")
             proposal = {}
         expected_signature = subject_signature(
+            row.dimension,
             row.scope,
             sets,
             row.target_ids,
@@ -607,7 +660,7 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
 
 
 def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
-    targets = {
+    conflicting_targets = {
         str(target)
         for finding in audit.findings
         if finding.status == "conflicting"
@@ -619,15 +672,31 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
         for finding in audit.findings
     )
     for item in state["sets"]:
-        if str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"} and (global_conflict or set_id(item) in targets):
+        status = str(item.get("status", ""))
+        target = set_id(item)
+        valid_drop = any(
+            finding.dimension in {"confounder_exclusion", "known_label_echo"}
+            and finding.status == "conflicting"
+            and target in finding.target_ids
+            for finding in audit.findings
+        )
+        if status == "provisionally_accepted" and (global_conflict or target in conflicting_targets):
+            item["status"] = "active"
+        elif status == "provisionally_dropped" and not valid_drop:
             item["status"] = "active"
 
 
 def structural_candidates(state: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     proposals = dict(state.get("structure_proposals", {}) or {})
     return (
-        sorted([dict(item) for item in proposals.get("split_proposals", []) or []], key=lambda item: str(item.get("proposal_id", item.get("plan_id", "")))),
-        sorted([dict(item) for item in proposals.get("merge_proposals", []) or []], key=lambda item: str(item.get("proposal_id", item.get("plan_id", "")))),
+        sorted(
+            [dict(item) for item in proposals.get("split_proposals", []) or []],
+            key=lambda item: str(item.get("proposal_id", item.get("plan_id", ""))),
+        ),
+        sorted(
+            [dict(item) for item in proposals.get("merge_proposals", []) or []],
+            key=lambda item: str(item.get("proposal_id", item.get("plan_id", ""))),
+        ),
     )
 
 
@@ -651,17 +720,95 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
     audit = dict(state.get("audit", {}) or {})
     if list(audit.get("gaps", []) or []):
         return False
-    failed = failed_capabilities(state)
-    if any(
-        finding.get("dimension") in failed
-        and finding.get("status") in {"unavailable", "inconclusive"}
-        for finding in list(audit.get("findings", []) or [])
-    ):
-        return False
-    return not any(
-        finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-        and finding.get("status") == "conflicting"
-        for finding in list(audit.get("findings", []) or [])
+    findings = list(audit.get("findings", []) or [])
+    for item in sets:
+        target = set_id(item)
+        invalidating = any(
+            finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
+            and finding.get("status") == "conflicting"
+            and target in {str(value) for value in finding.get("target_ids", []) or []}
+            for finding in findings
+        )
+        if item.get("status") == "provisionally_accepted" and invalidating:
+            return False
+        if item.get("status") == "provisionally_dropped" and not invalidating:
+            return False
+    return True
+
+
+def supported_structure_proposals(
+    state: Mapping[str, Any], action: str, target: str
+) -> list[dict[str, Any]]:
+    scope = "split_proposal" if action == "split" else "merge_proposal"
+    candidates = structural_candidates(state)[0 if action == "split" else 1]
+    findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+    evidence = current_partition_evidence(state)
+    policy = dict(dict(state.get("control", {}) or {}).get("policy", {}) or {})
+    minimum = int(policy.get(f"{action}_min_supporting_modalities", 2) or 2)
+    supported = []
+    for proposal in candidates:
+        proposal_id = str(proposal.get("proposal_id") or proposal.get("plan_id") or "")
+        if not bool(proposal.get("eligible_for_review", True)):
+            continue
+        if action == "split" and str(proposal.get("source_set_id", "")) != target:
+            continue
+        if action == "merge" and target not in {
+            str(item) for item in proposal.get("set_ids", []) or []
+        }:
+            continue
+        proposal_findings = [
+            finding for finding in findings
+            if finding.get("scope") == scope
+            and str(finding.get("proposal_id", "")) == proposal_id
+        ]
+        if not any(
+            finding.get("dimension") == "cross_modal_consistency"
+            and finding.get("status") == "supporting"
+            for finding in proposal_findings
+        ):
+            continue
+        decision = {}
+        for result in evidence.get("results", []):
+            if (
+                result.get("capability") == "cross_modal_consistency"
+                and result.get("scope") == scope
+                and str(result.get("proposal_id", "")) == proposal_id
+            ):
+                for child in result.get("results", []) or []:
+                    if child.get("tool_name") == "tool_multimodal_consistency_check":
+                        decision = dict(child.get("metrics", {}) or {})
+        supporting_modalities = set(decision.get(f"{action}_supporting_modalities", []) or [])
+        if len(supporting_modalities) < minimum:
+            continue
+        if any(
+            finding.get("dimension") in {"confounder_exclusion", "known_label_echo"}
+            and finding.get("status") == "conflicting"
+            for finding in proposal_findings
+        ):
+            continue
+        if action == "split":
+            biology_support = any(
+                finding.get("dimension") == "biological_support"
+                and finding.get("status") == "supporting"
+                for finding in proposal_findings
+            )
+            if policy.get("split_require_molecular_or_biology", True) and not (
+                biology_support or supporting_modalities.intersection({"rna", "genomic"})
+            ):
+                continue
+        else:
+            if len(set(decision.get("merge_strong_boundary_modalities", []) or [])) >= minimum:
+                continue
+            if any(
+                finding.get("dimension") == "biological_support"
+                and finding.get("status") == "conflicting"
+                for finding in proposal_findings
+            ):
+                continue
+        supported.append(dict(proposal))
+    return sorted(
+        supported,
+        key=lambda row: str(row.get("proposal_id") or row.get("plan_id") or ""),
     )
 
 
@@ -673,7 +820,7 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         raise ValueError(f"Router referenced inactive or unknown sets: {sorted(targets - known)}")
     if action.action == "need_more_evidence":
         proposal = proposal_by_id(state, str(action.proposal_id or "")) if action.proposal_id else {}
-        signature = subject_signature(action.scope, sets, action.target_ids, proposal)
+        signature = subject_signature(action.dimension, action.scope, sets, action.target_ids, proposal)
         gaps = list(dict(state.get("audit", {}) or {}).get("gaps", []) or [])
         matching = [
             gap for gap in gaps
@@ -716,66 +863,8 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         raise ValueError("Scientific action is blocked by a decision-relevant gap")
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
     if action.action in {"split", "merge"}:
-        candidates = structural_candidates(state)[0 if action.action == "split" else 1]
-        matching = [
-            row for row in candidates
-            if (
-                (action.action == "split" and str(row.get("source_set_id", "")) == action.target_ids[0])
-                or (action.action == "merge" and action.target_ids[0] in {str(item) for item in row.get("set_ids", [])})
-            )
-            and bool(row.get("eligible_for_review", True))
-        ]
-        if not matching:
-            raise ValueError("Structural action requires an eligible generated proposal")
-        proposal_ids = {str(row.get("proposal_id") or row.get("plan_id") or "") for row in matching}
-        if not any(
-            str(finding.get("proposal_id", "")) in proposal_ids
-            and finding.get("scope") == ("split_proposal" if action.action == "split" else "merge_proposal")
-            and finding.get("dimension") == "cross_modal_consistency"
-            and finding.get("status") == "supporting"
-            for finding in findings
-        ):
-            raise ValueError("Structural action lacks proposal-specific cross-modal support")
-        if action.action == "split" and not any(
-            str(finding.get("proposal_id", "")) in proposal_ids
-            and finding.get("scope") == "split_proposal"
-            and finding.get("dimension") == "biological_support"
-            and finding.get("status") == "supporting"
-            for finding in findings
-        ):
-            raise ValueError("Split requires proposal-specific molecular or biological support")
-        proposal_findings = [
-            finding for finding in findings
-            if str(finding.get("proposal_id", "")) in proposal_ids
-            and finding.get("scope") == ("split_proposal" if action.action == "split" else "merge_proposal")
-        ]
-        if any(
-            finding.get("dimension") in {"confounder_exclusion", "known_label_echo"}
-            and finding.get("status") == "conflicting"
-            for finding in proposal_findings
-        ):
-            raise ValueError("Structural action is vetoed by confounder or known-label evidence")
-        if action.action == "merge":
-            if any(
-                finding.get("dimension") == "biological_support"
-                and finding.get("status") == "conflicting"
-                for finding in proposal_findings
-            ):
-                raise ValueError("Merge is vetoed by proposal-specific biological distinction")
-            strong_boundary_modalities = set()
-            for result in current_partition_evidence(state).get("results", []):
-                if result.get("proposal_id") not in proposal_ids:
-                    continue
-                for child in result.get("results", []) or []:
-                    strong_boundary_modalities.update(
-                        dict(dict(child.get("metrics", {}) or {}).get("decision_metrics", {}) or {})
-                        .get("merge_strong_boundary_modalities", [])
-                    )
-                    strong_boundary_modalities.update(
-                        dict(child.get("metrics", {}) or {}).get("merge_strong_boundary_modalities", []) or []
-                    )
-            if len(strong_boundary_modalities) >= 2:
-                raise ValueError("Merge is blocked by strong boundaries in at least two modalities")
+        if not supported_structure_proposals(state, action.action, action.target_ids[0]):
+            raise ValueError("Structural action has no fully supported exact proposal")
     blocked = set(dict(state.get("control", {}) or {}).get("blocked_actions", []) or [])
     key = f"{action.action}:{action.target_ids[0]}"
     if key in blocked:
@@ -787,6 +876,10 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     if not set(action.metric_refs).issubset(audit_refs):
         raise ValueError("Router metric_refs were not reported by the current Verifier audit")
     if action.action == "accept":
+        if supported_structure_proposals(
+            state, "split", action.target_ids[0]
+        ) or supported_structure_proposals(state, "merge", action.target_ids[0]):
+            raise ValueError("Accept is blocked by a supported structural correction")
         identity = [
             finding for finding in findings
             if finding.get("dimension") == "cross_modal_consistency"
@@ -797,7 +890,20 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         if not identity:
             raise ValueError("Accept requires supporting cross-modal set identity evidence")
         modality_count = 0
+        signature = subject_signature(
+            "cross_modal_consistency", "set_identity", sets, action.target_ids
+        )
         for result in current_partition_evidence(state).get("results", []):
+            if (
+                result.get("capability") != "cross_modal_consistency"
+                or result.get("scope") != "set_identity"
+                or result.get("proposal_id")
+                or signature not in {
+                    str(result.get("subject_signature", "")),
+                    str(dict(result.get("subject_signatures", {}) or {}).get(action.target_ids[0], "")),
+                }
+            ):
+                continue
             for child in result.get("results", []) or []:
                 if child.get("tool_name") != "tool_multimodal_consistency_check":
                     continue
@@ -807,13 +913,23 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
                     modality_count,
                     len(list(by_set.get(action.target_ids[0], []) or [])),
                 )
-                modality_count = max(
-                    modality_count,
-                    len(list(decision.get("identity_supporting_modalities", []) or [])),
-                )
-        if modality_count < 2:
+        policy = dict(dict(state.get("control", {}) or {}).get("policy", {}) or {})
+        minimum = int(policy.get("accept_min_supporting_modalities", 2) or 2)
+        if modality_count < minimum:
             raise ValueError("Accept requires at least two supporting original modalities")
+        if any(
+            finding.get("dimension") in {"confounder_exclusion", "known_label_echo"}
+            and finding.get("scope") == "set_identity"
+            and finding.get("status") == "conflicting"
+            and action.target_ids[0] in {str(item) for item in finding.get("target_ids", []) or []}
+            for finding in findings
+        ):
+            raise ValueError("Accept is vetoed by confounder or known-label evidence")
     if action.action == "drop":
+        if supported_structure_proposals(
+            state, "split", action.target_ids[0]
+        ) or supported_structure_proposals(state, "merge", action.target_ids[0]):
+            raise ValueError("Drop is blocked by a supported structural correction")
         positive = any(
             finding.get("dimension") in {"confounder_exclusion", "known_label_echo"}
             and finding.get("status") == "conflicting"
@@ -827,8 +943,8 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
     control = dict(state.get("control", {}) or {})
     if int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 12) or 12):
-        control["status"] = "final_validation_failed"
-        control["error"] = "max_rounds_exhausted"
+        control["status"] = "unresolved_due_to_budget"
+        control["error"] = None
         control["next"] = "end"
         state["control"] = control
         append_trace(state, {"node": "router", "event": "budget_exhausted"})
@@ -858,6 +974,41 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         for item in list(dict(state.get("evidence", {}) or {}).get("results", []) or [])
         if item in current_partition_evidence(state).get("results", [])
     ]
+    actionable = False
+    findings = list(audit.get("findings", []) or [])
+    for item in sets:
+        if str(item.get("status", "active")) != "active":
+            continue
+        target = set_id(item)
+        refs = sorted({
+            str(ref)
+            for finding in findings
+            if target in {str(value) for value in finding.get("target_ids", []) or []}
+            for ref in finding.get("metric_refs", []) or []
+        })
+        for action_name in ("accept", "drop", "split", "merge"):
+            try:
+                validate_router_action(
+                    RouterAction(
+                        action=action_name,
+                        target_ids=[target],
+                        metric_refs=refs,
+                    ),
+                    state,
+                )
+                actionable = True
+                break
+            except ValueError:
+                continue
+        if actionable:
+            break
+    if not requestable and not actionable:
+        control["status"] = "unresolved"
+        control["error"] = None
+        control["next"] = "end"
+        state["control"] = control
+        append_trace(state, {"node": "router", "event": "scientific_evidence_exhausted"})
+        return state
     payload = {
         "sets": sets,
         "eligible_action_target_ids": [
@@ -891,11 +1042,11 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             break
         except Exception as exc:
             if attempt == 2:
-                control["status"] = "unresolved"
+                control["status"] = "review_failed_runtime"
                 control["error"] = f"{type(exc).__name__}: {exc}"
                 control["next"] = "end"
                 state["control"] = control
-                append_trace(state, {"node": "router", "event": "unresolved", "error": control["error"]})
+                append_trace(state, {"node": "router", "event": "contract_failure", "error": control["error"]})
                 return state
             payload["validation_error"] = f"{type(exc).__name__}: {exc}"
             payload["rejected_action"] = result
@@ -919,7 +1070,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
             for item in current_sets(state)
         ):
-            control["status"] = "complete" if complete_audit(state) else "final_validation_failed"
+            control["status"] = "complete" if complete_audit(state) else "unresolved"
     state["control"] = control
     mark_success(state)
     append_trace(state, {
@@ -928,26 +1079,6 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         "action": action.model_dump(),
     })
     return state
-
-
-def merge_options(target: str, merges: list[dict[str, Any]], sets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    pair_map = {
-        frozenset(map(str, row.get("set_ids", []))): row
-        for row in merges
-        if len(list(row.get("set_ids", []) or [])) == 2
-    }
-    ids = sorted({set_id(item) for item in sets})
-    options = []
-    for size in range(2, len(ids) + 1):
-        for group in combinations(ids, size):
-            if target not in group or not all(frozenset(pair) in pair_map for pair in combinations(group, 2)):
-                continue
-            options.append({
-                "plan_id": "merge:" + "+".join(group),
-                "set_ids": list(group),
-                "pairwise_evidence": [pair_map[frozenset(pair)] for pair in combinations(group, 2)],
-            })
-    return sorted(options, key=lambda item: str(item["plan_id"]))
 
 
 def candidate_partition_signature(state: Mapping[str, Any], action: str, plan: Mapping[str, Any]) -> str:
@@ -1027,8 +1158,7 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
     action = dict(state.get("action", {}) or {})
     target = str((action.get("target_ids") or [""])[0])
     partition_before = partition_signature(current_sets(state))
-    splits, merges = structural_candidates(state)
-    candidates = [row for row in splits if str(row.get("source_set_id", "")) == target] if action.get("action") == "split" else merge_options(target, merges, current_sets(state))
+    candidates = supported_structure_proposals(state, str(action.get("action", "")), target)
     visited = set(dict(state.get("control", {}) or {}).get("visited_partitions", []) or [])
     candidates = [row for row in candidates if candidate_partition_signature(state, str(action.get("action", "")), row) not in visited]
     if not candidates:
@@ -1103,10 +1233,6 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
     if action.get("action") == "split":
         apply_split(state, plan)
     else:
-        set_ids = tuple(sorted(str(x) for x in list(plan.get("set_ids", []) or [])))
-        for pair in combinations(set_ids, 2):
-            if not any(frozenset(map(str, row.get("set_ids", []))) == frozenset(pair) for row in merges):
-                raise ValueError("Merge plan lacks complete pairwise evidence")
         apply_merge(state, plan)
     reset_after_structural_change(state, next_signature)
     mark_success(state)
@@ -1122,7 +1248,7 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
 
 def verifier_route(state: Mapping[str, Any]) -> str:
     control = dict(state.get("control", {}) or {})
-    if control.get("status") in {"review_unavailable", "complete", "final_validation_failed", "unresolved"}:
+    if control.get("status") in {"review_unavailable", "review_failed_runtime", "complete", "unresolved", "unresolved_due_to_budget"}:
         return "end"
     if control.get("error") and int(control.get("failures", 0) or 0) > 0:
         return "retry"
@@ -1131,7 +1257,7 @@ def verifier_route(state: Mapping[str, Any]) -> str:
 
 def route_after_router(state: Mapping[str, Any]) -> str:
     control = dict(state.get("control", {}) or {})
-    if control.get("status") in {"review_unavailable", "complete", "final_validation_failed", "unresolved"}:
+    if control.get("status") in {"review_unavailable", "review_failed_runtime", "complete", "unresolved", "unresolved_due_to_budget"}:
         return "end"
     if control.get("error") and int(control.get("failures", 0) or 0) > 0:
         return "retry"
@@ -1145,7 +1271,7 @@ def route_after_router(state: Mapping[str, Any]) -> str:
 
 def route_after_reviser(state: Mapping[str, Any]) -> str:
     control = dict(state.get("control", {}) or {})
-    if control.get("status") in {"review_unavailable", "unresolved"}:
+    if control.get("status") in {"review_unavailable", "review_failed_runtime", "unresolved", "unresolved_due_to_budget"}:
         return "end"
     if control.get("error") and int(control.get("failures", 0) or 0) > 0:
         return "retry"
@@ -1190,16 +1316,17 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str) -> dict[str,
     sets = current_sets(state)
     accepted_sets = [item for item in sets if item.get("status") == "provisionally_accepted"]
     dropped_sets = [item for item in sets if item.get("status") == "provisionally_dropped"]
-    active_unresolved = [item for item in sets if item.get("status") == "active"]
     raw_status = str(control.get("status", "review_unavailable"))
     if raw_status == "complete" and dropped_sets:
         final_status = "review_complete_with_dropped_sets"
     elif raw_status == "complete":
         final_status = "review_complete_all_accepted"
-    elif raw_status in {"final_validation_failed", "unresolved"} and active_unresolved:
+    elif raw_status in {"unresolved", "unresolved_due_to_budget"}:
         final_status = "review_complete_with_unresolved_sets"
     elif raw_status == "review_unavailable":
         final_status = "review_unavailable"
+    elif raw_status == "review_failed_runtime":
+        final_status = "review_failed_runtime"
     else:
         final_status = "review_failed_runtime" if control.get("error") else raw_status
     summary = {

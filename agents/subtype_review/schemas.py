@@ -28,7 +28,7 @@ class AuditFinding(BaseModel):
     dimension: str
     scope: str
     proposal_id: str | None = None
-    subject_signature: str
+    subject_signature: str = ""
     status: str
     summary: str = ""
     metric_refs: list[str] = Field(default_factory=list)
@@ -60,7 +60,7 @@ class EvidenceGap(BaseModel):
     dimension: str
     scope: str
     proposal_id: str | None = None
-    subject_signature: str
+    subject_signature: str = ""
     reason: str = ""
 
     @field_validator("dimension")

@@ -8,7 +8,8 @@ choose an action. In audit mode return exactly one JSON object:
 ```
 
 Every finding and gap must contain `dimension`, `scope`, `target_ids`,
-`proposal_id` (when proposal-scoped), and `subject_signature`. A
+and `proposal_id` when proposal-scoped. Python derives `subject_signature`; do
+not calculate or return hashes. A
 non-unavailable finding must cite a real metric reference from its own tool.
 
 Use these semantics:

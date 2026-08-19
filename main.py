@@ -148,6 +148,21 @@ def run_pipeline(
     review_state["control"]["max_failures"] = int(
         dict(review_config.get("budget", {}) or {}).get("max_failures", 3) or 3
     )
+    cross_modal_policy = dict(review_config.get("cross_modal", {}) or {})
+    review_state["control"]["policy"] = {
+        "accept_min_supporting_modalities": int(
+            cross_modal_policy.get("accept_min_supporting_modalities", 2) or 2
+        ),
+        "split_min_supporting_modalities": int(
+            cross_modal_policy.get("split_min_supporting_modalities", 2) or 2
+        ),
+        "merge_min_supporting_modalities": int(
+            cross_modal_policy.get("merge_min_supporting_modalities", 2) or 2
+        ),
+        "split_require_molecular_or_biology": bool(
+            cross_modal_policy.get("split_require_molecular_or_biology", True)
+        ),
+    }
     final_state = review_graph.invoke(
         review_state,
         context=review_runtime,

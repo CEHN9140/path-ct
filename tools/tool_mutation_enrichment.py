@@ -50,6 +50,7 @@ def enrichment_rows(feature_names, table, candidate_sets):
             binary = unique_values.issubset({0.0, 1.0})
             p_value = None
             odds_ratio = None
+            odds_ratio_ci_value = None
             if set_values and rest_values:
                 if binary:
                     set_positive = int(sum(value > 0 for value in set_values))

@@ -4,7 +4,7 @@ Choose exactly one action:
 `need_more_evidence`, `accept`, `drop`, `split`, or `merge`.
 
 Request evidence only from `requestable_evidence`, copying its dimension,
-scope, target IDs, proposal ID, and subject signature. Do not request an
+scope, target IDs, and proposal ID. Do not request an
 already attempted request.
 
 Accept requires supporting `cross_modal_consistency` at `set_identity` in

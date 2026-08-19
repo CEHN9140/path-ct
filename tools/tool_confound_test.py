@@ -17,6 +17,8 @@ from tools.subtype_review_common import (
     clinical_table,
     epsilon_squared,
     scoped_candidate_sets,
+    subtype_review_config,
+    tool_parameters,
     tool_result,
 )
 
@@ -26,11 +28,11 @@ CATEGORICAL_FIELDS = (
     "ct_manufacturer",
     "ct_scanner_model",
     "ct_reconstruction_kernel",
-    "ct_pixel_spacing_row",
-    "ct_z_spacing",
 )
 NUMERIC_FIELDS = (
     "ct_slice_thickness",
+    "ct_pixel_spacing_row",
+    "ct_z_spacing",
     "ct_n_images",
     "ct_study_year",
 )
@@ -431,6 +433,7 @@ def global_categorical(
     field: str,
     memberships: Mapping[str, list[str]],
     values: Mapping[str, Mapping[str, Any]],
+    permutations: int = 999,
 ) -> dict[str, Any]:
     per_set, available_n, missing_n = field_case_values(memberships, values, field)
     levels = sorted({str(value) for rows in per_set.values() for _, value in rows})
@@ -440,8 +443,9 @@ def global_categorical(
         }
         for set_id, rows in per_set.items()
     }
+    tested_sets = [set_id for set_id, rows in per_set.items() if rows]
     table = np.asarray(
-        [[table_dict[set_id][level] for level in levels] for set_id in per_set],
+        [[table_dict[set_id][level] for level in levels] for set_id in tested_sets],
         dtype=int,
     )
     p_value = None
@@ -455,8 +459,25 @@ def global_categorical(
         effect = cramers_v(table)
         test_method = "asymptotic_chi_square"
         if low_expected:
-            p_value = None
-            test_method = "effect_size_only_sparse_table"
+            labels = [set_id for set_id in tested_sets for _ in per_set[set_id]]
+            observed_values = [
+                str(value)
+                for set_id in tested_sets
+                for _, value in per_set[set_id]
+            ]
+            observed = float(chi2.statistic)
+            rng = np.random.default_rng(7301)
+            exceedances = 0
+            for _ in range(permutations):
+                shuffled = rng.permutation(observed_values)
+                null_table = np.asarray([
+                    [sum(label == set_id and value == level for label, value in zip(labels, shuffled)) for level in levels]
+                    for set_id in tested_sets
+                ])
+                if float(chi2_contingency(null_table, correction=False).statistic) >= observed:
+                    exceedances += 1
+            p_value = (exceedances + 1) / (permutations + 1)
+            test_method = "permutation_chi_square"
     return {
         "field": field,
         "field_type": "categorical",
@@ -717,7 +738,13 @@ def assign_q_values(
             row["q_value"] = round_value(q_value)
 
 
-def confound_decision_metrics(global_metrics, set_metrics):
+def confound_decision_metrics(
+    global_metrics,
+    set_metrics,
+    alpha=0.05,
+    categorical_strong_v=0.50,
+    numeric_large_cliffs_delta=0.474,
+):
     global_rows = {
         field: {
             key: row.get(key)
@@ -750,7 +777,7 @@ def confound_decision_metrics(global_metrics, set_metrics):
                             "field_type",
                             "q_value",
                             "mannwhitney_p_value",
-                        "standardized_mean_difference",
+                            "standardized_mean_difference",
                             "cliffs_delta",
                             "set_mean",
                             "rest_mean",
@@ -790,14 +817,14 @@ def confound_decision_metrics(global_metrics, set_metrics):
     categorical_conflicts = [
         field for field, row in global_rows.items()
         if row.get("q_value") is not None
-        and float(row["q_value"]) <= 0.05
-        and float(row.get("cramers_v", 0) or 0) >= 0.50
+        and float(row["q_value"]) <= alpha
+        and float(row.get("cramers_v", 0) or 0) >= categorical_strong_v
     ]
     numeric_conflicts = [
         field for field, row in global_rows.items()
         if row.get("q_value") is not None
-        and float(row["q_value"]) <= 0.05
-        and float(row.get("max_pairwise_cliffs_delta", 0) or 0) >= 0.474
+        and float(row["q_value"]) <= alpha
+        and float(row.get("max_pairwise_cliffs_delta", 0) or 0) >= numeric_large_cliffs_delta
     ]
     return {
         "global": global_rows,
@@ -807,9 +834,9 @@ def confound_decision_metrics(global_metrics, set_metrics):
             "categorical_strong_fields": categorical_conflicts,
             "numeric_large_effect_fields": numeric_conflicts,
             "thresholds": {
-                "alpha": 0.05,
-                "categorical_strong_v": 0.50,
-                "numeric_large_cliffs_delta": 0.474,
+                "alpha": alpha,
+                "categorical_strong_v": categorical_strong_v,
+                "numeric_large_cliffs_delta": numeric_large_cliffs_delta,
                 "threshold_semantics": "project protocol thresholds, not universal domain cutoffs",
             },
         },
@@ -844,8 +871,15 @@ def tool_confound_test(
         )
 
     values = confounder_values(patient_states_by_id, output_root)
+    parameters = tool_parameters(config_dir, "confounder") if config_dir else {}
+    policy = subtype_review_config(config_dir).get("confounder", {}) if config_dir else {}
     global_metrics = {
-        field: global_categorical(field, memberships, values)
+        field: global_categorical(
+            field,
+            memberships,
+            values,
+            int(parameters.get("sparse_permutations", 999) or 999),
+        )
         for field in CATEGORICAL_FIELDS
     }
     global_metrics.update(
@@ -876,7 +910,13 @@ def tool_confound_test(
             "confounder_global_association": global_metrics,
             "confounder_set_association": set_metrics,
         },
-        decision_metrics=confound_decision_metrics(global_metrics, set_metrics),
+        decision_metrics=confound_decision_metrics(
+            global_metrics,
+            set_metrics,
+            float(policy.get("alpha", 0.05)),
+            float(policy.get("categorical_strong_v", 0.50)),
+            float(policy.get("numeric_large_cliffs_delta", 0.474)),
+        ),
         evidence_hints=[
             {
                 "evidence_type": "confounder",

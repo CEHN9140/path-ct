@@ -10,8 +10,8 @@ The review uses four scientific dimensions only:
 Structure proposals are generated deterministically by Python. They are not a
 scientific finding and never replace proposal-specific evidence. Evidence is
 scoped to `set_identity`, `split_proposal`, `merge_proposal`, or
-`partition`. Every finding and gap must include its exact
-`subject_signature`; proposal evidence must include `proposal_id`.
+`partition`. Python derives the exact evidence signature; proposal evidence
+must include `proposal_id`.
 
 `p > 0.05`, `q > 0.05`, or an inconclusive biology result is not positive
 evidence for Merge or Drop. Accept requires supporting cross-modal identity in

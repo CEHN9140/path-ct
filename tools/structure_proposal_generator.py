@@ -31,9 +31,19 @@ def generate_structure_proposals(
         row["proposal_id"] = str(row.get("plan_id", ""))
         row["parent_members"] = memberships.get(str(row.get("source_set_id", "")), [])
         row["eligible_for_review"] = (
-            min(list(row.get("child_sizes", []) or [0])) >= 10
-            and float(dict(row.get("selection_adjusted_null", {}) or {}).get("q_value", 1) or 1) <= 0.05
-            and float(dict(row.get("selection_adjusted_null", {}) or {}).get("separation_gain_over_null", 0) or 0) > 0
+            int(row.get("child_count", 0) or 0) == 2
+            and float(
+                dict(row.get("selection_adjusted_null", {}) or {}).get("q_value", 1)
+                or 1
+            )
+            <= 0.05
+            and float(
+                dict(row.get("selection_adjusted_null", {}) or {}).get(
+                    "separation_gain_over_null", 0
+                )
+                or 0
+            )
+            > 0
         )
     for row in merges:
         row["proposal_id"] = str(row.get("plan_id", ""))

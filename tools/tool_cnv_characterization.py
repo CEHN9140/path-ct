@@ -15,6 +15,7 @@ from tools.subtype_review_common import (
     odds_ratio_ci,
     read_case_feature_table,
     scoped_candidate_sets,
+    tool_parameters,
     tool_result,
 )
 
@@ -52,6 +53,11 @@ def tool_cnv_characterization(
             metrics={"cnv_characterization": []},
             missing_reason="insufficient_cnv_groups",
         )
+    threshold = (
+        float(tool_parameters(config_dir, "cnv").get("alteration_threshold", 0.2))
+        if config_dir
+        else 0.2
+    )
     rows = []
     all_ids = sorted({case_id for members in groups.values() for case_id in members})
     if scope == "merge_proposal":
@@ -66,34 +72,93 @@ def tool_cnv_characterization(
                 if right != "rest"
                 else [case_id for case_id in all_ids if case_id not in groups[left]]
             )
-            a = [table[c][feature] for c in left_ids if c in table and math.isfinite(table[c].get(feature, float("nan")))]
-            b = [table[c][feature] for c in right_ids if c in table and math.isfinite(table[c].get(feature, float("nan")))]
+            a = [
+                table[c][feature]
+                for c in left_ids
+                if c in table and math.isfinite(table[c].get(feature, float("nan")))
+            ]
+            b = [
+                table[c][feature]
+                for c in right_ids
+                if c in table and math.isfinite(table[c].get(feature, float("nan")))
+            ]
             if not a or not b:
                 continue
-            unique = set(a + b)
-            p_value = None
-            odds_ratio = None
-            if unique.issubset({0.0, 1.0}):
-                a_pos, a_neg = sum(x > 0 for x in a), sum(x == 0 for x in a)
-                b_pos, b_neg = sum(x > 0 for x in b), sum(x == 0 for x in b)
-                odds_ratio, p_value = fisher_exact_result(a_pos, a_neg, b_pos, b_neg)
-                odds_ratio, odds_ci = odds_ratio_ci(a_pos, a_neg, b_pos, b_neg)
-            elif len(unique) > 1:
-                p_value = float(mannwhitneyu(a, b, alternative="two-sided").pvalue)
-            rows.append({
-                "comparison": f"{left}_vs_{right}",
-                "feature": feature,
-                "feature_type": "binary" if unique.issubset({0.0, 1.0}) else "continuous",
-                "left_mean": float(np.mean(a)),
-                "right_mean": float(np.mean(b)),
-                "delta_mean": float(np.mean(a) - np.mean(b)),
-                "cliffs_delta": cliffs_delta(a, b),
-                "odds_ratio": odds_ratio,
-                "odds_ratio_ci95": odds_ci if unique.issubset({0.0, 1.0}) else None,
-                "p_value": p_value,
-                "q_value": None,
-            })
+            tests = [(feature, a, b)]
+            if feature.startswith("chr") or feature.startswith("locus::"):
+                tests.extend(
+                    [
+                        (
+                            f"{feature}::loss",
+                            [float(value <= -threshold) for value in a],
+                            [float(value <= -threshold) for value in b],
+                        ),
+                        (
+                            f"{feature}::gain",
+                            [float(value >= threshold) for value in a],
+                            [float(value >= threshold) for value in b],
+                        ),
+                    ]
+                )
+            for tested_feature, left_values, right_values in tests:
+                unique = set(left_values + right_values)
+                binary = unique.issubset({0.0, 1.0})
+                p_value = None
+                odds_ratio = None
+                odds_ci = None
+                if binary:
+                    a_pos = sum(value > 0 for value in left_values)
+                    b_pos = sum(value > 0 for value in right_values)
+                    odds_ratio, p_value = fisher_exact_result(
+                        a_pos, len(left_values) - a_pos,
+                        b_pos, len(right_values) - b_pos,
+                    )
+                    odds_ratio, odds_ci = odds_ratio_ci(
+                        a_pos, len(left_values) - a_pos,
+                        b_pos, len(right_values) - b_pos,
+                    )
+                elif len(unique) > 1:
+                    p_value = float(
+                        mannwhitneyu(
+                            left_values, right_values, alternative="two-sided"
+                        ).pvalue
+                    )
+                rows.append({
+                    "comparison": f"{left}_vs_{right}",
+                    "feature": tested_feature,
+                    "feature_type": "binary_event" if binary else "continuous",
+                    "left_mean": float(np.mean(left_values)),
+                    "right_mean": float(np.mean(right_values)),
+                    "delta_mean": float(np.mean(left_values) - np.mean(right_values)),
+                    "cliffs_delta": cliffs_delta(left_values, right_values),
+                    "odds_ratio": odds_ratio,
+                    "odds_ratio_ci95": odds_ci,
+                    "p_value": p_value,
+                    "q_value": None,
+                })
     assign_groupwise_fdr(rows, "comparison", "p_value", "q_value")
+    summaries = {}
+    for comparison in sorted({row["comparison"] for row in rows}):
+        comparison_rows = [row for row in rows if row["comparison"] == comparison]
+        summaries[comparison] = {
+            "tested_feature_count": len(comparison_rows),
+            "significant_count_q05": sum(
+                float(row.get("q_value", 1) or 1) <= 0.05
+                for row in comparison_rows
+            ),
+            "top_by_q": sorted(
+                comparison_rows,
+                key=lambda row: (
+                    float(row.get("q_value", 1) or 1),
+                    -abs(float(row.get("delta_mean", 0) or 0)),
+                ),
+            )[:10],
+            "top_by_effect": sorted(
+                comparison_rows,
+                key=lambda row: abs(float(row.get("delta_mean", 0) or 0)),
+                reverse=True,
+            )[:10],
+        }
     return tool_result(
         tool_name="tool_cnv_characterization",
         status="success",
@@ -101,6 +166,6 @@ def tool_cnv_characterization(
         output_root=output_root,
         summary=f"CNV characterization computed for {scope}.",
         metrics={"cnv_characterization": rows},
-        decision_metrics={"cnv_characterization": rows[:100]},
+        decision_metrics={"per_comparison_cnv": summaries},
         warnings=[] if rows else ["No comparable CNV features were available."],
     )
