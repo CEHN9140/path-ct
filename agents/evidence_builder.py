@@ -664,20 +664,26 @@ def build_evidence_states(
     for state in eligible_states:
         for bucket_name in ("ct_evidence", "wsi_evidence", "omics_evidence"):
             for key, value in dict(state.get(bucket_name, {}) or {}).items():
-                path = str(value or "")
-                if path and Path(path).is_file():
-                    upstream_inputs.append(
-                        {
-                            "case_id": str(state.get("case_id", "")),
-                            "bucket": bucket_name,
-                            "key": key,
-                            "file": file_identity(path),
-                        }
-                    )
+                candidates = value.values() if isinstance(value, Mapping) else [value]
+                for candidate in candidates:
+                    if not isinstance(candidate, str) or not candidate:
+                        continue
+                    path = Path(candidate)
+                    if path.is_file():
+                        upstream_inputs.append(
+                            {
+                                "case_id": str(state.get("case_id", "")),
+                                "bucket": bucket_name,
+                                "key": key,
+                                "file": file_identity(candidate),
+                            }
+                        )
     for key, value in genomic_discovery.items():
-        path = str(value or "")
-        if path and Path(path).is_file():
-            upstream_inputs.append({"key": key, "file": file_identity(path)})
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value)
+        if path.is_file():
+            upstream_inputs.append({"key": key, "file": file_identity(value)})
     affinity_cache_signature = hash_payload(
         {
             "cache_version": 2,
