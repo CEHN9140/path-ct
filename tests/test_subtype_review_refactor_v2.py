@@ -7,15 +7,18 @@ import pytest
 
 import agents.subtype_review.tools as review_tools
 from agents.subtype_review.graph import (
+    abandon_revision,
     apply_split,
     build_review_graph,
     complete_audit,
     current_partition_evidence,
     evidence_request_key,
+    execute_tool_calls,
     initial_revision_intents,
     partition_signature,
     reactivate_provisional_sets,
     required_evidence_requests,
+    reset_after_structural_change,
     reviser_node,
     router_node,
     save_review_outputs,
@@ -193,6 +196,69 @@ def test_structural_intent_blocks_are_exact():
         ("merge", "C1", "C3"),
         ("merge", "C2", "C3"),
     }
+
+
+def test_blocked_intents_persist_until_partition_changes(monkeypatch):
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]},
+        {"cluster_id": "C2", "member_ids": [f"Q{i}" for i in range(20)]},
+    ])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1", "C2"], {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"], "C2": ["ct", "rna"]}},
+        cross_ref,
+    ))
+    state["audit"]["findings"].extend([
+        {"target_ids": [target], "dimension": "cross_modal_consistency", "scope": "set_identity", "status": "supporting", "metric_refs": [cross_ref]}
+        for target in ("C1", "C2")
+    ])
+    add_identity_controls(state)
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"], "dimension": "confounder_exclusion",
+        "scope": "set_identity", "status": "supporting",
+        "metric_refs": ["tool_results.confound_test.metrics.strong_technical_conflict"],
+    })
+    abandon_revision(state, "split:C1")
+
+    proposal = {
+        "proposal_id": "p2", "plan_id": "p2", "source_set_id": "C2",
+        "eligible_for_review": True,
+        "groups": [[f"Q{i}" for i in range(10)], [f"Q{i}" for i in range(10, 20)]],
+    }
+    state["revision"] = {
+        "action": "split", "target_ids": ["C2"], "status": "evidence_collection",
+        "partition_signature": partition_signature(state["sets"]), "candidates": [proposal],
+    }
+    state["action"] = RouterAction(
+        action="need_more_evidence", target_ids=["C2"],
+        dimension="cross_modal_consistency", scope="split_proposal", proposal_id="p2",
+    ).model_dump()
+    monkeypatch.setitem(review_tools.VALIDATION_FUNCTIONS, "cross_modal_consistency", lambda *args, **kwargs: {
+        "dimension": "cross_modal_consistency",
+        "status": "success",
+        "results": [{
+            "tool_name": "multimodal_consistency_check", "status": "success",
+            "metrics": {"split_supporting_modalities": ["ct"]},
+            "metric_refs": ["tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"],
+        }],
+    })
+
+    execute_tool_calls(
+        state,
+        {"tool_calls": [{"name": "cross_modal_consistency", "id": "call-1"}]},
+        {"patient_states_by_id": {}, "output_root": "output", "config_dir": "configs"},
+    )
+
+    assert "split:C1" in state["control"]["blocked_actions"]
+    abandon_revision(state, "split:C2")
+    assert not any(
+        row["action"] == "split" and row["target_ids"] == ["C1"]
+        for row in initial_revision_intents(state)
+    )
+    reset_after_structural_change(state, partition_signature(state["sets"]))
+    assert state["control"]["blocked_actions"] == []
 
 
 def test_first_structural_action_creates_revision_without_calling_model(monkeypatch):

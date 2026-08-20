@@ -368,7 +368,6 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
             item["status"] = "active"
     state["messages"] = messages[-8:]
     control = dict(state.get("control", {}) or {})
-    control["blocked_actions"] = []
     control["next"] = "audit"
     state["control"] = control
     append_trace(state, {
