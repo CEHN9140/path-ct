@@ -487,6 +487,38 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     action = dict(state.get("action", {}) or {})
     acquire = action.get("action") == "need_more_evidence" and dict(state.get("control", {}) or {}).get("next") == "acquire"
     current_evidence = current_partition_evidence(state)
+    mandatory_finding_requirements = []
+    if not acquire:
+        for request in required_evidence_requests(state, include_available=True):
+            exact = matching_evidence_results(
+                current_evidence,
+                request["dimension"],
+                request["scope"],
+                request["subject_signature"],
+                request["proposal_id"],
+            )
+            existing = [
+                finding
+                for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+                if finding.get("dimension") == request["dimension"]
+                and finding.get("scope") == request["scope"]
+                and str(finding.get("subject_signature", "")) == request["subject_signature"]
+                and str(finding.get("proposal_id", "") or "") == str(request["proposal_id"] or "")
+            ]
+            covered = {str(target) for finding in existing for target in finding.get("target_ids", []) or []}
+            if exact and (not existing or not set(request["target_ids"]).issubset(covered)):
+                mandatory_finding_requirements.append({
+                    "dimension": request["dimension"],
+                    "scope": request["scope"],
+                    "target_ids": request["target_ids"],
+                    "proposal_id": request["proposal_id"],
+                    "metric_refs": sorted({
+                        str(ref)
+                        for result in exact
+                        for child in result.get("results", []) or []
+                        for ref in child.get("metric_refs", []) or []
+                    }),
+                })
     payload = {
         "mode": "acquire" if acquire else "audit",
         "sets": current_sets(state),
@@ -497,6 +529,7 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         "request": action if acquire else None,
         "round": dict(state.get("control", {}) or {}).get("round", 0),
         "validation_error": dict(state.get("control", {}) or {}).get("error"),
+        "mandatory_finding_requirements": mandatory_finding_requirements,
     }
     result = invoke_with_recovery(model, payload, state, "verifier")
     if result is None:
@@ -640,6 +673,32 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                         f"{root}.invalidated_set_ids",
                     ],
                 })
+        attempted = attempted_evidence_keys(state)
+        for key in ("findings", "gaps"):
+            combined = {}
+            for raw_row in [
+                *list(dict(state.get("audit", {}) or {}).get(key, []) or []),
+                *list(audit_payload.get(key, []) or []),
+            ]:
+                row = dict(raw_row)
+                proposal_id = str(row.get("proposal_id", "") or "")
+                proposal = proposal_by_id(state, proposal_id) if proposal_id else {}
+                row["subject_signature"] = subject_signature(
+                    str(row.get("dimension", "")),
+                    str(row.get("scope", "")),
+                    sets,
+                    list(row.get("target_ids", []) or []),
+                    proposal,
+                )
+                evidence_key = evidence_request_key(row)
+                if key == "gaps" and evidence_key in attempted:
+                    continue
+                combined[(
+                    row.get("dimension"), row.get("scope"),
+                    row.get("subject_signature"), proposal_id,
+                    tuple(sorted(str(target) for target in row.get("target_ids", []) or [])),
+                )] = row
+            audit_payload[key] = list(combined.values())
         parsed = VerifierOutput.model_validate(audit_payload)
         validate_verifier_audit(parsed, state)
     except Exception as exc:
@@ -738,7 +797,15 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
             target for finding in corresponding for target in finding.target_ids
         }
         if not corresponding or not set(request["target_ids"]).issubset(covered_targets):
-            raise ValueError("Acquired mandatory evidence has no corresponding Finding")
+            raise ValueError(
+                "Acquired mandatory evidence has no corresponding Finding: "
+                + json.dumps({
+                    "dimension": request["dimension"],
+                    "scope": request["scope"],
+                    "target_ids": request["target_ids"],
+                    "proposal_id": request["proposal_id"],
+                }, ensure_ascii=False)
+            )
         fully_failed = all(
             (
                 result.get("results")
@@ -896,8 +963,21 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
             item.pop("drop_reason", None)
         elif (
             status == "provisionally_dropped"
-            and item.get("drop_reason") == "technical_invalidation"
-            and not any(invalidates_set(finding, target) for finding in findings)
+            and (
+                (
+                    item.get("drop_reason") == "technical_invalidation"
+                    and not any(invalidates_set(finding, target) for finding in findings)
+                )
+                or (
+                    item.get("drop_reason") == "partition_level_invalidation"
+                    and not any(
+                    finding.get("scope") == "partition"
+                    and finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
+                    and finding.get("status") == "conflicting"
+                    for finding in findings
+                    )
+                )
+            )
         ):
             item["status"] = "active"
             item.pop("drop_reason", None)
@@ -976,8 +1056,9 @@ def required_evidence_requests(
                 signature,
                 str(proposal.get("proposal_id") or proposal.get("plan_id") or ""),
             )
-            if not cross_modal:
+            if include_available or not cross_modal:
                 add("cross_modal_consistency", scope, targets, proposal)
+            if not cross_modal:
                 continue
             modalities = {
                 str(modality)
@@ -1017,7 +1098,10 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
         if (
             item.get("status") == "provisionally_dropped"
             and not drop_evidence
-            and item.get("drop_reason") != "insufficient_support_after_exhaustion"
+            and item.get("drop_reason") not in {
+                "insufficient_support_after_exhaustion",
+                "partition_level_invalidation",
+            }
         ):
             return False
     return True
@@ -1142,12 +1226,27 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         set_id(item) for item in sets
         if any(invalidates_set(row, set_id(item)) for row in findings)
     }
-    motives = {
-        set_id(item) for item in sets
-        if str(item.get("status", "active")) == "active"
-        and set_id(item) not in invalid
-        and not set_acceptance(state, set_id(item))[0]
-    }
+    motives = set()
+    for item in sets:
+        target = set_id(item)
+        if str(item.get("status", "active")) != "active" or target in invalid:
+            continue
+        if any(
+            target in {str(value) for value in row.get("target_ids", []) or []}
+            and row.get("scope") == "set_identity"
+            and (
+                (
+                    row.get("dimension") == "cross_modal_consistency"
+                    and row.get("status") in {"mixed", "inconclusive", "conflicting"}
+                )
+                or (
+                    row.get("dimension") == "biological_support"
+                    and row.get("status") == "conflicting"
+                )
+            )
+            for row in findings
+        ):
+            motives.add(target)
     intents = [
         {"action": "split", "target_ids": [set_id(item)]}
         for item in sets
@@ -1155,15 +1254,10 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         if len(item.get("member_ids", []) or []) >= 2 * min_split_size
         and f"split:{set_id(item)}" not in blocked
     ]
-    for index, left in enumerate(sets):
-        for right in sets[index + 1:]:
-            targets = sorted([set_id(left), set_id(right)])
-            if (
-                motives.intersection(targets)
-                and not invalid.intersection(targets)
-                and f"merge:{'+'.join(targets)}" not in blocked
-            ):
-                intents.append({"action": "merge", "target_ids": targets})
+    if len(motives) == 2:
+        targets = sorted(motives)
+        if f"merge:{'+'.join(targets)}" not in blocked:
+            intents.append({"action": "merge", "target_ids": targets})
     return intents
 
 
@@ -1488,11 +1582,18 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             if set_id(item) == target:
                 item["status"] = "provisionally_accepted" if action.action == "accept" else "provisionally_dropped"
                 if action.action == "drop":
-                    item["drop_reason"] = (
-                        "technical_invalidation"
-                        if any(invalidates_set(row, target) for row in audit.get("findings", []) or [])
-                        else "insufficient_support_after_exhaustion"
-                    )
+                    findings = list(audit.get("findings", []) or [])
+                    if any(invalidates_set(row, target) for row in findings):
+                        item["drop_reason"] = "technical_invalidation"
+                    elif any(
+                        row.get("scope") == "partition"
+                        and row.get("dimension") in {"known_label_echo", "confounder_exclusion"}
+                        and row.get("status") == "conflicting"
+                        for row in findings
+                    ):
+                        item["drop_reason"] = "partition_level_invalidation"
+                    else:
+                        item["drop_reason"] = "insufficient_support_after_exhaustion"
         if all(
             str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
             for item in current_sets(state)

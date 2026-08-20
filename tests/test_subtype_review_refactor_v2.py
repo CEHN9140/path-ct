@@ -240,7 +240,7 @@ def test_initial_revision_intents_skip_acceptable_sets():
     validate_router_action(RouterAction(action="accept", target_ids=["C1"]), state)
 
 
-def test_biology_status_does_not_gate_initial_structural_review():
+def test_only_conflicting_biology_triggers_initial_structural_review():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]}])
     cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
     state["evidence"]["results"].append(evidence_row(
@@ -258,9 +258,11 @@ def test_biology_status_does_not_gate_initial_structural_review():
     }
     state["audit"]["findings"].append(biology)
 
-    for status in ("inconclusive", "conflicting", "mixed", "unavailable"):
+    for status in ("inconclusive", "mixed", "unavailable"):
         biology["status"] = status
-        assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
+        assert initial_revision_intents(state) == []
+    biology["status"] = "conflicting"
+    assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
 
 
 def test_structural_intent_blocks_are_exact():
@@ -292,12 +294,10 @@ def test_structural_intent_blocks_are_exact():
     intents = initial_revision_intents(state)
 
     assert not [row for row in intents if row["action"] == "split"]
-    assert {tuple([row["action"], *row["target_ids"]]) for row in intents if row["action"] == "merge"} == {
-        ("merge", "C1", "C3"),
-    }
+    assert not [row for row in intents if row["action"] == "merge"]
 
 
-def test_nonacceptable_set_can_review_merge_with_an_accepted_counterpart():
+def test_nonacceptable_set_cannot_speculatively_merge_with_accepted_counterpart():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
         {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
@@ -320,8 +320,40 @@ def test_nonacceptable_set_can_review_merge_with_an_accepted_counterpart():
     })
     state["sets"][1]["status"] = "provisionally_accepted"
 
-    assert initial_revision_intents(state) == [{"action": "merge", "target_ids": ["C1", "C2"]}]
-    validate_router_action(RouterAction(action="merge", target_ids=["C1", "C2"]), state)
+    assert initial_revision_intents(state) == []
+    with pytest.raises(ValueError, match="deterministic revision motive"):
+        validate_router_action(RouterAction(action="merge", target_ids=["C1", "C2"]), state)
+
+
+def test_merge_intent_is_bounded_to_two_active_structural_motives():
+    state = initial_review_state([
+        {"cluster_id": target, "member_ids": [f"{target}P{i}" for i in range(20)]}
+        for target in ("C1", "C2", "C3")
+    ])
+    targets = ["C1", "C2", "C3"]
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", targets, {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {target: ["rna"] for target in targets}},
+        ref,
+    ))
+    state["audit"]["findings"].extend([
+        {"target_ids": [target], "dimension": "cross_modal_consistency", "scope": "set_identity", "status": "mixed", "metric_refs": [ref]}
+        for target in targets
+    ])
+    add_identity_controls(state)
+    state["audit"]["findings"].extend([
+        {"target_ids": [target], "dimension": "confounder_exclusion", "scope": "set_identity", "status": "supporting", "metric_refs": ["confound"]}
+        for target in ("C2", "C3")
+    ])
+
+    assert not [row for row in initial_revision_intents(state) if row["action"] == "merge"]
+    state["sets"][2]["status"] = "provisionally_dropped"
+    state["sets"][2]["drop_reason"] = "insufficient_support_after_exhaustion"
+    assert [row for row in initial_revision_intents(state) if row["action"] == "merge"] == [
+        {"action": "merge", "target_ids": ["C1", "C2"]}
+    ]
 
 
 def test_blocked_intents_persist_until_partition_changes(monkeypatch):
@@ -1204,6 +1236,54 @@ def test_successful_mandatory_evidence_without_finding_is_contract_failure():
 
     with pytest.raises(ValueError, match="mandatory evidence has no corresponding Finding"):
         validate_verifier_audit(audit, state)
+
+
+def test_verifier_incremental_audit_preserves_existing_findings():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C1"
+    confound_ref = "tool_results.confound_test.metrics.strong_technical_conflict"
+    known_ref = "tool_results.known_label_echo_test.metrics.near_identity"
+    state["evidence"]["results"] = [
+        evidence_row(state, "cross_modal_consistency", "set_identity", ["C1"], {}, "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, cross_ref),
+        evidence_row(state, "confounder_exclusion", "set_identity", ["C1"], {}, "confound_test", {"strong_technical_conflict": False}, confound_ref),
+        evidence_row(state, "known_label_echo", "partition", [], {}, "known_label_echo_test", {"near_identity": False}, known_ref),
+    ]
+    state["audit"] = {"findings": [
+        {"target_ids": ["C1"], "dimension": "cross_modal_consistency", "scope": "set_identity", "subject_signature": subject_signature("cross_modal_consistency", "set_identity", state["sets"], ["C1"]), "status": "supporting", "metric_refs": [cross_ref]},
+        {"target_ids": ["C1"], "dimension": "confounder_exclusion", "scope": "set_identity", "subject_signature": subject_signature("confounder_exclusion", "set_identity", state["sets"], ["C1"]), "status": "supporting", "metric_refs": [confound_ref]},
+        {"target_ids": [], "dimension": "known_label_echo", "scope": "partition", "subject_signature": subject_signature("known_label_echo", "partition", state["sets"], []), "status": "supporting", "metric_refs": [known_ref]},
+    ], "gaps": []}
+    proposal = {
+        "proposal_id": "p1", "plan_id": "p1", "source_set_id": "C1",
+        "parent_members": ["P1", "P2"], "groups": [["P1"], ["P2"]],
+        "eligible_for_review": True,
+    }
+    state["revision"] = {
+        "action": "split", "target_ids": ["C1"], "status": "evidence_collection",
+        "partition_signature": partition_signature(state["sets"]), "candidates": [proposal],
+    }
+    proposal_ref = "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "split_proposal", ["C1"], proposal,
+        "multimodal_consistency_check", {"split_supporting_modalities": ["ct", "rna"]}, proposal_ref,
+    ))
+    model = StaticModel({"findings": [{
+        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+        "scope": "split_proposal", "proposal_id": "p1", "status": "supporting",
+        "summary": "Two modalities support the split.", "metric_refs": [proposal_ref],
+    }], "gaps": []})
+
+    verifier_node(state, {}, model)
+
+    assert state["control"].get("error") is None
+    assert len(state["audit"]["findings"]) == 4
+    assert model.payloads[0]["mandatory_finding_requirements"] == [{
+        "dimension": "cross_modal_consistency",
+        "scope": "split_proposal",
+        "target_ids": ["C1"],
+        "proposal_id": "p1",
+        "metric_refs": [proposal_ref],
+    }]
 
 
 def test_verifier_uses_python_threshold_for_set_identity_supporting_status():

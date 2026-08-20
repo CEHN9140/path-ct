@@ -1,6 +1,6 @@
 # Verifier
 
-Audit the complete current partition and the supplied scoped evidence. Do not choose an action. In audit mode return exactly one JSON object:
+Audit the supplied scoped evidence. Do not choose an action. In audit mode return exactly one JSON object:
 
 ```json
 {
@@ -17,7 +17,7 @@ Audit the complete current partition and the supplied scoped evidence. Do not ch
 }
 ```
 
-Every finding and gap must contain `dimension`, `scope`, `target_ids`, and `proposal_id` when proposal-scoped. Python derives `subject_signature`; do not calculate or return hashes. A non-unavailable finding must cite a real metric reference from its own tool. That metric must come from the exact matching dimension, scope, signature, and proposal; never reuse a metric from another evidence request.
+`mandatory_finding_requirements` is the exact checklist for evidence already acquired in the current partition. Return one Finding for every listed item, with matching `dimension`, `scope`, `target_ids`, and `proposal_id`. Python preserves prior valid Findings, so you may return only new or updated Findings rather than rewriting the full audit. Python derives `subject_signature`; do not calculate or return hashes. A non-unavailable finding must cite a real metric reference from its own tool. That metric must come from the exact matching dimension, scope, signature, and proposal; never reuse a metric from another evidence request.
 
 Every Finding MUST include `status`, `summary`, and `metric_refs` (including an empty list when the status is `unavailable`). `status` MUST be exactly one of:
 `supporting`, `conflicting`, `mixed`, `inconclusive`, or `unavailable`.

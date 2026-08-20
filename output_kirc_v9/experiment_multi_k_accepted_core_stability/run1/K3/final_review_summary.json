@@ -4,10 +4,10 @@
   "raw_control_status": "complete",
   "rounds_used": 4,
   "llm_usage": {
-    "api_calls": 7,
-    "prompt_tokens": 17906,
-    "completion_tokens": 737,
-    "total_tokens": 18643
+    "api_calls": 5,
+    "prompt_tokens": 15830,
+    "completion_tokens": 592,
+    "total_tokens": 16422
   },
   "partition_sets": [
     {
@@ -275,34 +275,8 @@
     "findings": [
       {
         "target_ids": [
-          "C0001"
-        ],
-        "dimension": "cross_modal_consistency",
-        "scope": "set_identity",
-        "proposal_id": null,
-        "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
-        "status": "supporting",
-        "summary": "WSI and RNA support the set identity for C0001.",
-        "metric_refs": [
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
-        ]
-      },
-      {
-        "target_ids": [
-          "C0002"
-        ],
-        "dimension": "cross_modal_consistency",
-        "scope": "set_identity",
-        "proposal_id": null,
-        "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
-        "status": "supporting",
-        "summary": "CT and WSI support the set identity for C0002.",
-        "metric_refs": [
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
-        ]
-      },
-      {
-        "target_ids": [
+          "C0001",
+          "C0002",
           "C0003"
         ],
         "dimension": "cross_modal_consistency",
@@ -310,8 +284,10 @@
         "proposal_id": null,
         "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
         "status": "supporting",
-        "summary": "CT, WSI, and RNA support the set identity for C0003.",
+        "summary": "WSI supports identity for all three sets; RNA supports C0001 only; CT supports C0002 and C0003; genomic supports none. Identity support is partial across modalities.",
         "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
           "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
         ]
       },
@@ -322,7 +298,7 @@
         "proposal_id": null,
         "subject_signature": "b11cf5adf3857b4944ac484a3ba9cf918ad253e0f7c7989390f1291a9a94267f",
         "status": "supporting",
-        "summary": "The current partition is not redundant with stage or grade labels (AMI < 0.05, ARI < 0.01).",
+        "summary": "Partition does not echo known stage or grade labels; AMI and ARI are near zero, indicating independent structure.",
         "metric_refs": [
           "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
         ]
@@ -531,34 +507,8 @@
         "findings": [
           {
             "target_ids": [
-              "C0001"
-            ],
-            "dimension": "cross_modal_consistency",
-            "scope": "set_identity",
-            "proposal_id": null,
-            "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
-            "status": "supporting",
-            "summary": "WSI and RNA support the set identity for C0001.",
-            "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
-            ]
-          },
-          {
-            "target_ids": [
-              "C0002"
-            ],
-            "dimension": "cross_modal_consistency",
-            "scope": "set_identity",
-            "proposal_id": null,
-            "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
-            "status": "supporting",
-            "summary": "CT and WSI support the set identity for C0002.",
-            "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
-            ]
-          },
-          {
-            "target_ids": [
+              "C0001",
+              "C0002",
               "C0003"
             ],
             "dimension": "cross_modal_consistency",
@@ -566,8 +516,10 @@
             "proposal_id": null,
             "subject_signature": "4e06eb8738eefbe7264914ef56b92ce00ff916b96c65a2197afae4711f14f2cb",
             "status": "supporting",
-            "summary": "CT, WSI, and RNA support the set identity for C0003.",
+            "summary": "WSI supports identity for all three sets; RNA supports C0001 only; CT supports C0002 and C0003; genomic supports none. Identity support is partial across modalities.",
             "metric_refs": [
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
               "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
             ]
           },
@@ -578,7 +530,7 @@
             "proposal_id": null,
             "subject_signature": "b11cf5adf3857b4944ac484a3ba9cf918ad253e0f7c7989390f1291a9a94267f",
             "status": "supporting",
-            "summary": "The current partition is not redundant with stage or grade labels (AMI < 0.05, ARI < 0.01).",
+            "summary": "Partition does not echo known stage or grade labels; AMI and ARI are near zero, indicating independent structure.",
             "metric_refs": [
               "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
             ]
@@ -720,7 +672,7 @@
         "scope": null,
         "proposal_id": null,
         "requests": [],
-        "reason": "C0001 has supporting cross-modal consistency and no confounder association."
+        "reason": "C0001 has cross-modal identity support from WSI and RNA, satisfying the requirement of at least two original modalities."
       },
       "metric_refs": [
         "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
@@ -728,7 +680,9 @@
         "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
         "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
       ]
     },
     {
@@ -744,7 +698,7 @@
         "scope": null,
         "proposal_id": null,
         "requests": [],
-        "reason": "C0002 has supporting cross-modal consistency and no confounder association."
+        "reason": "C0002 has cross-modal identity support from WSI and CT, and confounder exclusion is supporting."
       },
       "metric_refs": [
         "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
@@ -752,7 +706,9 @@
         "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
         "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
       ]
     },
     {
@@ -776,6 +732,8 @@
         "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0003",
         "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
       ]
     }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import json
 import numpy as np
 import pytest
 
@@ -28,17 +30,20 @@ def test_compare_runs_uses_shared_accepted_patients():
     assert result["matched_mean_dice"] == pytest.approx(0.5)
 
 
-def test_coassignment_uses_all_runs_as_denominator():
+def test_stability_matrices_separate_acceptance_and_conditional_membership():
     patients = ["p1", "p2", "p3"]
     runs = [
         {"p1": "A", "p2": "A"},
         {"p1": "B", "p2": "B", "p3": "C"},
         {"p1": "A", "p3": "A"},
     ]
-    matrix, acceptance = experiment.coassignment(runs, patients)
-    assert matrix[0, 1] == pytest.approx(2 / 3)
-    assert matrix[0, 2] == pytest.approx(1 / 3)
-    assert matrix[1, 2] == 0
+    joint, coacceptance, conditional, acceptance = experiment.stability_matrices(runs, patients)
+    assert joint[0, 1] == pytest.approx(2 / 3)
+    assert joint[0, 2] == pytest.approx(1 / 3)
+    assert coacceptance[0, 1] == pytest.approx(2 / 3)
+    assert conditional[0, 1] == 1.0
+    assert coacceptance[1, 2] == pytest.approx(1 / 3)
+    assert conditional[1, 2] == 0
     assert acceptance.tolist() == pytest.approx([1.0, 2 / 3, 2 / 3])
 
 
@@ -54,7 +59,7 @@ def test_extract_cores_uses_complete_linkage():
         ]
     )
     cores = experiment.extract_cores(
-        matrix, np.ones(5), patients, threshold=0.8, min_size=2
+        matrix, matrix, np.ones(5), patients, threshold=0.8, min_size=2
     )
     assert [row["member_ids"] for row in cores] == [
         ["a1", "a2", "a3"],
@@ -81,7 +86,35 @@ def test_core_recurrence_reports_run_and_k_coverage():
         },
     ]
     result = experiment.core_recurrence(["a1", "a2", "a3"], runs)
-    assert result["run_recurrence_count"] == 2
-    assert result["run_recurrence_fraction"] == pytest.approx(2 / 3)
+    assert result["all_members_accepted_run_count"] == 3
+    assert result["same_set_run_count"] == 2
+    assert result["same_set_run_fraction"] == pytest.approx(2 / 3)
+    assert result["conditional_same_set_fraction"] == pytest.approx(2 / 3)
     assert result["k_coverage_any"] == 1
     assert result["k_coverage_majority"] == 1
+
+
+def test_analyze_excludes_incomplete_runs_from_scientific_denominator(tmp_path):
+    complete = tmp_path / "run1" / "K2"
+    incomplete = tmp_path / "run1" / "K3"
+    complete.mkdir(parents=True)
+    incomplete.mkdir(parents=True)
+    (complete / "run_metadata.json").write_text("{}")
+    (incomplete / "run_metadata.json").write_text("{}")
+    (complete / "final_review_summary.json").write_text(json.dumps({
+        "status": "review_complete_all_accepted", "raw_control_status": "complete",
+        "partition_sets": [{"set_id": "A", "status": "provisionally_accepted", "member_ids": ["p1", "p2"]}],
+    }))
+    (incomplete / "final_review_summary.json").write_text(json.dumps({
+        "status": "review_complete_with_unresolved_sets",
+        "raw_control_status": "unresolved_due_to_budget", "partition_sets": [],
+    }))
+
+    summary = experiment.analyze(tmp_path, ["p1", "p2"], [2, 3], [1], 2)
+
+    assert summary["analysis_status"] == "partial"
+    assert summary["valid_run_count"] == 1
+    assert summary["invalid_run_count"] == 1
+    with (tmp_path / "patient_acceptance_frequency.csv").open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert [float(row["acceptance_frequency"]) for row in rows] == [1.0, 1.0]

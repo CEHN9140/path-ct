@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 from collections import Counter
@@ -106,31 +107,42 @@ def compare_runs(left: Mapping[str, str], right: Mapping[str, str]) -> dict[str,
     return result
 
 
-def coassignment(
+def stability_matrices(
     assignments_by_run: Sequence[Mapping[str, str]], patient_ids: Sequence[str]
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if not assignments_by_run:
         raise ValueError("No completed Review runs were provided")
     patient_ids = list(patient_ids)
     index = {patient_id: i for i, patient_id in enumerate(patient_ids)}
-    matrix = np.zeros((len(patient_ids), len(patient_ids)), dtype=float)
+    same_set = np.zeros((len(patient_ids), len(patient_ids)), dtype=float)
+    coaccepted = np.zeros_like(same_set)
     acceptance = np.zeros(len(patient_ids), dtype=float)
     for assignments in assignments_by_run:
+        accepted = []
         groups: dict[str, list[int]] = {}
         for patient_id, label in assignments.items():
             if patient_id not in index:
                 raise ValueError(f"Unknown patient in accepted set: {patient_id}")
             patient_index = index[patient_id]
             acceptance[patient_index] += 1
+            accepted.append(patient_index)
             groups.setdefault(str(label), []).append(patient_index)
+        coaccepted[np.ix_(accepted, accepted)] += 1
         for members in groups.values():
-            matrix[np.ix_(members, members)] += 1
+            same_set[np.ix_(members, members)] += 1
     denominator = len(assignments_by_run)
-    return matrix / denominator, acceptance / denominator
+    conditional = np.divide(
+        same_set,
+        coaccepted,
+        out=np.zeros_like(same_set),
+        where=coaccepted > 0,
+    )
+    return same_set / denominator, coaccepted / denominator, conditional, acceptance / denominator
 
 
 def extract_cores(
-    matrix: np.ndarray,
+    conditional: np.ndarray,
+    coacceptance: np.ndarray,
     acceptance: np.ndarray,
     patient_ids: Sequence[str],
     *,
@@ -143,7 +155,10 @@ def extract_cores(
     if len(eligible) == 1:
         labels = np.ones(1, dtype=int)
     else:
-        similarity = np.clip(matrix[np.ix_(eligible, eligible)], 0, 1).copy()
+        similarity = np.minimum(
+            conditional[np.ix_(eligible, eligible)],
+            coacceptance[np.ix_(eligible, eligible)],
+        ).clip(0, 1)
         np.fill_diagonal(similarity, 1)
         tree = linkage(squareform(1 - similarity, checks=False), method="complete")
         labels = fcluster(tree, t=1 - threshold + 1e-12, criterion="distance")
@@ -159,16 +174,22 @@ def core_recurrence(
     member_ids: Sequence[str], runs: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     recovered_by_k: Counter[int] = Counter()
-    recovered = 0
+    all_accepted = 0
+    same_set = 0
     for run in runs:
         assignments = dict(run["assignments"])
         labels = [assignments.get(patient_id) for patient_id in member_ids]
+        if labels and None not in labels:
+            all_accepted += 1
         if labels and None not in labels and len(set(labels)) == 1:
-            recovered += 1
+            same_set += 1
             recovered_by_k[int(run["initial_k"])] += 1
     return {
-        "run_recurrence_count": recovered,
-        "run_recurrence_fraction": recovered / len(runs) if runs else 0.0,
+        "all_members_accepted_run_count": all_accepted,
+        "all_members_accepted_run_fraction": all_accepted / len(runs) if runs else 0.0,
+        "same_set_run_count": same_set,
+        "same_set_run_fraction": same_set / len(runs) if runs else 0.0,
+        "conditional_same_set_fraction": same_set / all_accepted if all_accepted else 0.0,
         "k_coverage_any": sum(count >= 1 for count in recovered_by_k.values()),
         "k_coverage_majority": sum(count >= 2 for count in recovered_by_k.values()),
         "recovered_runs_by_k": dict(sorted(recovered_by_k.items())),
@@ -183,41 +204,59 @@ def analyze(
     min_core_size: int,
 ) -> dict[str, Any]:
     runs = []
-    missing = []
+    execution_rows = []
     for repeat in repeats:
         for initial_k in initial_ks:
             run_root = experiment_root / f"run{repeat}" / f"K{initial_k}"
             summary_path = run_root / "final_review_summary.json"
             metadata_path = run_root / "run_metadata.json"
             if not summary_path.exists() or not metadata_path.exists():
-                missing.append(str(run_root))
+                execution_rows.append({
+                    "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
+                    "repeat": repeat, "valid_for_analysis": False,
+                    "raw_control_status": "missing", "review_status": "missing",
+                    "rounds_used": None, "accepted_set_count": None,
+                    "accepted_patient_count": None, "api_calls": None, "total_tokens": None,
+                })
                 continue
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            if not str(summary.get("status", "")).startswith("review_complete"):
-                raise RuntimeError(f"Review did not complete: {run_root}")
+            raw_status = str(summary.get("raw_control_status", ""))
             assignments = accepted_assignments(summary.get("partition_sets", []))
-            runs.append(
-                {
-                    "run_id": f"run{repeat}_K{initial_k}",
-                    "initial_k": initial_k,
-                    "repeat": repeat,
-                    "assignments": assignments,
-                    "status": summary["status"],
-                    "rounds_used": summary.get("rounds_used"),
-                    "accepted_set_count": len(set(assignments.values())),
-                    "accepted_patient_count": len(assignments),
-                    "llm_usage": summary.get("llm_usage", {}),
-                }
-            )
-    if missing:
-        raise FileNotFoundError("Missing completed Review runs:\n" + "\n".join(missing))
+            usage = dict(summary.get("llm_usage", {}) or {})
+            row = {
+                "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
+                "repeat": repeat, "valid_for_analysis": raw_status == "complete",
+                "raw_control_status": raw_status, "review_status": summary.get("status"),
+                "rounds_used": summary.get("rounds_used"),
+                "accepted_set_count": len(set(assignments.values())),
+                "accepted_patient_count": len(assignments),
+                "api_calls": usage.get("api_calls"), "total_tokens": usage.get("total_tokens"),
+            }
+            execution_rows.append(row)
+            if raw_status == "complete":
+                runs.append({**row, "assignments": assignments})
+
+    experiment_root.mkdir(parents=True, exist_ok=True)
+    with (experiment_root / "run_execution_status.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(execution_rows[0]) if execution_rows else [])
+        if execution_rows:
+            writer.writeheader()
+            writer.writerows(execution_rows)
+    write_json(experiment_root / "run_execution_status.json", {"runs": execution_rows})
+    if not runs:
+        summary = {
+            "experiment": "multi_k_accepted_core_stability",
+            "analysis_status": "unavailable",
+            "expected_run_count": len(initial_ks) * len(repeats),
+            "valid_run_count": 0,
+            "invalid_run_count": len(execution_rows),
+            "interpretation": "No scientifically complete Review run is available.",
+        }
+        write_json(experiment_root / "summary.json", summary)
+        return summary
 
     run_rows = [
-        {key: value for key, value in run.items() if key not in {"assignments", "llm_usage"}}
-        | {
-            "api_calls": run["llm_usage"].get("api_calls"),
-            "total_tokens": run["llm_usage"].get("total_tokens"),
-        }
+        {key: value for key, value in run.items() if key != "assignments"}
         for run in runs
     ]
     pairwise_rows = []
@@ -231,14 +270,15 @@ def analyze(
             }
         )
 
-    matrix, acceptance = coassignment(
+    joint, coacceptance, conditional, acceptance = stability_matrices(
         [run["assignments"] for run in runs], patient_ids
     )
     patient_index = {patient_id: index for index, patient_id in enumerate(patient_ids)}
     threshold_rows, cores_by_threshold = [], {}
     for threshold in THRESHOLDS:
         cores = extract_cores(
-            matrix,
+            conditional,
+            coacceptance,
             acceptance,
             patient_ids,
             threshold=threshold,
@@ -261,10 +301,13 @@ def analyze(
         core_id = f"CORE{core_number:02d}"
         members = core["member_ids"]
         indices = [patient_index[member] for member in members]
-        within = matrix[np.ix_(indices, indices)]
-        within_values = within[np.triu_indices(len(indices), k=1)]
+        within_conditional = conditional[np.ix_(indices, indices)]
+        within_coacceptance = coacceptance[np.ix_(indices, indices)]
+        pair_indices = np.triu_indices(len(indices), k=1)
+        within_values = within_conditional[pair_indices]
+        coacceptance_values = within_coacceptance[pair_indices]
         outside_indices = [index for index in range(len(patient_ids)) if index not in indices]
-        outside_values = matrix[np.ix_(indices, outside_indices)].ravel()
+        outside_values = conditional[np.ix_(indices, outside_indices)].ravel()
         recurrence = core_recurrence(members, runs)
         core_rows.append(
             {
@@ -276,10 +319,12 @@ def analyze(
                         recurrence["recovered_runs_by_k"], ensure_ascii=False
                     ),
                 },
-                "mean_within_coassignment": float(within_values.mean()),
-                "min_within_coassignment": float(within_values.min()),
-                "mean_outside_coassignment": float(outside_values.mean()) if outside_values.size else 0.0,
-                "max_outside_coassignment": float(outside_values.max()) if outside_values.size else 0.0,
+                "mean_within_conditional_coassignment": float(within_values.mean()),
+                "min_within_conditional_coassignment": float(within_values.min()),
+                "mean_within_coacceptance": float(coacceptance_values.mean()),
+                "min_within_coacceptance": float(coacceptance_values.min()),
+                "mean_outside_conditional_coassignment": float(outside_values.mean()) if outside_values.size else 0.0,
+                "max_outside_conditional_coassignment": float(outside_values.max()) if outside_values.size else 0.0,
                 "mean_acceptance_frequency": float(acceptance[indices].mean()),
                 "min_acceptance_frequency": float(acceptance[indices].min()),
                 "member_ids": json.dumps(members, ensure_ascii=False),
@@ -294,7 +339,6 @@ def analyze(
             for member in members
         )
 
-    experiment_root.mkdir(parents=True, exist_ok=True)
     write_json(experiment_root / "run_summary.json", {"runs": run_rows})
     for name, rows in (
         ("run_summary.csv", run_rows),
@@ -317,17 +361,20 @@ def analyze(
                 writer.writeheader()
                 writer.writerows(rows)
 
-    with (experiment_root / "accepted_coassignment_matrix.csv").open(
-        "w", newline="", encoding="utf-8"
-    ) as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["patient_id", *patient_ids])
-        for patient_id, row in zip(patient_ids, matrix):
-            writer.writerow([patient_id, *map(float, row)])
+    for name, matrix in (
+        ("joint_accepted_coassignment_matrix.csv", joint),
+        ("pairwise_coacceptance_matrix.csv", coacceptance),
+        ("conditional_membership_coassignment_matrix.csv", conditional),
+    ):
+        with (experiment_root / name).open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["patient_id", *patient_ids])
+            for patient_id, row in zip(patient_ids, matrix):
+                writer.writerow([patient_id, *map(float, row)])
 
     import matplotlib.pyplot as plt
 
-    plot_matrix = matrix.copy()
+    plot_matrix = conditional.copy()
     np.fill_diagonal(plot_matrix, 1)
     if len(patient_ids) > 1:
         order = leaves_list(
@@ -336,11 +383,11 @@ def analyze(
     else:
         order = np.arange(len(patient_ids))
     figure, axis = plt.subplots(figsize=(10, 9))
-    image = axis.imshow(matrix[np.ix_(order, order)], vmin=0, vmax=1, cmap="viridis")
-    axis.set_title(f"Accepted-set co-assignment across {len(runs)} Review runs")
+    image = axis.imshow(conditional[np.ix_(order, order)], vmin=0, vmax=1, cmap="viridis")
+    axis.set_title(f"Conditional accepted-set co-assignment across {len(runs)} valid Review runs")
     axis.set_xlabel("Patients (complete-linkage order)")
     axis.set_ylabel("Patients (complete-linkage order)")
-    figure.colorbar(image, ax=axis, label="Co-assignment frequency")
+    figure.colorbar(image, ax=axis, label="P(same set | both accepted)")
     figure.tight_layout()
     figure.savefig(experiment_root / "coassignment_heatmap.png", dpi=180)
     plt.close(figure)
@@ -359,15 +406,19 @@ def analyze(
     ]
     summary = {
         "experiment": "multi_k_accepted_core_stability",
+        "analysis_status": "complete" if len(runs) == len(initial_ks) * len(repeats) else "partial",
         "initial_k_values": list(initial_ks),
         "review_repeats": list(repeats),
-        "review_run_count": len(runs),
+        "expected_run_count": len(initial_ks) * len(repeats),
+        "valid_run_count": len(runs),
+        "invalid_run_count": len(execution_rows) - len(runs),
         "patient_count": len(patient_ids),
         "accepted_only": True,
-        "coassignment_denominator": len(runs),
+        "scientific_denominator": "raw_control_status == complete",
         "primary_core_definition": {
             "acceptance_frequency": primary_threshold,
-            "minimum_pairwise_coassignment": primary_threshold,
+            "minimum_pairwise_coacceptance": primary_threshold,
+            "minimum_conditional_coassignment": primary_threshold,
             "minimum_core_size": min_core_size,
         },
         "primary_core_count": len(core_rows),
@@ -412,6 +463,23 @@ def main() -> None:
     repeats = sorted(set(args.repeat or REPEATS))
     patient_ids = sorted(load_affinity_patient_ids(args.data_root))
     patient_states = load_patient_states(args.data_root)
+    review_files = [
+        *sorted((ROOT / "agents" / "subtype_review").rglob("*.py")),
+        *sorted((ROOT / "agents" / "subtype_review").rglob("*.md")),
+        ROOT / "configs" / "subtype_review.yaml",
+        ROOT / "configs" / "subtype_review_tools.yaml",
+        *[
+            ROOT / "tools" / name
+            for name in (
+                "cnv_characterization.py", "confound_test.py", "known_label_echo_test.py",
+                "multimodal_consistency_check.py", "mutation_enrichment.py",
+                "pathway_enrichment.py", "structural_adequacy.py",
+            )
+        ],
+    ]
+    review_signature = hashlib.sha256(
+        b"".join(path.read_bytes() for path in review_files)
+    ).hexdigest()
 
     if not args.analyze_only:
         for repeat in repeats:
@@ -433,7 +501,8 @@ def main() -> None:
                         metadata.get("initial_k") == initial_k
                         and metadata.get("repeat") == repeat
                         and metadata.get("source") == str(source_path)
-                        and str(summary.get("status", "")).startswith("review_complete")
+                        and metadata.get("review_signature") == review_signature
+                        and summary.get("raw_control_status") == "complete"
                     )
                 if reusable:
                     print(f"[reuse] run{repeat}/K{initial_k}")
@@ -452,6 +521,7 @@ def main() -> None:
                         "initial_k": initial_k,
                         "repeat": repeat,
                         "source": str(source_path),
+                        "review_signature": review_signature,
                         "patient_count": len(patient_ids),
                         "candidate_sets": initial_sets,
                     },
@@ -471,6 +541,7 @@ def main() -> None:
                         "initial_k": initial_k,
                         "repeat": repeat,
                         "source": str(source_path),
+                        "review_signature": review_signature,
                         "patient_count": len(patient_ids),
                         "status": summary["status"],
                         "rounds_used": summary["rounds_used"],
@@ -482,8 +553,8 @@ def main() -> None:
     summary = analyze(
         args.experiment_root,
         patient_ids,
-        initial_ks,
-        repeats,
+        INITIAL_KS,
+        REPEATS,
         args.min_core_size,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
