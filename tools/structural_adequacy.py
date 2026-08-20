@@ -387,7 +387,7 @@ def generate_structure_proposal_metrics(
     ]
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = dict(review_config["budget"])
-    parameters = tool_parameters(config_dir, "structure_proposals")
+    parameters = tool_parameters(config_dir, "revision_candidates")
     split_plans = local_split_plans(
         memberships,
         affinities,
@@ -486,7 +486,7 @@ def generate_structure_proposal_metrics(
         ),
     }
     return tool_result(
-        tool_name="structure_proposal_generator",
+        tool_name="revision_candidates",
         status="success",
         cluster_id=str(cluster_state.get("cluster_id", "GLOBAL")),
         output_root=output_root,
@@ -497,3 +497,61 @@ def generate_structure_proposal_metrics(
         concern_level="none",
         figures={},
     )
+
+
+def generate_revision_candidates(
+    action,
+    target_ids,
+    cluster_state,
+    patient_states_by_id,
+    output_root,
+    config_dir="",
+    all_cluster_states=None,
+):
+    states = [dict(item) for item in list(all_cluster_states or [cluster_state])]
+    memberships = {
+        str(item.get("set_id") or item.get("cluster_id")): sorted(
+            str(member) for member in item.get("member_ids", []) or []
+        )
+        for item in states
+    }
+    signature = json.dumps(sorted(memberships.values()), ensure_ascii=False)
+    raw = generate_structure_proposal_metrics(
+        dict(cluster_state),
+        {str(key): dict(value) for key, value in patient_states_by_id.items()},
+        output_root,
+        config_dir=config_dir,
+        all_cluster_states=states,
+    )
+    metrics = dict(dict(raw.get("results", {}) or {}).get("metrics", {}) or {})
+    targets = sorted(str(item) for item in target_ids)
+    if action == "split":
+        candidates = [
+            dict(item)
+            for item in metrics.get("split_candidates", []) or []
+            if str(item.get("source_set_id", "")) == targets[0]
+        ]
+        for item in candidates:
+            item["proposal_id"] = str(item.get("plan_id", ""))
+            item["parent_members"] = memberships.get(targets[0], [])
+            item["eligible_for_review"] = (
+                int(item.get("child_count", 0) or 0) == 2
+                and float(dict(item.get("selection_adjusted_null", {}) or {}).get("q_value", 1) or 1) <= 0.05
+                and float(dict(item.get("selection_adjusted_null", {}) or {}).get("separation_gain_over_null", 0) or 0) > 0
+            )
+    elif action == "merge":
+        candidates = [
+            dict(item)
+            for item in metrics.get("merge_candidates", []) or []
+            if sorted(str(value) for value in item.get("set_ids", []) or []) == targets
+        ]
+        for item in candidates:
+            item["proposal_id"] = str(item.get("plan_id", ""))
+            item["set_ids"] = targets
+            item["memberships"] = [memberships[target] for target in targets]
+            item["eligible_for_review"] = True
+    else:
+        raise ValueError(f"Unknown revision action: {action}")
+    for item in candidates:
+        item["partition_signature"] = signature
+    return sorted(candidates, key=lambda item: str(item.get("proposal_id", "")))

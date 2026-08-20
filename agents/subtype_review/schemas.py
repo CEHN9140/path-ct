@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 EVIDENCE_DIMENSIONS = (
     "biological_support",
@@ -91,13 +91,14 @@ class VerifierOutput(BaseModel):
 
 
 class RouterAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(default_factory=list)
     dimension: str | None = None
     scope: str | None = None
     proposal_id: str | None = None
     reason: str = ""
-    metric_refs: list[str] = Field(default_factory=list)
 
     @field_validator("dimension")
     @classmethod
@@ -115,19 +116,22 @@ class RouterAction(BaseModel):
 
     @model_validator(mode="after")
     def valid_action_shape(self) -> "RouterAction":
-        self.target_ids = [str(item) for item in self.target_ids if str(item)]
+        self.target_ids = sorted({str(item) for item in self.target_ids if str(item)})
         if self.action == "need_more_evidence":
             if self.dimension is None or self.scope is None:
                 raise ValueError("need_more_evidence requires dimension and scope")
             if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
                 raise ValueError("proposal evidence requests require proposal_id")
-        elif self.action in {"split", "merge"}:
-            if self.dimension is not None or self.scope is not None:
-                raise ValueError("scientific actions must clear evidence fields")
-            if not self.proposal_id:
-                raise ValueError(f"{self.action} requires proposal_id")
+        elif self.action == "split":
+            if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
+                raise ValueError("split must clear evidence fields and proposal_id")
             if len(self.target_ids) != 1:
-                raise ValueError("scientific actions require one target_id")
+                raise ValueError("split requires one target_id")
+        elif self.action == "merge":
+            if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
+                raise ValueError("merge must clear evidence fields and proposal_id")
+            if len(self.target_ids) != 2:
+                raise ValueError("merge requires two target_ids")
         else:
             if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
                 raise ValueError("scientific actions must clear evidence fields")
@@ -137,9 +141,18 @@ class RouterAction(BaseModel):
 
 
 class ReviserOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     plan_id: str | None = None
     reason: str = ""
-    metric_refs: list[str] = Field(default_factory=list)
+
+
+class RevisionContext(TypedDict, total=False):
+    action: str
+    target_ids: list[str]
+    partition_signature: str
+    status: str
+    candidates: list[dict[str, Any]]
 
 
 class ReviewState(TypedDict, total=False):
@@ -149,7 +162,7 @@ class ReviewState(TypedDict, total=False):
     action: dict[str, Any] | None
     messages: list[Any]
     control: dict[str, Any]
-    structure_proposals: dict[str, Any]
+    revision: RevisionContext | None
 
 
 def set_id(item: dict[str, Any]) -> str:

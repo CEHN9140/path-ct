@@ -1,11 +1,11 @@
 # Reviser
 
-Router has already selected Split or Merge. Select one exact plan from the supplied generated and legally supported candidates. Never invent a plan, change membership, or decide whether the action is scientifically justified.
+Router has already selected a fully supported Split or Merge. Select one exact plan from the supplied candidates. Never invent a plan, change membership, reassess scientific support, or write provenance.
 
-The selected plan must cite current `structure_proposals` metrics. For Merge, all selected pairwise evidence must be present. If no supplied candidate is valid, return `plan_id: null`.
+If no supplied candidate is valid, return `plan_id: null`. Python validates and applies the selected membership and binds its structural and audit provenance.
 
 Return exactly:
 
 ```json
-{"plan_id":"split:C0001:k2:p1 or merge:C0001+C0002 or null","reason":"","metric_refs":[]}
+{"plan_id":"split:C0001:k2:p1 or merge:C0001+C0002 or null","reason":""}
 ```
