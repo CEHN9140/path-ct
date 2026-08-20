@@ -24,6 +24,7 @@ from agents.subtype_review.graph import (
     reviser_node,
     router_node,
     save_review_outputs,
+    set_acceptance,
     supported_revision_candidates,
     subject_signature,
     validate_router_action,
@@ -479,6 +480,45 @@ def test_execute_tool_calls_uses_concrete_names_for_multiple_requests(monkeypatc
         "provisionally_accepted",
         "provisionally_dropped",
     ]
+
+
+def test_proposal_evidence_uses_isolated_artifact_directory(monkeypatch, tmp_path):
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    proposal = {
+        "proposal_id": "split:C1:p1", "plan_id": "split:C1:p1",
+        "source_set_id": "C1", "groups": [["P1"], ["P2"]],
+        "eligible_for_review": True,
+    }
+    state["revision"] = {
+        "action": "split", "target_ids": ["C1"], "status": "evidence_collection",
+        "partition_signature": partition_signature(state["sets"]), "candidates": [proposal],
+    }
+    state["action"] = RouterAction(action="need_more_evidence", requests=[
+        {"dimension": "cross_modal_consistency", "scope": "set_identity", "target_ids": ["C1", "C2"]},
+        {"dimension": "cross_modal_consistency", "scope": "split_proposal", "target_ids": ["C1"], "proposal_id": "split:C1:p1"},
+    ]).model_dump()
+    roots = []
+
+    def validation(*args, **kwargs):
+        roots.append(kwargs["artifact_root"])
+        return {
+            "dimension": "cross_modal_consistency", "status": "success",
+            "results": [{"tool_name": "multimodal_consistency_check", "status": "success", "metrics": {}, "metric_refs": []}],
+        }
+
+    monkeypatch.setitem(review_tools.VALIDATION_FUNCTIONS, "cross_modal_consistency", validation)
+    execute_tool_calls(
+        state,
+        {"tool_calls": [{"name": "cross_modal_consistency", "id": "call-1"}]},
+        {"patient_states_by_id": {}, "output_root": "output", "review_output_root": str(tmp_path), "config_dir": "configs"},
+    )
+
+    assert roots[0].endswith("evidence/set_identity")
+    assert roots[1].endswith("evidence/split_proposal/split_C1_p1")
+    assert roots[0] != roots[1]
 
 
 def test_structural_change_reactivates_all_current_sets():
@@ -1200,7 +1240,7 @@ def test_merge_known_label_conflict_does_not_invalidate_parent_sets():
     assert state["sets"][0]["status"] == "active"
 
 
-def test_partition_known_label_conflict_reopens_an_accepted_set():
+def test_partition_conflict_does_not_override_set_level_acceptance():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]}
     ])
@@ -1214,9 +1254,83 @@ def test_partition_known_label_conflict_reopens_an_accepted_set():
     }], "gaps": []})
     state["audit"] = audit.model_dump()
 
-    assert not complete_audit(state)
+    assert complete_audit(state)
     reactivate_provisional_sets(state, audit)
-    assert state["sets"][0]["status"] == "active"
+    assert state["sets"][0]["status"] == "provisionally_accepted"
+
+
+def test_review_summary_reports_partition_assessment_separately(tmp_path):
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1"]}])
+    state["sets"][0]["status"] = "provisionally_accepted"
+    state["control"]["status"] = "complete"
+    state["audit"]["findings"] = [{
+        "target_ids": [], "dimension": "confounder_exclusion", "scope": "partition",
+        "status": "conflicting", "metric_refs": ["confound"],
+    }]
+
+    summary = save_review_outputs(state, str(tmp_path), direct=True)
+
+    assert summary["partition_assessment"] == "conflicting"
+    assert summary["accepted_patient_count"] == 1
+
+
+def test_set_identity_findings_must_have_exactly_one_target():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1"]},
+        {"cluster_id": "C2", "member_ids": ["P2"]},
+    ])
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1", "C2"], {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {"C1": ["rna"], "C2": ["ct", "wsi"]}},
+        ref,
+    ))
+    audit = VerifierOutput.model_validate({"findings": [{
+        "target_ids": ["C1", "C2"], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "subject_signature": subject_signature(
+            "cross_modal_consistency", "set_identity", state["sets"], ["C1", "C2"]
+        ), "status": "mixed", "metric_refs": [ref],
+    }], "gaps": []})
+
+    with pytest.raises(ValueError, match="exactly one target"):
+        validate_verifier_audit(audit, state)
+
+
+def test_verifier_derives_cross_modal_identity_status_per_set():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1"]},
+        {"cluster_id": "C2", "member_ids": ["P2"]},
+        {"cluster_id": "C3", "member_ids": ["P3"]},
+    ])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    confound_ref = "tool_results.confound_test.metrics.deterministic_flags"
+    known_ref = "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
+    state["evidence"]["results"] = [
+        evidence_row(state, "cross_modal_consistency", "set_identity", ["C1", "C2", "C3"], {}, "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["rna"], "C2": ["ct", "wsi"], "C3": []}}, cross_ref),
+        evidence_row(state, "confounder_exclusion", "set_identity", ["C1", "C2", "C3"], {}, "confound_test", {"deterministic_flags": {"strong_technical_conflict": False, "global_significant_fields": [], "set_significant_fields_by_set": {"C1": [], "C2": [], "C3": []}, "invalidated_set_ids": []}}, confound_ref),
+        evidence_row(state, "known_label_echo", "partition", [], {}, "known_label_echo_test", {"known_label_structure_comparison": {}}, known_ref),
+    ]
+    model = StaticModel({"findings": [
+        {"target_ids": [], "dimension": "known_label_echo", "scope": "partition", "status": "supporting", "metric_refs": [known_ref]},
+    ], "gaps": []})
+
+    verifier_node(state, {}, model)
+
+    cross = {
+        row["target_ids"][0]: row["status"]
+        for row in state["audit"]["findings"]
+        if row["dimension"] == "cross_modal_consistency" and row["scope"] == "set_identity"
+    }
+    assert cross == {"C1": "mixed", "C2": "supporting", "C3": "inconclusive"}
+    assert set_acceptance(state, "C1")[0] is False
+    assert set_acceptance(state, "C2")[0] is True
+    assert set_acceptance(state, "C3")[0] is False
+    requirements = [
+        row for row in model.payloads[0]["mandatory_finding_requirements"]
+        if row["dimension"] == "cross_modal_consistency"
+    ]
+    assert [row["target_ids"] for row in requirements] == [["C1"], ["C2"], ["C3"]]
 
 
 def test_successful_mandatory_evidence_without_finding_is_contract_failure():
@@ -1282,6 +1396,7 @@ def test_verifier_incremental_audit_preserves_existing_findings():
         "scope": "split_proposal",
         "target_ids": ["C1"],
         "proposal_id": "p1",
+        "python_derived": False,
         "metric_refs": [proposal_ref],
     }]
 

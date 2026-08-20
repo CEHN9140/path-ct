@@ -352,6 +352,13 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
                 list(request.get("target_ids", []) or []),
                 proposal,
             )
+            artifact_root = (
+                Path(str(runtime.get("review_output_root", runtime.get("output_root", ""))))
+                / "evidence"
+                / str(request["scope"])
+            )
+            if proposal_id:
+                artifact_root /= re.sub(r"[^A-Za-z0-9._-]+", "_", proposal_id).strip("_")
             payload = VALIDATION_FUNCTIONS[name](
                 cluster_state,
                 patient_states,
@@ -361,7 +368,7 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
                 scope=str(request["scope"]),
                 target_ids=list(request.get("target_ids", []) or []),
                 proposal=proposal,
-                artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
+                artifact_root=str(artifact_root),
             )
             payload["partition_signature"] = partition
             payload["scope"] = str(request["scope"])
@@ -497,28 +504,35 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 request["subject_signature"],
                 request["proposal_id"],
             )
-            existing = [
-                finding
-                for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
-                if finding.get("dimension") == request["dimension"]
-                and finding.get("scope") == request["scope"]
-                and str(finding.get("subject_signature", "")) == request["subject_signature"]
-                and str(finding.get("proposal_id", "") or "") == str(request["proposal_id"] or "")
-            ]
-            covered = {str(target) for finding in existing for target in finding.get("target_ids", []) or []}
-            if exact and (not existing or not set(request["target_ids"]).issubset(covered)):
-                mandatory_finding_requirements.append({
-                    "dimension": request["dimension"],
-                    "scope": request["scope"],
-                    "target_ids": request["target_ids"],
-                    "proposal_id": request["proposal_id"],
-                    "metric_refs": sorted({
-                        str(ref)
-                        for result in exact
-                        for child in result.get("results", []) or []
-                        for ref in child.get("metric_refs", []) or []
-                    }),
-                })
+            targets = request["target_ids"] if request["scope"] == "set_identity" else [None]
+            for target in targets:
+                target_ids = [target] if target is not None else request["target_ids"]
+                existing = [
+                    finding
+                    for finding in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+                    if finding.get("dimension") == request["dimension"]
+                    and finding.get("scope") == request["scope"]
+                    and str(finding.get("subject_signature", "")) == request["subject_signature"]
+                    and str(finding.get("proposal_id", "") or "") == str(request["proposal_id"] or "")
+                    and set(target_ids).issubset({str(value) for value in finding.get("target_ids", []) or []})
+                ]
+                if exact and not existing:
+                    mandatory_finding_requirements.append({
+                        "dimension": request["dimension"],
+                        "scope": request["scope"],
+                        "target_ids": target_ids,
+                        "proposal_id": request["proposal_id"],
+                        "python_derived": (
+                            request["dimension"] == "cross_modal_consistency"
+                            and request["scope"] == "set_identity"
+                        ),
+                        "metric_refs": sorted({
+                            str(ref)
+                            for result in exact
+                            for child in result.get("results", []) or []
+                            for ref in child.get("metric_refs", []) or []
+                        }),
+                    })
     payload = {
         "mode": "acquire" if acquire else "audit",
         "sets": current_sets(state),
@@ -548,14 +562,20 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         audit_payload = dict(audit_payload)
         sets = current_sets(state)
         identity_modalities_by_set = {}
+        identity_evidence_available = False
+        identity_evidence_attempted = False
         for evidence_row in current_evidence.get("results", []) or []:
             if (
                 evidence_row.get("dimension") != "cross_modal_consistency"
                 or evidence_row.get("scope") != "set_identity"
             ):
                 continue
+            identity_evidence_attempted = True
             for child in evidence_row.get("results", []) or []:
                 if child.get("tool_name") == "multimodal_consistency_check":
+                    identity_evidence_available = (
+                        identity_evidence_available or child.get("status") == "success"
+                    )
                     identity_modalities_by_set.update(
                         dict(child.get("metrics", {}) or {}).get(
                             "identity_supporting_modalities_by_set", {}
@@ -607,18 +627,10 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 ):
                     continue
                 if (
-                    key == "findings"
-                    and row.get("dimension") == "cross_modal_consistency"
+                    row.get("dimension") == "cross_modal_consistency"
                     and row.get("scope") == "set_identity"
                 ):
-                    supported = all(
-                        len(identity_modalities_by_set.get(str(target), []) or []) >= minimum
-                        for target in row.get("target_ids", []) or []
-                    )
-                    if supported and row.get("target_ids"):
-                        row["status"] = "supporting"
-                    elif row.get("status") == "supporting":
-                        row["status"] = "inconclusive"
+                    continue
                 proposal = proposal_by_id(state, str(row.get("proposal_id", "") or ""))
                 row["subject_signature"] = subject_signature(
                     str(row.get("dimension", "")),
@@ -629,6 +641,29 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 )
                 rows.append(row)
             audit_payload[key] = rows
+        if identity_evidence_attempted:
+            ref_root = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+            for target in sorted(set_id(item) for item in sets):
+                modalities = sorted(identity_modalities_by_set.get(target, []) or [])
+                audit_payload["findings"].append({
+                    "target_ids": [target],
+                    "dimension": "cross_modal_consistency",
+                    "scope": "set_identity",
+                    "subject_signature": subject_signature(
+                        "cross_modal_consistency", "set_identity", sets, [target]
+                    ),
+                    "status": (
+                        "unavailable" if not identity_evidence_available
+                        else "supporting" if len(modalities) >= minimum
+                        else "mixed" if modalities
+                        else "inconclusive"
+                    ),
+                    "summary": (
+                        f"Python-derived identity support from {len(modalities)} original modalities: "
+                        + (", ".join(modalities) if modalities else "none")
+                    ),
+                    "metric_refs": [f"{ref_root}.{target}"] if identity_evidence_available else [],
+                })
         if confound_metrics:
             flags = dict(confound_metrics.get("deterministic_flags", {}) or {})
             root = "tool_results.confound_test.metrics.deterministic_flags"
@@ -681,6 +716,12 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 *list(audit_payload.get(key, []) or []),
             ]:
                 row = dict(raw_row)
+                if (
+                    row.get("dimension") == "cross_modal_consistency"
+                    and row.get("scope") == "set_identity"
+                    and len(row.get("target_ids", []) or []) != 1
+                ):
+                    continue
                 proposal_id = str(row.get("proposal_id", "") or "")
                 proposal = proposal_by_id(state, proposal_id) if proposal_id else {}
                 row["subject_signature"] = subject_signature(
@@ -740,6 +781,8 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
         for item in list(dict(state.get("revision", {}) or {}).get("candidates", []) or [])
     }
     for row in [*audit.findings, *audit.gaps]:
+        if row.scope == "set_identity" and len(row.target_ids) != 1:
+            raise ValueError("set_identity evidence requires exactly one target")
         if row.scope in {"split_proposal", "merge_proposal"}:
             if not row.proposal_id or row.proposal_id not in proposal_ids:
                 raise ValueError(f"Evidence references an unknown proposal: {row.proposal_id}")
@@ -864,10 +907,7 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
 
 def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
     if finding.get("scope") == "partition":
-        return (
-            finding.get("status") == "conflicting"
-            and finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-        )
+        return False
     return (
         finding.get("status") == "conflicting"
         and finding.get("scope") == "set_identity"
@@ -967,15 +1007,6 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
                 (
                     item.get("drop_reason") == "technical_invalidation"
                     and not any(invalidates_set(finding, target) for finding in findings)
-                )
-                or (
-                    item.get("drop_reason") == "partition_level_invalidation"
-                    and not any(
-                    finding.get("scope") == "partition"
-                    and finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-                    and finding.get("status") == "conflicting"
-                    for finding in findings
-                    )
                 )
             )
         ):
@@ -1100,7 +1131,6 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
             and not drop_evidence
             and item.get("drop_reason") not in {
                 "insufficient_support_after_exhaustion",
-                "partition_level_invalidation",
             }
         ):
             return False
@@ -1585,13 +1615,6 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                     findings = list(audit.get("findings", []) or [])
                     if any(invalidates_set(row, target) for row in findings):
                         item["drop_reason"] = "technical_invalidation"
-                    elif any(
-                        row.get("scope") == "partition"
-                        and row.get("dimension") in {"known_label_echo", "confounder_exclusion"}
-                        and row.get("status") == "conflicting"
-                        for row in findings
-                    ):
-                        item["drop_reason"] = "partition_level_invalidation"
                     else:
                         item["drop_reason"] = "insufficient_support_after_exhaustion"
         if all(
@@ -1703,7 +1726,12 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
             str(runtime.get("data_root", runtime.get("output_root", ""))),
             config_dir=str(runtime.get("config_dir", "")),
             all_cluster_states=current_sets(state),
-            artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
+            artifact_root=str(
+                Path(str(runtime.get("review_output_root", runtime.get("output_root", ""))))
+                / "revision_candidates"
+                / str(action["action"])
+                / re.sub(r"[^A-Za-z0-9._-]+", "_", "+".join(targets)).strip("_")
+            ),
         )
         key = f"{action['action']}:{'+'.join(targets)}"
         if not candidates:
@@ -1871,6 +1899,17 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
     sets = current_sets(state)
     accepted_sets = [item for item in sets if item.get("status") == "provisionally_accepted"]
     dropped_sets = [item for item in sets if item.get("status") == "provisionally_dropped"]
+    partition_findings = [
+        row for row in list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+        if row.get("scope") == "partition"
+    ]
+    partition_statuses = {str(row.get("status", "")) for row in partition_findings}
+    partition_assessment = (
+        "conflicting" if "conflicting" in partition_statuses
+        else "mixed" if partition_statuses.intersection({"mixed", "inconclusive"})
+        else "supporting" if partition_statuses and partition_statuses == {"supporting"}
+        else "unavailable"
+    )
     raw_status = str(control.get("status", "review_unavailable"))
     if raw_status == "complete" and dropped_sets:
         final_status = "review_complete_with_dropped_sets"
@@ -1894,6 +1933,7 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "accepted_subtype_sets": to_jsonable(accepted_sets),
         "partition_patient_count": len({member for item in sets for member in item.get("member_ids", [])}),
         "accepted_patient_count": len({member for item in accepted_sets for member in item.get("member_ids", [])}),
+        "partition_assessment": partition_assessment,
         "dropped_set_registry": to_jsonable(dropped_sets),
         "revision": to_jsonable(state.get("revision")),
         "audit": to_jsonable(state.get("audit", {})),

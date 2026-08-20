@@ -5,9 +5,9 @@
   "rounds_used": 3,
   "llm_usage": {
     "api_calls": 5,
-    "prompt_tokens": 15120,
-    "completion_tokens": 516,
-    "total_tokens": 15636
+    "prompt_tokens": 15605,
+    "completion_tokens": 539,
+    "total_tokens": 16144
   },
   "partition_sets": [
     {
@@ -253,26 +253,11 @@
   ],
   "partition_patient_count": 103,
   "accepted_patient_count": 103,
+  "partition_assessment": "supporting",
   "dropped_set_registry": [],
   "revision": null,
   "audit": {
     "findings": [
-      {
-        "target_ids": [
-          "C0001",
-          "C0002"
-        ],
-        "dimension": "cross_modal_consistency",
-        "scope": "set_identity",
-        "proposal_id": null,
-        "subject_signature": "a550c341629089ce84509ec03d0edd4045b91467670fc02dc95328136d10a1b1",
-        "status": "supporting",
-        "summary": "CT, WSI, and RNA support the set identity for both C0001 and C0002; genomic does not support identity.",
-        "metric_refs": [
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
-        ]
-      },
       {
         "target_ids": [],
         "dimension": "known_label_echo",
@@ -280,9 +265,39 @@
         "proposal_id": null,
         "subject_signature": "cda49466f9e5a9055c104126db50d19caa2d6e9ee4076685b8750645682b990e",
         "status": "supporting",
-        "summary": "Partition does not echo stage or grade labels; AMI and ARI are near zero and optimal mapping accuracy is below identity thresholds.",
+        "summary": "Partition does not echo known stage or grade labels (AMI/ARI near zero, optimal mapping accuracy below identity threshold).",
         "metric_refs": [
-          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
+          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+          "tool_results.known_label_echo_test.metrics.analysis_scope",
+          "tool_results.known_label_echo_test.metrics.decision_semantics"
+        ]
+      },
+      {
+        "target_ids": [
+          "C0001"
+        ],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "proposal_id": null,
+        "subject_signature": "a550c341629089ce84509ec03d0edd4045b91467670fc02dc95328136d10a1b1",
+        "status": "supporting",
+        "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+        ]
+      },
+      {
+        "target_ids": [
+          "C0002"
+        ],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "proposal_id": null,
+        "subject_signature": "a550c341629089ce84509ec03d0edd4045b91467670fc02dc95328136d10a1b1",
+        "status": "supporting",
+        "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
         ]
       },
       {
@@ -409,7 +424,7 @@
                 "tool_results.confound_test.metrics.deterministic_flags"
               ],
               "artifact_paths": {
-                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/subtype_review/p_eb6989b691c99b3b/confound_test_full_metrics.json",
+                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/evidence/set_identity/subtype_review/p_eb6989b691c99b3b/confound_test_full_metrics.json",
                 "figures": {}
               }
             }
@@ -434,7 +449,7 @@
                 "tool_results.multimodal_consistency_check.metrics.effect_epsilon"
               ],
               "artifact_paths": {
-                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/subtype_review/p_eb6989b691c99b3b/multimodal_consistency_check_full_metrics.json",
+                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/evidence/set_identity/subtype_review/p_eb6989b691c99b3b/multimodal_consistency_check_full_metrics.json",
                 "figures": {}
               }
             }
@@ -455,7 +470,7 @@
                 "tool_results.known_label_echo_test.metrics.decision_semantics"
               ],
               "artifact_paths": {
-                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/subtype_review/p_eb6989b691c99b3b/known_label_echo_test_full_metrics.json",
+                "full_metrics": "/data/qijun/path-ct/output_kirc_v9/experiment_multi_k_accepted_core_stability/run1/K2/evidence/partition/subtype_review/p_eb6989b691c99b3b/known_label_echo_test_full_metrics.json",
                 "figures": {}
               }
             }
@@ -471,8 +486,35 @@
       "audit": {
         "findings": [
           {
+            "target_ids": [],
+            "dimension": "known_label_echo",
+            "scope": "partition",
+            "proposal_id": null,
+            "subject_signature": "cda49466f9e5a9055c104126db50d19caa2d6e9ee4076685b8750645682b990e",
+            "status": "supporting",
+            "summary": "Partition does not echo known stage or grade labels (AMI/ARI near zero, optimal mapping accuracy below identity threshold).",
+            "metric_refs": [
+              "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+              "tool_results.known_label_echo_test.metrics.analysis_scope",
+              "tool_results.known_label_echo_test.metrics.decision_semantics"
+            ]
+          },
+          {
             "target_ids": [
-              "C0001",
+              "C0001"
+            ],
+            "dimension": "cross_modal_consistency",
+            "scope": "set_identity",
+            "proposal_id": null,
+            "subject_signature": "a550c341629089ce84509ec03d0edd4045b91467670fc02dc95328136d10a1b1",
+            "status": "supporting",
+            "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+            "metric_refs": [
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+            ]
+          },
+          {
+            "target_ids": [
               "C0002"
             ],
             "dimension": "cross_modal_consistency",
@@ -480,22 +522,9 @@
             "proposal_id": null,
             "subject_signature": "a550c341629089ce84509ec03d0edd4045b91467670fc02dc95328136d10a1b1",
             "status": "supporting",
-            "summary": "CT, WSI, and RNA support the set identity for both C0001 and C0002; genomic does not support identity.",
+            "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
             "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
               "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
-            ]
-          },
-          {
-            "target_ids": [],
-            "dimension": "known_label_echo",
-            "scope": "partition",
-            "proposal_id": null,
-            "subject_signature": "cda49466f9e5a9055c104126db50d19caa2d6e9ee4076685b8750645682b990e",
-            "status": "supporting",
-            "summary": "Partition does not echo stage or grade labels; AMI and ARI are near zero and optimal mapping accuracy is below identity thresholds.",
-            "metric_refs": [
-              "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
             ]
           },
           {
@@ -620,16 +649,17 @@
         "scope": null,
         "proposal_id": null,
         "requests": [],
-        "reason": "Cross-modal consistency supports identity for C0001; no technical confounders."
+        "reason": "Set C0001 has supporting cross-modal consistency from three original modalities and no technical confounder association."
       },
       "metric_refs": [
         "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
         "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
         "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
         "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+        "tool_results.known_label_echo_test.metrics.analysis_scope",
+        "tool_results.known_label_echo_test.metrics.decision_semantics",
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
-        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
       ]
     },
     {
@@ -652,8 +682,9 @@
         "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
         "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
         "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+        "tool_results.known_label_echo_test.metrics.analysis_scope",
+        "tool_results.known_label_echo_test.metrics.decision_semantics",
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
       ]
     }

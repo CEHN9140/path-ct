@@ -65,7 +65,8 @@ def compare_runs(left: Mapping[str, str], right: Mapping[str, str]) -> dict[str,
         "right_accepted_count": len(right_ids),
         "accepted_intersection_count": len(shared),
         "accepted_union_count": len(union),
-        "accepted_coverage_jaccard": len(shared) / len(union) if union else 1.0,
+        "both_empty": not union,
+        "accepted_coverage_jaccard": len(shared) / len(union) if union else None,
         "adjusted_rand_index": None,
         "adjusted_mutual_information": None,
     }
@@ -89,7 +90,7 @@ def compare_runs(left: Mapping[str, str], right: Mapping[str, str]) -> dict[str,
     ]
     denominator = max(len(left_groups), len(right_groups))
     if not denominator:
-        result.update({"matched_mean_jaccard": 1.0, "matched_mean_dice": 1.0})
+        result.update({"matched_mean_jaccard": None, "matched_mean_dice": None})
         return result
     scores = np.zeros((len(left_groups), len(right_groups)), dtype=float)
     dice = np.zeros_like(scores)
@@ -215,6 +216,7 @@ def analyze(
                     "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
                     "repeat": repeat, "valid_for_analysis": False,
                     "raw_control_status": "missing", "review_status": "missing",
+                    "partition_assessment": "missing",
                     "rounds_used": None, "accepted_set_count": None,
                     "accepted_patient_count": None, "api_calls": None, "total_tokens": None,
                 })
@@ -227,6 +229,7 @@ def analyze(
                 "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
                 "repeat": repeat, "valid_for_analysis": raw_status == "complete",
                 "raw_control_status": raw_status, "review_status": summary.get("status"),
+                "partition_assessment": summary.get("partition_assessment", "unavailable"),
                 "rounds_used": summary.get("rounds_used"),
                 "accepted_set_count": len(set(assignments.values())),
                 "accepted_patient_count": len(assignments),
@@ -404,6 +407,8 @@ def analyze(
         for row in different_k
         if row["adjusted_rand_index"] is not None
     ]
+    same_k_informative = [row for row in same_k if not row["both_empty"]]
+    different_k_informative = [row for row in different_k if not row["both_empty"]]
     summary = {
         "experiment": "multi_k_accepted_core_stability",
         "analysis_status": "complete" if len(runs) == len(initial_ks) * len(repeats) else "partial",
@@ -412,6 +417,9 @@ def analyze(
         "expected_run_count": len(initial_ks) * len(repeats),
         "valid_run_count": len(runs),
         "invalid_run_count": len(execution_rows) - len(runs),
+        "partition_assessment_counts": dict(sorted(Counter(
+            str(run.get("partition_assessment", "unavailable")) for run in runs
+        ).items())),
         "patient_count": len(patient_ids),
         "accepted_only": True,
         "scientific_denominator": "raw_control_status == complete",
@@ -427,17 +435,19 @@ def analyze(
         "threshold_sensitivity": threshold_rows,
         "within_k_repeatability": {
             "pair_count": len(same_k),
+            "informative_pair_count": len(same_k_informative),
             "mean_ari": float(np.mean(same_k_ari)) if same_k_ari else None,
-            "mean_coverage_jaccard": float(np.mean([row["accepted_coverage_jaccard"] for row in same_k])) if same_k else None,
-            "mean_matched_jaccard": float(np.mean([row["matched_mean_jaccard"] for row in same_k])) if same_k else None,
-            "mean_matched_dice": float(np.mean([row["matched_mean_dice"] for row in same_k])) if same_k else None,
+            "mean_coverage_jaccard": float(np.mean([row["accepted_coverage_jaccard"] for row in same_k_informative])) if same_k_informative else None,
+            "mean_matched_jaccard": float(np.mean([row["matched_mean_jaccard"] for row in same_k_informative])) if same_k_informative else None,
+            "mean_matched_dice": float(np.mean([row["matched_mean_dice"] for row in same_k_informative])) if same_k_informative else None,
         },
         "between_k_sensitivity": {
             "pair_count": len(different_k),
+            "informative_pair_count": len(different_k_informative),
             "mean_ari": float(np.mean(different_k_ari)) if different_k_ari else None,
-            "mean_coverage_jaccard": float(np.mean([row["accepted_coverage_jaccard"] for row in different_k])) if different_k else None,
-            "mean_matched_jaccard": float(np.mean([row["matched_mean_jaccard"] for row in different_k])) if different_k else None,
-            "mean_matched_dice": float(np.mean([row["matched_mean_dice"] for row in different_k])) if different_k else None,
+            "mean_coverage_jaccard": float(np.mean([row["accepted_coverage_jaccard"] for row in different_k_informative])) if different_k_informative else None,
+            "mean_matched_jaccard": float(np.mean([row["matched_mean_jaccard"] for row in different_k_informative])) if different_k_informative else None,
+            "mean_matched_dice": float(np.mean([row["matched_mean_dice"] for row in different_k_informative])) if different_k_informative else None,
         },
         "interpretation": (
             "Recurrent accepted cores indicate cross-K structural repeatability, "

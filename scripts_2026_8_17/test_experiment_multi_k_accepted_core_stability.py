@@ -30,6 +30,14 @@ def test_compare_runs_uses_shared_accepted_patients():
     assert result["matched_mean_dice"] == pytest.approx(0.5)
 
 
+def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
+    result = experiment.compare_runs({}, {})
+    assert result["both_empty"] is True
+    assert result["accepted_coverage_jaccard"] is None
+    assert result["matched_mean_jaccard"] is None
+    assert result["matched_mean_dice"] is None
+
+
 def test_stability_matrices_separate_acceptance_and_conditional_membership():
     patients = ["p1", "p2", "p3"]
     runs = [
