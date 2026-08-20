@@ -126,7 +126,9 @@ def known_label_echo_test(
     scope="partition",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     clinical = clinical_table(patient_states_by_id)
     cluster_labels = cluster_labels_by_case(all_cluster_states, cluster_state)
@@ -195,7 +197,7 @@ def known_label_echo_test(
         tool_name="known_label_echo_test",
         status="success",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root,
         summary="The complete candidate partition was compared with stage and grade structures.",
         metrics=metrics,
         decision_metrics=metrics,

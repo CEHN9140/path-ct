@@ -10,7 +10,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
-from agents.subtype_review.llm import parse_json_content, parse_router_action
+from agents.subtype_review.llm import LLMCallBudgetExceeded, parse_json_content, parse_router_action
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
     ReviserOutput,
@@ -31,6 +31,8 @@ def partition_artifact_id(signature: str) -> str:
 class ReviewContext(TypedDict, total=False):
     patient_states_by_id: dict[str, dict[str, Any]]
     output_root: str
+    data_root: str
+    review_output_root: str
     config_dir: str
 
 
@@ -183,6 +185,14 @@ def mark_success(state: dict[str, Any]) -> None:
 def invoke_with_recovery(model: Any, payload: dict[str, Any], state: dict[str, Any], node: str) -> Any:
     try:
         return model.invoke(payload)
+    except LLMCallBudgetExceeded as exc:
+        control = dict(state.get("control", {}) or {})
+        control["status"] = "unresolved_due_to_budget"
+        control["error"] = str(exc)
+        control["next"] = "end"
+        state["control"] = control
+        append_trace(state, {"node": node, "event": "llm_budget_exhausted", "error": str(exc)})
+        return None
     except Exception as exc:
         mark_failure(state, node, exc)
         return None
@@ -340,12 +350,13 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
         payload = VALIDATION_FUNCTIONS[name](
             cluster_state,
             patient_states,
-            str(runtime.get("output_root", "")),
+            str(runtime.get("data_root", runtime.get("output_root", ""))),
             str(runtime.get("config_dir", "")),
             all_sets,
             scope=scope,
             target_ids=list(action.get("target_ids", []) or []),
             proposal=proposal,
+            artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
         )
         payload["partition_signature"] = partition
         payload["scope"] = scope
@@ -1520,8 +1531,8 @@ def build_review_graph(*, verifier_model: Any, router_model: Any, reviser_model:
     return graph.compile()
 
 
-def save_review_outputs(state: Mapping[str, Any], output_root: str) -> dict[str, Any]:
-    root = Path(output_root) / "subtype_review"
+def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: bool = False) -> dict[str, Any]:
+    root = Path(output_root) if direct else Path(output_root) / "subtype_review"
     root.mkdir(parents=True, exist_ok=True)
     control = dict(state.get("control", {}) or {})
     sets = current_sets(state)

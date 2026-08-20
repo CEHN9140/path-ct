@@ -852,7 +852,9 @@ def confound_test(
     scope="set_identity",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     memberships = {
         key: sorted(value)
@@ -863,7 +865,7 @@ def confound_test(
             tool_name="confound_test",
             status="failure",
             cluster_id=cluster_id,
-            output_root=output_root,
+            output_root=artifact_root,
             summary="No candidate-set cases are available for confound testing.",
             missing_reason="empty candidate sets",
             support_level="none",
@@ -904,7 +906,7 @@ def confound_test(
         tool_name="confound_test",
         status="success",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root,
         summary=f"Confounder association metrics were computed for {len(memberships)} candidate sets.",
         metrics={
             "confounder_global_association": global_metrics,

@@ -41,12 +41,12 @@ def rna_feature_path(patient_states_by_id):
     return ""
 
 
-def empty_pathway_result(cluster_id, output_root, summary, missing_reason):
+def empty_pathway_result(cluster_id, output_root, summary, missing_reason, artifact_root=None):
     return tool_result(
         tool_name="pathway_enrichment",
         status="failure",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root or output_root,
         summary=summary,
         metrics={"rna_pathway_enrichment": []},
         decision_metrics={"per_set_rna_pathway_enrichment": {}},
@@ -230,7 +230,9 @@ def pathway_enrichment(
     scope="set_identity",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     params = tool_parameters(config_dir, "rna")
     min_pathway_overlap = max(int(params.get("min_pathway_overlap", 15) or 15), 1)
@@ -244,6 +246,7 @@ def pathway_enrichment(
             output_root,
             "RNA pathway enrichment inputs are unavailable.",
             "missing_rna_or_gene_sets",
+            artifact_root,
         )
 
     feature_frame = feature_frame.loc[:, feature_frame.notna().all(axis=0)]
@@ -260,6 +263,7 @@ def pathway_enrichment(
             output_root,
             "RNA pathway enrichment inputs are unavailable after feature intersection.",
             "missing_intersected_genes",
+            artifact_root,
         )
 
     candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
@@ -269,6 +273,7 @@ def pathway_enrichment(
             output_root,
             "Candidate set labels are unavailable.",
             "missing_candidate_sets",
+            artifact_root,
         )
 
     score_frame = ssgsea_scores(
@@ -281,7 +286,7 @@ def pathway_enrichment(
         tool_name="pathway_enrichment",
         status="success",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root,
         summary="RNA ssGSEA pathway enrichment table was computed.",
         metrics={"rna_pathway_enrichment": rows},
         decision_metrics={

@@ -272,7 +272,9 @@ def multimodal_consistency_check(
     scope="set_identity",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "GLOBAL"))
     memberships = {
         key: sorted(value)
@@ -310,7 +312,7 @@ def multimodal_consistency_check(
         tool_name="multimodal_consistency_check",
         status="success",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root,
         summary="Fixed candidate memberships were evaluated in four modality affinity networks.",
         metrics=metrics,
         decision_metrics=metrics.get("decision_metrics", {}),

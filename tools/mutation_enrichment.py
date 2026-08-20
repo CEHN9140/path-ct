@@ -128,12 +128,12 @@ def enrichment_rows(feature_names, table, candidate_sets):
     )
 
 
-def empty_result(cluster_id, output_root, reason):
+def empty_result(cluster_id, output_root, reason, artifact_root=None):
     return tool_result(
         tool_name="mutation_enrichment",
         status="failure",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root or output_root,
         summary="WXS discovery and validation features are unavailable.",
         metrics={"wxs_gene_enrichment": []},
         decision_metrics={"per_set_wxs_feature_enrichment": {}},
@@ -153,7 +153,9 @@ def mutation_enrichment(
     scope="set_identity",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     wxs_dir = Path(output_root) / "wxs"
     discovery_names, discovery_table = read_case_feature_table(
@@ -175,16 +177,17 @@ def mutation_enrichment(
             cluster_id,
             output_root,
             "missing_wxs_feature_tables",
+            artifact_root,
         )
     candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
     if not candidate_sets:
-        return empty_result(cluster_id, output_root, "missing_candidate_sets")
+        return empty_result(cluster_id, output_root, "missing_candidate_sets", artifact_root)
     rows = enrichment_rows(feature_names, table, candidate_sets)
     return tool_result(
         tool_name="mutation_enrichment",
         status="success",
         cluster_id=cluster_id,
-        output_root=output_root,
+        output_root=artifact_root,
         summary=(
             "Discovery mutations and validation-only WXS summaries were "
             "tested by candidate set."

@@ -29,7 +29,9 @@ def cnv_characterization(
     scope="set_identity",
     target_ids=None,
     proposal=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     path = Path(output_root) / "cnv" / "case_features.csv"
     feature_names, table = read_case_feature_table(str(path))
     if not feature_names or not table:
@@ -37,7 +39,7 @@ def cnv_characterization(
             tool_name="cnv_characterization",
             status="failure",
             cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
-            output_root=output_root,
+            output_root=artifact_root,
             summary="CNV feature table is unavailable.",
             metrics={"cnv_characterization": []},
             missing_reason="missing_cnv_feature_table",
@@ -48,7 +50,7 @@ def cnv_characterization(
             tool_name="cnv_characterization",
             status="failure",
             cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
-            output_root=output_root,
+            output_root=artifact_root,
             summary="CNV comparison requires at least two groups.",
             metrics={"cnv_characterization": []},
             missing_reason="insufficient_cnv_groups",
@@ -167,7 +169,7 @@ def cnv_characterization(
         tool_name="cnv_characterization",
         status="success",
         cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
-        output_root=output_root,
+        output_root=artifact_root,
         summary=f"CNV characterization computed for {scope}.",
         metrics={"cnv_characterization": rows},
         decision_metrics={"per_comparison_cnv": summaries},

@@ -14,6 +14,61 @@ from utils.llm_utils import (
 )
 
 
+class LLMCallBudgetExceeded(RuntimeError):
+    pass
+
+
+class LLMUsageTracker:
+    def __init__(self, max_llm_calls: int | None = None):
+        self.max_llm_calls = max_llm_calls
+        self.api_calls = 0
+        self.prompt_tokens: int | None = None
+        self.completion_tokens: int | None = None
+        self.total_tokens: int | None = None
+
+    def before_request(self) -> None:
+        if self.max_llm_calls is not None and self.api_calls >= self.max_llm_calls:
+            raise LLMCallBudgetExceeded(
+                f"LLM call budget exhausted: {self.max_llm_calls} calls"
+            )
+        self.api_calls += 1
+
+    def record_request(self, response: Any) -> None:
+        self.before_request()
+        usage = response.get("usage", {}) if isinstance(response, dict) else getattr(response, "usage", {})
+        if not usage:
+            return
+        values = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens"),
+            "completion_tokens": getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens"),
+            "total_tokens": getattr(usage, "total_tokens", None) if not isinstance(usage, dict) else usage.get("total_tokens"),
+        }
+        for key, value in values.items():
+            if value is not None:
+                setattr(self, key, int(getattr(self, key) or 0) + int(value))
+
+    def record_response(self, response: Any) -> None:
+        usage = response.get("usage", {}) if isinstance(response, dict) else getattr(response, "usage", {})
+        if not usage:
+            return
+        values = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens"),
+            "completion_tokens": getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens"),
+            "total_tokens": getattr(usage, "total_tokens", None) if not isinstance(usage, dict) else usage.get("total_tokens"),
+        }
+        for key, value in values.items():
+            if value is not None:
+                setattr(self, key, int(getattr(self, key) or 0) + int(value))
+
+    def snapshot(self) -> dict[str, int | None]:
+        return {
+            "api_calls": self.api_calls,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
 def load_prompt(prompt_dir: str | Path, name: str) -> str:
     return (Path(prompt_dir) / name).read_text(encoding="utf-8")
 
@@ -44,9 +99,10 @@ def validate_verifier_payload(payload: dict[str, Any]) -> None:
 
 
 class JsonStructuredModel:
-    def __init__(self, llm_config: dict[str, Any], schema: type, system_prompt: str):
+    def __init__(self, llm_config: dict[str, Any], schema: type, system_prompt: str, usage_tracker: LLMUsageTracker | None = None):
         self.config = dict(llm_config)
         self.schema = schema
+        self.usage_tracker = usage_tracker
         self.system_prompt = f"{system_prompt.rstrip()}\n\nReturn exactly one valid JSON object."
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +121,8 @@ class JsonStructuredModel:
         last_error = ""
         for _ in range(attempts):
             content = None
+            if self.usage_tracker is not None:
+                self.usage_tracker.before_request()
             try:
                 response = client.chat.completions.create(
                     model=str(self.config["model_name"]),
@@ -74,6 +132,8 @@ class JsonStructuredModel:
                     response_format={"type": "json_object"},
                     extra_body={"thinking": {"type": "disabled"}},
                 )
+                if self.usage_tracker is not None:
+                    self.usage_tracker.record_response(response)
                 content = response.choices[0].message.content
                 parsed = parse_json_content(content)
                 return dict(self.schema.model_validate(parsed).model_dump())
@@ -95,21 +155,26 @@ class JsonStructuredModel:
 
 
 class LocalStructuredModel:
-    def __init__(self, config: dict[str, Any], schema: type, system_prompt: str):
+    def __init__(self, config: dict[str, Any], schema: type, system_prompt: str, usage_tracker: LLMUsageTracker | None = None):
         client_config = {**config, "api_key": resolve_api_key(config)}
         self.client = LocalLLMClient(client_config)
         self.schema = schema
         self.system_prompt = system_prompt
+        self.usage_tracker = usage_tracker
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not local_llm_server_available(self.client.base_url):
             raise RuntimeError(f"Local LLM server is unavailable: {self.client.base_url}")
+        if self.usage_tracker is not None:
+            self.usage_tracker.before_request()
         response = self.client.chat(
             [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ]
         )
+        if self.usage_tracker is not None:
+            self.usage_tracker.record_response(response)
         return dict(self.schema.model_validate(parse_json_content(response.get("content"))).model_dump())
 
 
@@ -128,11 +193,20 @@ class ProtocolSelfReviewModel:
 
 
 class VerifierChatModel:
-    def __init__(self, model: Any, system_prompt: str, tools: list[Any], correction_attempts: int = 2):
+    def __init__(self, model: Any, system_prompt: str, tools: list[Any], correction_attempts: int = 2, usage_tracker: LLMUsageTracker | None = None):
         self.model = model
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
         self.correction_attempts = correction_attempts
+        self.usage_tracker = usage_tracker
+
+    def invoke_model(self, model: Any, messages: Any) -> Any:
+        if self.usage_tracker is not None:
+            self.usage_tracker.before_request()
+        response = model.invoke(messages)
+        if self.usage_tracker is not None:
+            self.usage_tracker.record_response(response)
+        return response
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = dict(payload)
@@ -149,7 +223,7 @@ class VerifierChatModel:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
         ]
-        response = model.invoke(messages)
+        response = self.invoke_model(model, messages)
         if mode == "acquire":
             return response
         review_request = {
@@ -157,7 +231,7 @@ class VerifierChatModel:
             "mode": "protocol_self_review",
             "proposed_audit": parse_json_content(getattr(response, "content", response)),
         }
-        reviewed = model.invoke([
+        reviewed = self.invoke_model(model, [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
         ])
@@ -166,7 +240,7 @@ class VerifierChatModel:
                 validate_verifier_payload(parse_json_content(getattr(reviewed, "content", reviewed)))
                 return reviewed
             except Exception as exc:
-                reviewed = model.invoke([
+                reviewed = self.invoke_model(model, [
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": json.dumps({
                         **request,
@@ -180,12 +254,21 @@ class VerifierChatModel:
 
 
 class LocalVerifierModel:
-    def __init__(self, config: dict[str, Any], system_prompt: str, tools: list[Any]):
+    def __init__(self, config: dict[str, Any], system_prompt: str, tools: list[Any], usage_tracker: LLMUsageTracker | None = None):
         client_config = {**config, "api_key": resolve_api_key(config)}
         self.client = LocalLLMClient(client_config)
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
         self.correction_attempts = int(config.get("json_retries", 2) or 2)
+        self.usage_tracker = usage_tracker
+
+    def chat(self, messages: list[dict[str, str]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if self.usage_tracker is not None:
+            self.usage_tracker.before_request()
+        response = self.client.chat(messages, tools=tools)
+        if self.usage_tracker is not None:
+            self.usage_tracker.record_response(response)
+        return response
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         if not local_llm_server_available(self.client.base_url):
@@ -210,7 +293,7 @@ class LocalVerifierModel:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ]
-        response = self.client.chat(
+        response = self.chat(
             messages,
             tools=request_tools or None,
         )
@@ -224,7 +307,7 @@ class LocalVerifierModel:
             "mode": "protocol_self_review",
             "proposed_audit": audit,
         }
-        reviewed = self.client.chat([
+        reviewed = self.chat([
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
         ])
@@ -234,7 +317,7 @@ class LocalVerifierModel:
                 validate_verifier_payload(audit)
                 return audit
             except Exception as exc:
-                reviewed = self.client.chat([
+                reviewed = self.chat([
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": json.dumps({
                         **payload,
@@ -247,18 +330,18 @@ class LocalVerifierModel:
         raise RuntimeError("Verifier audit failed schema correction")
 
 
-def build_structured_model(config: dict[str, Any], schema: type, prompt: str) -> Any:
+def build_structured_model(config: dict[str, Any], schema: type, prompt: str, usage_tracker: LLMUsageTracker | None = None) -> Any:
     if str(config.get("structured_output", "json_object")) == "json_prompt":
-        return LocalStructuredModel(config, schema, prompt)
-    return JsonStructuredModel(config, schema, prompt)
+        return LocalStructuredModel(config, schema, prompt, usage_tracker)
+    return JsonStructuredModel(config, schema, prompt, usage_tracker)
 
 
-def build_default_verifier(config: dict[str, Any], config_dir: str | Path) -> Any:
+def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
     prompt = load_prompt_with_protocol(prompt_dir(config, config_dir), "verifier.md")
     tools = build_validation_tools()
     if str(cfg.get("structured_output", "json_object")) == "json_prompt":
-        return LocalVerifierModel(cfg, prompt, tools)
+        return LocalVerifierModel(cfg, prompt, tools, usage_tracker)
     from langchain_openai import ChatOpenAI
 
     model = ChatOpenAI(
@@ -269,29 +352,34 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path) -> An
         max_tokens=int(cfg.get("max_new_tokens", 2048)),
         extra_body={"thinking": {"type": "disabled"}},
     )
-    return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2))
+    return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2), usage_tracker)
 
 
-def build_default_reviser(config: dict[str, Any], config_dir: str | Path) -> Any:
+def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
     return build_structured_model(
         cfg,
         ReviserOutput,
         load_prompt_with_protocol(prompt_dir(config, config_dir), "reviser.md"),
+        usage_tracker,
     )
 
 
 def build_default_router(
     config: dict[str, Any],
     config_dir: str | Path,
+    *,
+    self_review: bool = True,
+    usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
     model = build_structured_model(
         cfg,
         RouterLLMOutput,
         load_prompt_with_protocol(prompt_dir(config, config_dir), "router.md"),
+        usage_tracker,
     )
-    return ProtocolSelfReviewModel(model, model)
+    return ProtocolSelfReviewModel(model, model) if self_review else model
 
 
 def parse_router_action(value: Any) -> RouterAction:
