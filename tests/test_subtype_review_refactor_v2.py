@@ -508,6 +508,38 @@ def test_verifier_cannot_borrow_metric_ref_from_another_proposal():
         validate_verifier_audit(audit, state)
 
 
+def test_verifier_allows_an_existing_metric_subpath_under_its_declared_root():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]}
+    ])
+    root = (
+        "tool_results.multimodal_consistency_check.metrics."
+        "identity_supporting_modalities_by_set"
+    )
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1"],
+        {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}},
+        root,
+    ))
+    audit = VerifierOutput.model_validate({"findings": [{
+        "target_ids": ["C1"],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "subject_signature": subject_signature(
+            "cross_modal_consistency", "set_identity", state["sets"], ["C1"]
+        ),
+        "status": "supporting",
+        "metric_refs": [f"{root}.C1"],
+    }], "gaps": []})
+
+    validate_verifier_audit(audit, state)
+
+
 def test_legal_drop_completes_review():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
@@ -697,6 +729,62 @@ def test_router_receives_legal_actions_and_traces_each_contract_rejection():
     assert len(rejections) == 3
     assert all(row["rejected_action"]["proposal_id"] == "unsupported" for row in rejections)
     assert state["control"]["status"] == "review_failed_runtime"
+
+
+def test_supported_structural_action_preempts_unrelated_evidence_requests():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]},
+        {"cluster_id": "C2", "member_ids": ["Q1", "Q2"]},
+    ])
+    proposal = {
+        "proposal_id": "p1",
+        "plan_id": "p1",
+        "source_set_id": "C1",
+        "eligible_for_review": True,
+        "groups": [
+            [f"P{i}" for i in range(10)],
+            [f"P{i}" for i in range(10, 20)],
+        ],
+    }
+    state["structure_proposals"] = {
+        "split_proposals": [proposal],
+        "merge_proposals": [],
+    }
+    ref = "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "split_proposal",
+        ["C1"],
+        proposal,
+        "multimodal_consistency_check",
+        {"split_supporting_modalities": ["ct", "rna"]},
+        ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"],
+        "proposal_id": "p1",
+        "dimension": "cross_modal_consistency",
+        "scope": "split_proposal",
+        "status": "supporting",
+        "metric_refs": [ref],
+    })
+    add_proposal_checks(state, proposal, "split_proposal", ["C1"])
+    model = StaticModel({
+        "action": "split",
+        "target_ids": ["C1"],
+        "proposal_id": "p1",
+        "metric_refs": [],
+    })
+
+    router_node(state, {}, model)
+
+    payload = model.payloads[0]
+    assert payload["requestable_evidence"] == []
+    assert {
+        (row["action"], row["target_ids"][0], row.get("proposal_id"))
+        for row in payload["legal_action_candidates"]
+    } == {("split", "C1", "p1")}
 
 
 def test_budget_exhaustion_uses_public_unresolved_status(tmp_path):

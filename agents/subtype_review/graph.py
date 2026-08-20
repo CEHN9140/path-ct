@@ -688,12 +688,21 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
         if missing:
             raise ValueError(f"Verifier referenced metrics outside exact evidence: {missing}")
         allowed = {
-            str(ref)
+            re.sub(r"\[(\d+)\]", r".\1", str(ref))
             for result in exact
             for child in result.get("results", []) or []
             for ref in child.get("metric_refs", []) or []
         }
-        if not set(finding.metric_refs).issubset(allowed):
+        if not all(
+            any(
+                normalized == root or normalized.startswith(root + ".")
+                for root in allowed
+            )
+            for normalized in (
+                re.sub(r"\[(\d+)\]", r".\1", ref)
+                for ref in finding.metric_refs
+            )
+        ):
             raise ValueError("Verifier metric_refs are outside exact evidence")
 
 
@@ -1179,6 +1188,13 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                 except ValueError:
                     continue
                 legal_action_candidates.append(candidate.model_dump())
+    structural_actions = [
+        row for row in legal_action_candidates
+        if row["action"] in {"split", "merge"}
+    ]
+    if structural_actions:
+        legal_action_candidates = structural_actions
+        requestable = []
     if not requestable and not legal_action_candidates:
         control["status"] = "unresolved"
         control["error"] = None
