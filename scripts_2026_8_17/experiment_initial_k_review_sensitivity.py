@@ -14,19 +14,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.subtype_review.graph import (  # noqa: E402
-    build_review_graph,
     current_sets,
-    initial_review_state,
     save_review_outputs,
 )
-from agents.subtype_review.llm import (  # noqa: E402
-    LLMUsageTracker,
-    build_default_reviser,
-    build_default_router,
-    build_default_verifier,
-)
+from agents.subtype_review.runner import run_subtype_review  # noqa: E402
 from utils.io import write_json  # noqa: E402
-from utils.llm_utils import load_yaml_file  # noqa: E402
 
 INITIAL_KS = tuple(range(2, 9))
 EXPECTED_PATIENT_COUNT = 102
@@ -67,14 +59,16 @@ def labels_to_candidate_sets(
         )
         candidate_sets.append(
             {
-                "cluster_id": f"K{initial_k}_C{index:02d}",
+                "cluster_id": f"C{index:04d}",
                 "member_ids": members,
                 "source_views": ["snf"],
                 "status": "under_review",
                 "generator": {
                     "algorithm": "consensus_hierarchical",
-                    "initial_k": initial_k,
-                    "cluster_label": label,
+                    "n_clusters": initial_k,
+                    "seed": None,
+                    "partition_id": f"consensus_hierarchical_K{initial_k}",
+                    "cluster_label": int(label) if label.isdigit() else label,
                 },
             }
         )
@@ -122,40 +116,13 @@ def load_initial_partition(
     )
 
 
-def apply_review_policy(
-    state: dict[str, Any],
-    config: Mapping[str, Any],
-    max_rounds: int | None = None,
-) -> None:
-    budget = dict(config.get("budget", {}) or {})
-    cross_modal = dict(config.get("cross_modal", {}) or {})
-    state["control"]["max_rounds"] = int(
-        max_rounds if max_rounds is not None else budget.get("max_rounds", 60) or 60
-    )
-    state["control"]["max_failures"] = int(budget.get("max_failures", 3) or 3)
-    state["control"]["policy"] = {
-        "accept_min_supporting_modalities": int(
-            cross_modal.get("accept_min_supporting_modalities", 2) or 2
-        ),
-        "split_min_supporting_modalities": int(
-            cross_modal.get("split_min_supporting_modalities", 2) or 2
-        ),
-        "merge_min_supporting_modalities": int(
-            cross_modal.get("merge_min_supporting_modalities", 2) or 2
-        ),
-        "split_require_molecular_or_biology": bool(
-            cross_modal.get("split_require_molecular_or_biology", True)
-        ),
-        "min_split_size": int(budget.get("min_split_size", 10) or 10),
-    }
-
-
 def summarize_run(
     initial_k: int,
     initial_sets: list[Mapping[str, Any]],
     state: Mapping[str, Any],
-    usage: Mapping[str, Any],
+    usage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    usage = dict(usage or {})
     final_sets = current_sets(state)
     control = dict(state.get("control", {}) or {})
     initial_sizes = sorted(
@@ -191,8 +158,6 @@ def run_one(
     data_root: Path,
     review_root: Path,
     config_dir: Path,
-    max_rounds: int = 150,
-    max_llm_calls_per_run: int | None = None,
 ) -> dict[str, Any]:
     patient_states_by_id = load_patient_states(data_root)
     source_path, initial_sets = load_initial_partition(
@@ -211,53 +176,31 @@ def run_one(
             "candidate_sets": initial_sets,
         },
     )
-    review_config = load_yaml_file(config_dir / "subtype_review.yaml")
-    tracker = LLMUsageTracker(max_llm_calls=max_llm_calls_per_run)
-    verifier_model = build_default_verifier(
-        review_config, config_dir, usage_tracker=tracker
-    )
-    router_model = build_default_router(
-        review_config,
-        config_dir,
-        self_review=False,
-        usage_tracker=tracker,
-    )
-    reviser_model = build_default_reviser(
-        review_config, config_dir, usage_tracker=tracker
-    )
-    runtime = {
-        "patient_states_by_id": patient_states_by_id,
-        "output_root": str(data_root),
-        "data_root": str(data_root),
-        "review_output_root": str(run_root),
-        "config_dir": str(config_dir),
-    }
-    graph = build_review_graph(
-        verifier_model=verifier_model,
-        router_model=router_model,
-        reviser_model=reviser_model,
-        runtime=runtime,
-    )
-    state = initial_review_state(initial_sets)
-    apply_review_policy(state, review_config, max_rounds=max_rounds)
-    state = graph.invoke(
-        state,
-        context=runtime,
-        config={"recursion_limit": int(state["control"]["max_rounds"]) * 3 + 10},
+    state = run_subtype_review(
+        initial_sets,
+        patient_states_by_id,
+        str(data_root),
+        str(config_dir),
+        artifact_root=str(run_root),
     )
     save_review_outputs(state, str(run_root), direct=True)
-    usage = tracker.snapshot()
-    summary = summarize_run(initial_k, initial_sets, state, usage)
+    usage = {
+        "api_calls": None,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+    }
+    summary = summarize_run(initial_k, initial_sets, state)
     metadata = {
         "experiment": "initial_k_review_sensitivity",
         "run": 1,
         "initial_k": initial_k,
         "initial_partition_source": str(source_path),
         "patient_count": sum(len(item["member_ids"]) for item in initial_sets),
-        "router_self_review": False,
+        "router_self_review": True,
         "verifier_self_review": True,
         "max_rounds": state["control"]["max_rounds"],
-        "max_llm_calls": tracker.max_llm_calls,
+        "max_llm_calls": None,
         "llm_usage": usage,
         "terminal_status": summary["terminal_status"],
         "initial_cluster_sizes": summary["initial_cluster_sizes"],
@@ -308,8 +251,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--review-root", type=Path, default=DEFAULT_REVIEW_ROOT)
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
-    parser.add_argument("--max-rounds", type=int, default=60)
-    parser.add_argument("--max-llm-calls-per-run", type=int, default=None)
     parser.add_argument("--initial-k", type=int, choices=INITIAL_KS, action="append")
     return parser
 
@@ -318,14 +259,7 @@ def main() -> None:
     args = build_parser().parse_args()
     args.review_root.mkdir(parents=True, exist_ok=True)
     rows = [
-        run_one(
-            k,
-            args.data_root,
-            args.review_root,
-            args.config_dir,
-            args.max_rounds,
-            args.max_llm_calls_per_run,
-        )
+        run_one(k, args.data_root, args.review_root, args.config_dir)
         for k in args.initial_k or INITIAL_KS
     ]
     write_run_summary(args.review_root, rows)

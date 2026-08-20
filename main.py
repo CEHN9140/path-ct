@@ -14,11 +14,10 @@ from agents.evidence_builder import (
 )
 from agents.inventory import inventory_case
 from agents.quality_control import ct_qc, wsi_qc
-from agents.subtype_review.graph import build_review_graph, initial_review_state, save_review_outputs
-from agents.subtype_review.llm import build_default_reviser, build_default_router, build_default_verifier
+from agents.subtype_review.graph import save_review_outputs
+from agents.subtype_review.runner import run_subtype_review
 from utils.patient_store import save_patient_states
 from utils.report_store import save_final_output
-from utils.llm_utils import load_yaml_file
 from utils.tool_utils import safe_identifier, to_jsonable
 
 DEFAULT_DATA_JSON_PATH = "/data/qijun/path-ct/data/tcga_kirc_data.json"
@@ -115,53 +114,17 @@ def run_pipeline(
         flush=True,
     )
 
-    review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
     review_patients = list(candidate_output.get("patient_states", patient_states))
     patient_states_by_id = {
         str(item.get("case_id", item.get("Case_ID", ""))): dict(item)
         for item in review_patients
         if str(item.get("case_id", item.get("Case_ID", "")))
     }
-    review_runtime = {
-        "patient_states_by_id": patient_states_by_id,
-        "output_root": str(args.output_root),
-        "config_dir": str(args.config_dir),
-    }
-    verifier_model = build_default_verifier(review_config, args.config_dir)
-    reviser_model = build_default_reviser(review_config, args.config_dir)
-    router_model = build_default_router(review_config, args.config_dir)
-    review_graph = build_review_graph(
-        verifier_model=verifier_model,
-        router_model=router_model,
-        reviser_model=reviser_model,
-        runtime=review_runtime,
-    )
-    review_state = initial_review_state(candidate_output.get("candidate_clusters", []))
-    review_state["control"]["max_rounds"] = int(
-        dict(review_config.get("budget", {}) or {}).get("max_rounds", 12) or 12
-    )
-    review_state["control"]["max_failures"] = int(
-        dict(review_config.get("budget", {}) or {}).get("max_failures", 3) or 3
-    )
-    cross_modal_policy = dict(review_config.get("cross_modal", {}) or {})
-    review_state["control"]["policy"] = {
-        "accept_min_supporting_modalities": int(
-            cross_modal_policy.get("accept_min_supporting_modalities", 2) or 2
-        ),
-        "split_min_supporting_modalities": int(
-            cross_modal_policy.get("split_min_supporting_modalities", 2) or 2
-        ),
-        "merge_min_supporting_modalities": int(
-            cross_modal_policy.get("merge_min_supporting_modalities", 2) or 2
-        ),
-        "split_require_molecular_or_biology": bool(
-            cross_modal_policy.get("split_require_molecular_or_biology", True)
-        ),
-    }
-    final_state = review_graph.invoke(
-        review_state,
-        context=review_runtime,
-        config={"recursion_limit": int(review_state["control"]["max_rounds"]) * 3 + 10},
+    final_state = run_subtype_review(
+        list(candidate_output.get("candidate_clusters", [])),
+        patient_states_by_id,
+        str(args.output_root),
+        str(args.config_dir),
     )
     final_review_summary = save_review_outputs(final_state, args.output_root)
     save_final_output(args.output_root, {"final_review_summary": final_review_summary})
