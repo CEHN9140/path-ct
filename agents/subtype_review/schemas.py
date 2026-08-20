@@ -68,7 +68,7 @@ class EvidenceGap(BaseModel):
     scope: str
     proposal_id: str | None = None
     subject_signature: str = ""
-    reason: str = ""
+    reason: str = Field(default="", max_length=120)
 
     @field_validator("dimension")
     @classmethod
@@ -90,6 +90,40 @@ class VerifierOutput(BaseModel):
     gaps: list[EvidenceGap] = Field(default_factory=list)
 
 
+class EvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: str
+    scope: str
+    target_ids: list[str] = Field(default_factory=list)
+    proposal_id: str | None = None
+
+    @field_validator("dimension")
+    @classmethod
+    def valid_dimension(cls, value: str) -> str:
+        if value not in EVIDENCE_DIMENSIONS:
+            raise ValueError(f"unknown evidence dimension: {value}")
+        return value
+
+    @field_validator("scope")
+    @classmethod
+    def valid_scope(cls, value: str) -> str:
+        if value not in EVIDENCE_SCOPES:
+            raise ValueError(f"unknown evidence scope: {value}")
+        return value
+
+    @field_validator("target_ids")
+    @classmethod
+    def normalize_target_ids(cls, value: list[str]) -> list[str]:
+        return sorted({str(item) for item in value if str(item)})
+
+    @model_validator(mode="after")
+    def require_proposal_for_structural_scope(self) -> "EvidenceRequest":
+        if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
+            raise ValueError("proposal evidence requests require proposal_id")
+        return self
+
+
 class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -98,6 +132,7 @@ class RouterAction(BaseModel):
     dimension: str | None = None
     scope: str | None = None
     proposal_id: str | None = None
+    requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
     @field_validator("dimension")
@@ -118,44 +153,41 @@ class RouterAction(BaseModel):
     def valid_action_shape(self) -> "RouterAction":
         self.target_ids = sorted({str(item) for item in self.target_ids if str(item)})
         if self.action == "need_more_evidence":
-            if self.dimension is None or self.scope is None:
-                raise ValueError("need_more_evidence requires dimension and scope")
-            if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
-                raise ValueError("proposal evidence requests require proposal_id")
+            if self.requests:
+                if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.target_ids:
+                    raise ValueError("bundled evidence requests cannot duplicate request fields")
+                if any(request.dimension not in EVIDENCE_DIMENSIONS for request in self.requests):
+                    raise ValueError("unknown evidence dimension")
+                if any(request.scope not in EVIDENCE_SCOPES for request in self.requests):
+                    raise ValueError("unknown evidence scope")
+            else:
+                if self.dimension is None or self.scope is None:
+                    raise ValueError("need_more_evidence requires dimension and scope")
+                if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
+                    raise ValueError("proposal evidence requests require proposal_id")
         elif self.action == "split":
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
+            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
                 raise ValueError("split must clear evidence fields and proposal_id")
             if len(self.target_ids) != 1:
                 raise ValueError("split requires one target_id")
         elif self.action == "merge":
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
+            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
                 raise ValueError("merge must clear evidence fields and proposal_id")
             if len(self.target_ids) != 2:
                 raise ValueError("merge requires two target_ids")
         else:
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None:
+            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
                 raise ValueError("scientific actions must clear evidence fields")
             if len(self.target_ids) != 1:
                 raise ValueError("scientific actions require one target_id")
         return self
 
 
-class RouterLLMOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: str
-    target_ids: list[str] = Field(default_factory=list)
-    dimension: str | None = None
-    scope: str | None = None
-    proposal_id: str | None = None
-    reason: str = ""
-
-
 class ReviserOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     plan_id: str | None = None
-    reason: str = ""
+    reason: str = Field(default="", max_length=120)
 
 
 class RevisionContext(TypedDict, total=False):

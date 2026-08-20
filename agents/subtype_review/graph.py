@@ -11,8 +11,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
 from agents.subtype_review.llm import LLMCallBudgetExceeded, parse_json_content, parse_router_action
+from agents.subtype_review.llm_summary import summarize_audit, summarize_evidence
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
+    EvidenceRequest,
     ReviserOutput,
     ReviewState,
     RouterAction,
@@ -272,24 +274,6 @@ def require_metric_refs(metric_refs: list[str], context: str) -> None:
         raise ValueError(f"{context} requires metric_refs")
 
 
-def serializable_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    rows = []
-    for message in list(messages or []):
-        if isinstance(message, Mapping):
-            rows.append({
-                "role": str(message.get("role", "tool")),
-                "content": to_jsonable(message.get("content", "")),
-                "tool_call_id": str(message.get("tool_call_id", "") or ""),
-            })
-        else:
-            rows.append({
-                "role": str(getattr(message, "type", "tool")),
-                "content": to_jsonable(getattr(message, "content", "")),
-                "tool_call_id": str(getattr(message, "tool_call_id", "") or ""),
-            })
-    return rows
-
-
 def tool_call_name(call: Any) -> str:
     return str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", "")).strip()
 
@@ -305,30 +289,42 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
     action = dict(state.get("action", {}) or {})
     if action.get("action") != "need_more_evidence":
         raise ValueError("Verifier tool calls require a pending need_more_evidence action")
-    dimension = str(action.get("dimension", "") or "")
-    scope = str(action.get("scope", "") or "")
-    proposal_id = str(action.get("proposal_id", "") or "")
-    names = [tool_call_name(call) for call in calls]
-    if any(name != dimension for name in names):
-        raise ValueError(f"Verifier tool call does not match requested dimension: {names} != {dimension}")
-    if dimension not in EVIDENCE_DIMENSIONS:
-        raise ValueError(f"Unknown validation dimension: {dimension}")
-    if len(names) != len(set(names)):
-        raise ValueError("Verifier requested the same validation dimension more than once")
+    requests = list(action.get("requests", []) or [])
+    if not requests:
+        requests = [{
+            "dimension": action.get("dimension"),
+            "scope": action.get("scope"),
+            "target_ids": list(action.get("target_ids", []) or []),
+            "proposal_id": action.get("proposal_id"),
+        }]
+    names = sorted({tool_call_name(call) for call in calls})
+    requested_dimensions = {str(request.get("dimension", "")) for request in requests}
+    if any(name not in requested_dimensions for name in names):
+        raise ValueError(f"Verifier called an unrequested evidence tool: {names}")
+    if requested_dimensions - set(names):
+        raise ValueError(f"Verifier omitted requested evidence tools: {sorted(requested_dimensions - set(names))}")
+    if any(name not in EVIDENCE_DIMENSIONS for name in names):
+        raise ValueError(f"Unknown validation tool: {names}")
 
     all_sets = current_sets(state)
-    proposal = proposal_by_id(state, proposal_id) if proposal_id else {}
     partition = partition_signature(all_sets)
-    signature = subject_signature(dimension, scope, all_sets, list(action.get("target_ids", []) or []), proposal)
     evidence = dict(state.get("evidence", {}) or {})
     results = list(evidence.get("results", []) or [])
     cached = {
         evidence_request_key(item)
         for item in results
     }
-    requested_keys = [
-        "|".join((name, scope, signature, proposal_id)) for name in names
-    ]
+    requested_keys = []
+    for request in requests:
+        proposal_id = str(request.get("proposal_id", "") or "")
+        request_signature = subject_signature(
+            str(request["dimension"]),
+            str(request["scope"]),
+            all_sets,
+            list(request.get("target_ids", []) or []),
+            proposal_by_id(state, proposal_id) if proposal_id else {},
+        )
+        requested_keys.append("|".join((str(request["dimension"]), str(request["scope"]), request_signature, proposal_id)))
     repeated = [key for key in requested_keys if key in cached]
     if repeated:
         raise ValueError(f"Validation evidence is already available for this partition: {repeated}")
@@ -345,33 +341,46 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
     messages = list(state.get("messages", []) or [])
     messages.append(ai_message)
     executed = []
-    for call in calls:
-        name = tool_call_name(call)
-        payload = VALIDATION_FUNCTIONS[name](
-            cluster_state,
-            patient_states,
-            str(runtime.get("data_root", runtime.get("output_root", ""))),
-            str(runtime.get("config_dir", "")),
-            all_sets,
-            scope=scope,
-            target_ids=list(action.get("target_ids", []) or []),
-            proposal=proposal,
-            artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
-        )
-        payload["partition_signature"] = partition
-        payload["scope"] = scope
-        payload["target_ids"] = list(action.get("target_ids", []) or [])
-        payload["proposal_id"] = proposal_id or None
-        payload["subject_signature"] = signature
-        results.append(payload)
-        executed.append(payload)
-        try:
-            from langchain_core.messages import ToolMessage
+    for name in names:
+        for request in [row for row in requests if str(row.get("dimension")) == name]:
+            proposal_id = str(request.get("proposal_id", "") or "")
+            proposal = proposal_by_id(state, proposal_id) if proposal_id else {}
+            request_signature = subject_signature(
+                name,
+                str(request["scope"]),
+                all_sets,
+                list(request.get("target_ids", []) or []),
+                proposal,
+            )
+            payload = VALIDATION_FUNCTIONS[name](
+                cluster_state,
+                patient_states,
+                str(runtime.get("data_root", runtime.get("output_root", ""))),
+                str(runtime.get("config_dir", "")),
+                all_sets,
+                scope=str(request["scope"]),
+                target_ids=list(request.get("target_ids", []) or []),
+                proposal=proposal,
+                artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
+            )
+            payload["partition_signature"] = partition
+            payload["scope"] = str(request["scope"])
+            payload["target_ids"] = list(request.get("target_ids", []) or [])
+            payload["proposal_id"] = proposal_id or None
+            payload["subject_signature"] = request_signature
+            results.append(payload)
+            executed.append(payload)
+            try:
+                from langchain_core.messages import ToolMessage
 
-            call_id = str(call.get("id", "") if isinstance(call, Mapping) else getattr(call, "id", ""))
-            messages.append(ToolMessage(content=json.dumps(payload, ensure_ascii=False), tool_call_id=call_id or name))
-        except Exception:
-            messages.append({"role": "tool", "name": name, "content": payload})
+                call_id = str(next(
+                    call.get("id", "") if isinstance(call, Mapping) else getattr(call, "id", "")
+                    for call in calls
+                    if tool_call_name(call) == name
+                ) or name)
+                messages.append(ToolMessage(content=json.dumps(payload, ensure_ascii=False), tool_call_id=call_id))
+            except Exception:
+                messages.append({"role": "tool", "name": name, "content": payload})
     evidence["results"] = results
     state["evidence"] = evidence
     for item in current_sets(state):
@@ -477,9 +486,9 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         "mode": "acquire" if acquire else "audit",
         "sets": current_sets(state),
         "evidence_inventory": evidence_inventory(current_evidence),
-        "evidence": current_evidence,
-        "tool_messages": serializable_messages(list(state.get("messages", []) or [])),
-        "previous_audit": state.get("audit", {}),
+        "evidence_summary": summarize_evidence(current_evidence),
+        "audit_summary": summarize_audit(state.get("audit", {})),
+        "message_history": list(state.get("messages", []) or []),
         "request": action if acquire else None,
         "round": dict(state.get("control", {}) or {}).get("round", 0),
         "validation_error": dict(state.get("control", {}) or {}).get("error"),
@@ -714,6 +723,21 @@ def revision_candidates(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         [dict(item) for item in dict(state.get("revision", {}) or {}).get("candidates", []) or []],
         key=lambda item: str(item.get("proposal_id") or item.get("plan_id") or ""),
     )
+
+
+def revision_candidate_summary(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    summary = {
+        "plan_id": str(candidate.get("plan_id") or candidate.get("proposal_id") or ""),
+        "proposal_id": str(candidate.get("proposal_id") or candidate.get("plan_id") or ""),
+        "source_set_id": candidate.get("source_set_id"),
+        "set_ids": list(candidate.get("set_ids", []) or []),
+        "source_networks": list(candidate.get("source_networks", []) or []),
+        "eligible_for_review": bool(candidate.get("eligible_for_review", True)),
+    }
+    for key in ("child_count", "child_sizes", "set_sizes"):
+        if key in candidate:
+            summary[key] = candidate[key]
+    return summary
 
 
 def required_evidence_requests(
@@ -961,33 +985,49 @@ def abandon_revision(state: dict[str, Any], intent: str) -> None:
 def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> None:
     sets = current_sets(state)
     known = {set_id(item) for item in sets}
+    request_rows = action.requests or (
+        [EvidenceRequest(
+            dimension=str(action.dimension),
+            scope=str(action.scope),
+            target_ids=action.target_ids,
+            proposal_id=action.proposal_id,
+        )]
+        if action.action == "need_more_evidence"
+        else []
+    )
     targets = set(action.target_ids)
+    targets.update(target for request in request_rows for target in request.target_ids)
     if not targets.issubset(known):
         raise ValueError(f"Router referenced inactive or unknown sets: {sorted(targets - known)}")
     if action.action == "need_more_evidence":
-        proposal = proposal_by_id(state, str(action.proposal_id or "")) if action.proposal_id else {}
-        signature = subject_signature(action.dimension, action.scope, sets, action.target_ids, proposal)
-        gaps = [
-            *list(dict(state.get("audit", {}) or {}).get("gaps", []) or []),
-            *required_evidence_requests(state),
-        ]
-        matching = [
-            gap for gap in gaps
-            if gap.get("dimension") == action.dimension
-            and gap.get("scope") == action.scope
-            and str(gap.get("proposal_id", "") or "") == str(action.proposal_id or "")
-            and str(gap.get("subject_signature", "")) == signature
-        ]
-        if not matching:
-            raise ValueError("Router requested evidence without a matching scoped gap")
-        gap_targets = set(str(item) for gap in matching for item in gap.get("target_ids", []) or [])
-        if not gap_targets and targets:
-            raise ValueError("Whole-partition evidence requests must use an empty target_ids list")
-        if targets and not targets.issubset(gap_targets):
-            raise ValueError("Router evidence target is outside the matching Verifier gap")
-        key = "|".join((action.dimension, action.scope, signature, str(action.proposal_id or "")))
-        if key in attempted_evidence_keys(state):
-            raise ValueError("Evidence request already attempted for this subject")
+        gaps = [*list(dict(state.get("audit", {}) or {}).get("gaps", []) or []), *required_evidence_requests(state)]
+        attempted = attempted_evidence_keys(state)
+        for request in request_rows:
+            proposal = proposal_by_id(state, str(request.proposal_id or "")) if request.proposal_id else {}
+            signature = subject_signature(
+                request.dimension,
+                request.scope,
+                sets,
+                request.target_ids,
+                proposal,
+            )
+            matching = [
+                gap for gap in gaps
+                if gap.get("dimension") == request.dimension
+                and gap.get("scope") == request.scope
+                and str(gap.get("proposal_id", "") or "") == str(request.proposal_id or "")
+                and str(gap.get("subject_signature", "")) == signature
+            ]
+            if not matching:
+                raise ValueError("Router requested evidence without a matching scoped gap")
+            gap_targets = set(str(item) for gap in matching for item in gap.get("target_ids", []) or [])
+            if not gap_targets and request.target_ids:
+                raise ValueError("Whole-partition evidence requests must use empty target_ids")
+            if request.target_ids and not set(request.target_ids).issubset(gap_targets):
+                raise ValueError("Router evidence target is outside the matching Verifier gap")
+            key = "|".join((request.dimension, request.scope, signature, str(request.proposal_id or "")))
+            if key in attempted:
+                raise ValueError("Evidence request already attempted for this subject")
         return
     selected = [item for item in sets if set_id(item) in targets]
     if any(str(item.get("status", "active")) != "active" for item in selected):
@@ -1148,11 +1188,6 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             ]
             append_trace(state, {"node": "router", "event": "revision_unsupported", "intent": key})
             control = dict(state["control"])
-    available = [
-        {"dimension": str(item.get("dimension", "")), "status": str(item.get("status", ""))}
-        for item in list(dict(state.get("evidence", {}) or {}).get("results", []) or [])
-        if item in current_partition_evidence(state).get("results", [])
-    ]
     revision = dict(state.get("revision", {}) or {})
     if revision.get("status") == "ready_for_revision":
         legal_action_candidates = [RouterAction(
@@ -1177,6 +1212,16 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         legal_action_candidates.extend(
             RouterAction(**intent).model_dump() for intent in initial_revision_intents(state)
         )
+    if requestable:
+        legal_action_candidates.append(
+            RouterAction(
+                action="need_more_evidence",
+                requests=[EvidenceRequest(**{
+                    key: row[key]
+                    for key in ("dimension", "scope", "target_ids", "proposal_id")
+                }) for row in requestable],
+            ).model_dump()
+        )
     if not requestable and not legal_action_candidates:
         control["status"] = "unresolved"
         control["error"] = None
@@ -1185,56 +1230,58 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         append_trace(state, {"node": "router", "event": "scientific_evidence_exhausted"})
         return state
     payload = {
-        "sets": sets,
-        "eligible_action_target_ids": [
-            set_id(item) for item in sets if str(item.get("status", "active")) == "active"
-        ],
-        "provisional_decisions": {
-            set_id(item): str(item.get("status", ""))
+        "sets": [
+            {
+                "id": set_id(item),
+                "size": len(item.get("member_ids", []) or []),
+                "status": str(item.get("status", "active")),
+            }
             for item in sets
-            if str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
+        ],
+        "evidence_summary": [
+            {
+                "dimension": str(row.get("dimension", "")),
+                "scope": str(row.get("scope", "")),
+                "target_ids": list(row.get("target_ids", []) or []),
+                "proposal_id": row.get("proposal_id"),
+                "status": str(row.get("status", "")),
+                "summary": str(row.get("summary", ""))[:240],
+            }
+            for row in list(audit.get("findings", []) or [])
+        ],
+        "legal_actions": legal_action_candidates,
+        "revision": {
+            key: to_jsonable(revision[key])
+            for key in ("action", "target_ids", "status")
+            if key in revision
         },
         "validation_error": dict(state.get("control", {}) or {}).get("error"),
-        "audit": audit,
-        "revision": to_jsonable(state.get("revision")),
-        "available_evidence": available,
-        "requestable_evidence": requestable,
-        "legal_action_candidates": legal_action_candidates,
-        "attempted_evidence_keys": sorted(attempted),
-        "blocked_actions": list(dict(state.get("control", {}) or {}).get("blocked_actions", []) or []),
-        "control": {
-            key: dict(state.get("control", {}) or {}).get(key)
-            for key in ("round", "max_rounds", "failures", "error")
-        },
-    }
-    legal_action_keys = {
-        (
-            str(row["action"]),
-            tuple(str(item) for item in row["target_ids"]),
-        )
-        for row in legal_action_candidates
     }
     action = None
+    legal_action_keys = {
+        json.dumps({key: value for key, value in row.items() if key != "reason"}, sort_keys=True)
+        for row in legal_action_candidates
+    }
     for attempt in range(3):
+        if len(legal_action_candidates) == 1:
+            action = RouterAction(**legal_action_candidates[0])
+            break
         result = invoke_with_recovery(model, payload, state, "router")
         if result is None:
             return state
-        parsed_action = None
         try:
-            parsed_action = parse_router_action(result)
-            if parsed_action.action != "need_more_evidence" and (
-                parsed_action.action,
-                tuple(parsed_action.target_ids),
-            ) not in legal_action_keys:
-                raise ValueError("Router scientific action is outside legal_action_candidates")
-            validate_router_action(parsed_action, state)
-            action = parsed_action
+            action = parse_router_action(result)
+            action_key = json.dumps(
+                {key: value for key, value in action.model_dump().items() if key != "reason"},
+                sort_keys=True,
+            )
+            if action_key not in legal_action_keys:
+                raise ValueError("Router action is outside legal_actions")
+            validate_router_action(action, state)
             break
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            rejected_action = (
-                parsed_action.model_dump() if parsed_action is not None else to_jsonable(result)
-            )
+            rejected_action = to_jsonable(result)
             append_trace(state, {
                 "node": "router",
                 "event": "contract_rejection",
@@ -1248,10 +1295,9 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                 control["error"] = error
                 control["next"] = "end"
                 state["control"] = control
-                append_trace(state, {"node": "router", "event": "contract_failure", "error": control["error"]})
+                append_trace(state, {"node": "router", "event": "contract_failure", "error": error})
                 return state
             payload["validation_error"] = error
-            payload["rejected_action"] = rejected_action
     if action is None:
         return state
     control = dict(state.get("control", {}) or {})
@@ -1410,20 +1456,25 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
             "selection": {"plan_id": None, "reason": "no_valid_plan"},
         })
         return state
-    payload = {
-        "action": action,
-        "candidates": candidates,
-        "audit": state.get("audit", {}),
-        "validation_error": dict(state.get("control", {}) or {}).get("error"),
-    }
-    result = invoke_with_recovery(model, payload, state, "reviser")
-    if result is None:
-        return state
-    try:
-        parsed = ReviserOutput.model_validate(result)
-    except Exception as exc:
-        mark_failure(state, "reviser", exc)
-        return state
+    if len(candidates) == 1:
+        parsed = ReviserOutput(plan_id=str(candidates[0].get("plan_id") or ""), reason="single valid plan")
+    else:
+        payload = {
+            "action": {
+                "action": action.get("action"),
+                "target_ids": targets,
+            },
+            "candidates": [revision_candidate_summary(candidate) for candidate in candidates],
+            "validation_error": dict(state.get("control", {}) or {}).get("error"),
+        }
+        result = invoke_with_recovery(model, payload, state, "reviser")
+        if result is None:
+            return state
+        try:
+            parsed = ReviserOutput.model_validate(result)
+        except Exception as exc:
+            mark_failure(state, "reviser", exc)
+            return state
     if not parsed.plan_id:
         abandon_revision(state, key)
         mark_success(state)
@@ -1557,6 +1608,7 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "status": final_status,
         "raw_control_status": raw_status,
         "rounds_used": control.get("round", 0),
+        "llm_usage": to_jsonable(control.get("llm_usage", {})),
         "partition_sets": to_jsonable(sets),
         "accepted_subtype_sets": to_jsonable(accepted_sets),
         "partition_patient_count": len({member for item in sets for member in item.get("member_ids", [])}),

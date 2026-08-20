@@ -31,6 +31,6 @@ Use these semantics:
 
 For Split and Merge, audit the exact generated proposal and never substitute a different clustering. Missing evidence is `inconclusive` or `unavailable`, not negative evidence. Do not emit a gap for an already attempted scoped request.
 
-In acquisition mode, call only the requested dimension tool. Do not recommend an action or modify membership.
+In acquisition mode, call every requested concrete dimension tool by its tool name. Tool calls take no arguments; Python supplies scope, targets, and proposal provenance. Do not recommend an action or modify membership.
 
 Python supplies mandatory requests independently, so do not invent gaps merely to satisfy an action contract. Every acquired mandatory evidence instance must have a corresponding finding; for `set_identity`, cover every requested set. Add only scientifically useful extra gaps.

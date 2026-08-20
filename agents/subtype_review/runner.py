@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from agents.subtype_review.graph import build_review_graph, initial_review_state
 from agents.subtype_review.llm import (
+    LLMUsageTracker,
     build_default_reviser,
     build_default_router,
     build_default_verifier,
@@ -21,6 +22,7 @@ def run_subtype_review(
     artifact_root: str | None = None,
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
+    usage_tracker = LLMUsageTracker(max_llm_calls=None)
     runtime = {
         "patient_states_by_id": {
             str(key): dict(value) for key, value in patient_states_by_id.items()
@@ -30,9 +32,9 @@ def run_subtype_review(
         "review_output_root": str(artifact_root or data_root),
         "config_dir": str(config_dir),
     }
-    verifier_model = build_default_verifier(review_config, config_dir)
-    reviser_model = build_default_reviser(review_config, config_dir)
-    router_model = build_default_router(review_config, config_dir)
+    verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker)
+    reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker)
+    router_model = build_default_router(review_config, config_dir, usage_tracker=usage_tracker)
     graph = build_review_graph(
         verifier_model=verifier_model,
         router_model=router_model,
@@ -58,8 +60,10 @@ def run_subtype_review(
             cross_modal.get("split_require_molecular_or_biology", True)
         ),
     }
-    return graph.invoke(
+    final_state = graph.invoke(
         state,
         context=runtime,
         config={"recursion_limit": int(state["control"]["max_rounds"]) * 3 + 10},
     )
+    final_state["control"]["llm_usage"] = usage_tracker.snapshot()
+    return final_state

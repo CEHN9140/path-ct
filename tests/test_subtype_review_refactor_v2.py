@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import agents.subtype_review.tools as review_tools
+from agents.subtype_review.tools import build_validation_tools
 from agents.subtype_review.graph import (
     abandon_revision,
     apply_split,
@@ -30,9 +31,9 @@ from agents.subtype_review.graph import (
 )
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
+    EvidenceRequest,
     ReviserOutput,
     RouterAction,
-    RouterLLMOutput,
     VerifierOutput,
 )
 from agents.subtype_review.graph import initial_review_state
@@ -69,13 +70,48 @@ class SequentialModel:
 
 
 def test_router_transport_schema_defers_action_contract_to_router_node():
-    malformed = RouterLLMOutput(action="accept", target_ids=["C1", "C2"])
-    assert malformed.target_ids == ["C1", "C2"]
     with pytest.raises(ValueError, match="scientific actions require one target_id"):
-        RouterAction.model_validate(malformed.model_dump())
+        RouterAction(action="accept", target_ids=["C1", "C2"])
 
 
-def test_router_retries_transport_valid_but_contract_invalid_action():
+def test_evidence_request_is_python_owned_without_tool_call_id():
+    assert EvidenceRequest(
+        dimension="biological_support",
+        scope="set_identity",
+        target_ids=["C1"],
+    ).model_dump() == {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": ["C1"],
+        "proposal_id": None,
+    }
+    for tool in build_validation_tools():
+        assert tool.args_schema.model_json_schema().get("properties", {}) == {}
+
+
+def test_verifier_payload_contains_summary_not_full_metrics():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["evidence"] = {
+        "results": [{
+            "dimension": "cross_modal_consistency",
+            "scope": "set_identity",
+            "target_ids": ["C1"],
+            "subject_signature": subject_signature(
+                "cross_modal_consistency", "set_identity", state["sets"], ["C1"]
+            ),
+            "results": [{"tool_name": "cross_modal_consistency", "metrics": {"large": "payload"}, "metric_refs": ["m"]}],
+        }]
+    }
+    model = StaticModel({"findings": [], "gaps": []})
+
+    verifier_node(state, {}, model)
+
+    payload = model.payloads[0]
+    assert "evidence" not in payload
+    assert payload["evidence_summary"][0]["tool_results"][0]["metric_refs"] == ["m"]
+
+
+def test_router_executes_sole_legal_action_without_llm_call():
     state = initial_review_state([{
         "cluster_id": "C1",
         "member_ids": [f"P{i}" for i in range(20)],
@@ -99,17 +135,13 @@ def test_router_retries_transport_valid_but_contract_invalid_action():
         "metric_refs": [cross_ref],
     })
     add_identity_controls(state)
-    model = SequentialModel([
-        {"action": "accept", "target_ids": ["C1", "C2"]},
-        {"action": "split", "target_ids": ["C1"]},
-    ])
+    model = StaticModel({"action": "unused", "target_ids": []})
 
     router_node(state, {}, model)
 
     assert state["control"]["status"] == "reviewing"
     assert state["action"]["action"] == "split"
-    assert model.payloads[1]["rejected_action"]["target_ids"] == ["C1", "C2"]
-    assert "validation_error" in model.payloads[1]
+    assert model.calls == 0
 
 
 def test_router_structural_actions_do_not_select_proposals():
@@ -348,6 +380,32 @@ def test_first_structural_action_creates_revision_without_calling_model(monkeypa
     assert state["action"] is None
     assert state["control"]["next"] == "router"
     assert state["sets"][0]["status"] == "active"
+
+
+def test_execute_tool_calls_uses_concrete_names_for_multiple_requests(monkeypatch):
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["action"] = RouterAction(
+        action="need_more_evidence",
+        requests=[
+            {"dimension": "cross_modal_consistency", "scope": "set_identity", "target_ids": ["C1"]},
+            {"dimension": "confounder_exclusion", "scope": "set_identity", "target_ids": ["C1"]},
+        ],
+    ).model_dump()
+    for name in ("cross_modal_consistency", "confounder_exclusion"):
+        monkeypatch.setitem(review_tools.VALIDATION_FUNCTIONS, name, lambda *args, name=name, **kwargs: {
+            "dimension": name,
+            "status": "success",
+            "results": [{"tool_name": name, "status": "success", "metrics": {}, "metric_refs": []}],
+        })
+
+    assert execute_tool_calls(
+        state,
+        {"tool_calls": [{"name": "cross_modal_consistency"}, {"name": "confounder_exclusion"}]},
+        {"patient_states_by_id": {}, "output_root": "output", "config_dir": "configs"},
+    )
+    assert {row["dimension"] for row in state["evidence"]["results"]} == {
+        "cross_modal_consistency", "confounder_exclusion"
+    }
 
 
 def test_review_graph_contains_only_three_agent_nodes():
@@ -1008,19 +1066,20 @@ def test_default_review_budget_allows_mandatory_evidence_rounds():
     assert state["control"]["max_rounds"] == 60
 
 
-def test_router_contract_failure_is_runtime_failure_not_scientific_unresolved():
+def test_router_executes_single_pending_evidence_action_without_llm_call():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     signature = subject_signature("biological_support", "set_identity", state["sets"], ["C1"])
     state["audit"] = {"findings": [], "gaps": [{
         "target_ids": ["C1"], "dimension": "biological_support", "scope": "set_identity",
         "subject_signature": signature, "proposal_id": None,
     }]}
-    model = StaticModel({"action": "accept", "target_ids": ["BAD"], "metric_refs": []})
+    model = StaticModel({"action": "unused", "target_ids": []})
     router_node(state, {}, model)
-    assert state["control"]["status"] == "review_failed_runtime"
+    assert model.calls == 0
+    assert state["action"]["action"] == "need_more_evidence"
 
 
-def test_router_receives_legal_actions_and_traces_each_contract_rejection():
+def test_router_executes_single_legal_scientific_action_without_llm_call():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
     state["evidence"]["results"].append(evidence_row(
@@ -1041,27 +1100,12 @@ def test_router_receives_legal_actions_and_traces_each_contract_rejection():
         "metric_refs": [cross_ref],
     }], "gaps": []}
     add_identity_controls(state)
-    rejected = {
-        "action": "split",
-        "target_ids": ["C1"],
-        "proposal_id": "unsupported",
-        "metric_refs": [],
-    }
-    model = StaticModel(rejected)
+    model = StaticModel({"action": "unused", "target_ids": []})
 
     router_node(state, {}, model)
 
-    candidates = model.payloads[0]["legal_action_candidates"]
-    assert [(row["action"], row["target_ids"]) for row in candidates] == [
-        ("accept", ["C1"])
-    ]
-    rejections = [
-        row for row in state["control"]["trace"]
-        if row.get("event") == "contract_rejection"
-    ]
-    assert len(rejections) == 3
-    assert all(row["rejected_action"]["proposal_id"] == "unsupported" for row in rejections)
-    assert state["control"]["status"] == "review_failed_runtime"
+    assert model.calls == 0
+    assert state["action"]["action"] == "accept"
 
 
 def test_supported_structural_action_preempts_unrelated_evidence_requests():
@@ -1111,18 +1155,12 @@ def test_supported_structural_action_preempts_unrelated_evidence_requests():
         identity_ref,
     ))
     add_identity_controls(state)
-    model = StaticModel({
-        "action": "split",
-        "target_ids": ["C1"],
-    })
+    model = StaticModel({"action": "unused", "target_ids": []})
 
     router_node(state, {}, model)
 
-    payload = model.payloads[0]
-    assert payload["requestable_evidence"] == []
-    assert [(row["action"], row["target_ids"]) for row in payload["legal_action_candidates"]] == [
-        ("split", ["C1"])
-    ]
+    assert model.calls == 0
+    assert state["action"]["action"] == "split"
 
 
 def test_revision_waits_for_all_candidate_evidence_before_becoming_ready():
@@ -1177,23 +1215,14 @@ def test_revision_waits_for_all_candidate_evidence_before_becoming_ready():
     ])
     add_identity_controls(state)
     add_proposal_checks(state, candidates[0], "split_proposal", ["C1"])
-    model = StaticModel({
-        "action": "need_more_evidence",
-        "target_ids": ["C1"],
-        "dimension": "cross_modal_consistency",
-        "scope": "split_proposal",
-        "proposal_id": "p2",
-    })
+    model = StaticModel({"action": "unused", "target_ids": []})
 
     router_node(state, {}, model)
 
     assert state["revision"]["status"] == "evidence_collection"
     assert state["action"]["action"] == "need_more_evidence"
-    assert model.payloads[0]["legal_action_candidates"] == []
-    assert any(
-        row["proposal_id"] == "p2" and row["dimension"] == "cross_modal_consistency"
-        for row in model.payloads[0]["requestable_evidence"]
-    )
+    assert model.calls == 0
+    assert any(row["proposal_id"] == "p2" for row in state["action"]["requests"])
 
     state["evidence"]["results"].append(evidence_row(
         state, "cross_modal_consistency", "split_proposal", ["C1"], candidates[1],
@@ -1209,8 +1238,8 @@ def test_revision_waits_for_all_candidate_evidence_before_becoming_ready():
     router_node(state, {}, ready_model)
 
     assert state["revision"]["status"] == "ready_for_revision"
-    assert ready_model.payloads[0]["requestable_evidence"] == []
-    assert ready_model.payloads[0]["legal_action_candidates"][0]["action"] == "split"
+    assert ready_model.calls == 0
+    assert state["action"]["action"] == "split"
 
 
 def test_budget_exhaustion_uses_public_unresolved_status(tmp_path):
@@ -1360,11 +1389,11 @@ def test_reviser_only_receives_supported_proposals():
         "action": "split",
         "target_ids": ["C1"],
     }
-    model = StaticModel({"plan_id": "p1", "reason": "supported"})
+    model = StaticModel({"plan_id": "unused", "reason": "unused"})
 
     reviser_node(state, {}, model)
 
-    assert [row["proposal_id"] for row in model.payloads[0]["candidates"]] == ["p1"]
+    assert model.calls == 0
     assert {row["set_id"] for row in state["sets"] if row["status"] == "active"} == {
         "C1_S1",
         "C1_S2",

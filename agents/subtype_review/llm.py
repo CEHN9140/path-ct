@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from agents.subtype_review.schemas import ReviserOutput, RouterAction, RouterLLMOutput, VerifierOutput
+from agents.subtype_review.schemas import (
+    ReviserOutput,
+    RouterAction,
+    VerifierOutput,
+)
 from agents.subtype_review.tools import build_validation_tools
 from utils.llm_utils import (
     LocalLLMClient,
@@ -69,13 +73,6 @@ def load_prompt(prompt_dir: str | Path, name: str) -> str:
     return (Path(prompt_dir) / name).read_text(encoding="utf-8")
 
 
-def load_prompt_with_protocol(prompt_dir: str | Path, name: str) -> str:
-    directory = Path(prompt_dir)
-    prompt = load_prompt(directory, name)
-    protocol = directory / "protocol.md"
-    return f"{prompt}\n\n{protocol.read_text(encoding='utf-8')}" if protocol.exists() else prompt
-
-
 def prompt_dir(config: dict[str, Any], config_dir: str | Path) -> Path:
     path = Path(config.get("prompt_dir", "agents/subtype_review/prompts"))
     return path if path.is_absolute() else Path(config_dir).resolve().parent / path
@@ -92,6 +89,25 @@ def parse_json_content(content: Any) -> dict[str, Any]:
 
 def validate_verifier_payload(payload: dict[str, Any]) -> None:
     VerifierOutput.model_validate(payload)
+
+
+def normalize_message(message: Any) -> dict[str, Any]:
+    if isinstance(message, dict):
+        return dict(message)
+    message_type = str(getattr(message, "type", "assistant"))
+    role = {"human": "user", "ai": "assistant"}.get(message_type, message_type)
+    normalized = {"role": role, "content": getattr(message, "content", "")}
+    tool_call_id = getattr(message, "tool_call_id", None)
+    if tool_call_id:
+        normalized["tool_call_id"] = str(tool_call_id)
+    tool_calls = getattr(message, "tool_calls", None)
+    if tool_calls:
+        normalized["tool_calls"] = [dict(call) for call in tool_calls]
+    return normalized
+
+
+def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [normalize_message(message) for message in list(payload.get("message_history", []) or [])]
 
 
 class JsonStructuredModel:
@@ -206,46 +222,51 @@ class VerifierChatModel:
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = dict(payload)
+        history = message_history(request)
+        request.pop("message_history", None)
         mode = str(payload.get("mode", "audit"))
         if mode == "acquire":
-            dimension = str(dict(payload.get("request", {}) or {}).get("dimension", ""))
-            tool = self.tools.get(dimension)
-            if tool is None:
-                raise ValueError(f"No validation tool is configured for {dimension}")
-            model = self.model.bind_tools([tool], tool_choice="required")
+            request_payload = dict(payload.get("request", {}) or {})
+            dimensions = [
+                str(item.get("dimension", ""))
+                for item in request_payload.get("requests", []) or []
+            ] or [str(request_payload.get("dimension", ""))]
+            tools = [self.tools[dimension] for dimension in dimensions]
+            model = self.model.bind_tools(tools, tool_choice="required")
         else:
             model = self.model.bind(response_format={"type": "json_object"})
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
-        ]
+        messages = [{"role": "system", "content": self.system_prompt}, *history, {
+            "role": "user", "content": json.dumps(request, ensure_ascii=False),
+        }]
         response = self.invoke_model(model, messages)
         if mode == "acquire":
             return response
-        review_request = {
-            **request,
-            "mode": "protocol_self_review",
-            "proposed_audit": parse_json_content(getattr(response, "content", response)),
-        }
-        reviewed = self.invoke_model(model, [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
-        ])
-        for _ in range(self.correction_attempts + 1):
+        try:
+            validate_verifier_payload(parse_json_content(getattr(response, "content", response)))
+            return response
+        except Exception as exc:
+            reviewed = response
+            validation_error = exc
+        for _ in range(self.correction_attempts):
+            try:
+                proposed_audit = parse_json_content(getattr(reviewed, "content", reviewed))
+            except Exception:
+                proposed_audit = getattr(reviewed, "content", reviewed)
+            reviewed = self.invoke_model(model, [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": json.dumps({
+                    **request,
+                    "mode": "audit_correction",
+                    "proposed_audit": proposed_audit,
+                    "validation_error": f"{type(validation_error).__name__}: {validation_error}",
+                    "instruction": "Return the corrected complete VerifierOutput JSON.",
+                }, ensure_ascii=False)},
+            ])
             try:
                 validate_verifier_payload(parse_json_content(getattr(reviewed, "content", reviewed)))
                 return reviewed
-            except Exception as exc:
-                reviewed = self.invoke_model(model, [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": json.dumps({
-                        **request,
-                        "mode": "audit_correction",
-                        "proposed_audit": parse_json_content(getattr(reviewed, "content", reviewed)),
-                        "validation_error": f"{type(exc).__name__}: {exc}",
-                        "instruction": "Return the corrected complete VerifierOutput JSON.",
-                    }, ensure_ascii=False)},
-                ])
+            except Exception as next_exc:
+                validation_error = next_exc
         raise RuntimeError("Verifier audit failed schema correction")
 
 
@@ -272,23 +293,28 @@ class LocalVerifierModel:
         mode = str(payload.get("mode", "audit"))
         request_tools = []
         if mode == "acquire":
-            dimension = str(dict(payload.get("request", {}) or {}).get("dimension", ""))
-            tool = self.tools.get(dimension)
-            if tool is None:
-                raise ValueError(f"No validation tool is configured for {dimension}")
-            schema = tool.args_schema.model_json_schema() if getattr(tool, "args_schema", None) else {"type": "object"}
-            request_tools = [{
-                "type": "function",
-                "function": {
-                    "name": dimension,
-                    "description": str(getattr(tool, "description", "") or ""),
-                    "parameters": schema,
-                },
-            }]
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-        ]
+            request_payload = dict(payload.get("request", {}) or {})
+            dimensions = [
+                str(item.get("dimension", ""))
+                for item in request_payload.get("requests", []) or []
+            ] or [str(request_payload.get("dimension", ""))]
+            for dimension in dimensions:
+                tool = self.tools[dimension]
+                schema = tool.args_schema.model_json_schema() if getattr(tool, "args_schema", None) else {"type": "object"}
+                request_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": dimension,
+                        "description": str(getattr(tool, "description", "") or ""),
+                        "parameters": schema,
+                    },
+                })
+        request = dict(payload)
+        history = message_history(request)
+        request.pop("message_history", None)
+        messages = [{"role": "system", "content": self.system_prompt}, *history, {
+            "role": "user", "content": json.dumps(request, ensure_ascii=False),
+        }]
         response = self.chat(
             messages,
             tools=request_tools or None,
@@ -298,31 +324,33 @@ class LocalVerifierModel:
         audit = parse_json_content(response.get("content"))
         if mode == "acquire":
             return audit
-        review_request = {
-            **payload,
-            "mode": "protocol_self_review",
-            "proposed_audit": audit,
-        }
-        reviewed = self.chat([
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": json.dumps(review_request, ensure_ascii=False)},
-        ])
-        for _ in range(self.correction_attempts + 1):
+        try:
+            validate_verifier_payload(audit)
+            return audit
+        except Exception as exc:
+            reviewed = response
+            validation_error = exc
+        for _ in range(self.correction_attempts):
+            try:
+                proposed_audit = parse_json_content(reviewed.get("content"))
+            except Exception:
+                proposed_audit = reviewed.get("content")
+            reviewed = self.chat([
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": json.dumps({
+                    **request,
+                    "mode": "audit_correction",
+                    "proposed_audit": proposed_audit,
+                    "validation_error": f"{type(validation_error).__name__}: {validation_error}",
+                    "instruction": "Return the corrected complete VerifierOutput JSON.",
+                }, ensure_ascii=False)},
+            ])
             try:
                 audit = parse_json_content(reviewed.get("content"))
                 validate_verifier_payload(audit)
                 return audit
-            except Exception as exc:
-                reviewed = self.chat([
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": json.dumps({
-                        **payload,
-                        "mode": "audit_correction",
-                        "proposed_audit": parse_json_content(reviewed.get("content")),
-                        "validation_error": f"{type(exc).__name__}: {exc}",
-                        "instruction": "Return the corrected complete VerifierOutput JSON.",
-                    }, ensure_ascii=False)},
-                ])
+            except Exception as next_exc:
+                validation_error = next_exc
         raise RuntimeError("Verifier audit failed schema correction")
 
 
@@ -334,7 +362,8 @@ def build_structured_model(config: dict[str, Any], schema: type, prompt: str, us
 
 def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
-    prompt = load_prompt_with_protocol(prompt_dir(config, config_dir), "verifier.md")
+    cfg["max_new_tokens"] = int(cfg.get("verifier_max_tokens", cfg.get("max_new_tokens", 2048)))
+    prompt = load_prompt(prompt_dir(config, config_dir), "verifier.md")
     tools = build_validation_tools()
     if str(cfg.get("structured_output", "json_object")) == "json_prompt":
         return LocalVerifierModel(cfg, prompt, tools, usage_tracker)
@@ -345,7 +374,7 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
-        max_tokens=int(cfg.get("max_new_tokens", 2048)),
+        max_tokens=int(cfg.get("verifier_max_tokens", cfg.get("max_new_tokens", 2048))),
         extra_body={"thinking": {"type": "disabled"}},
     )
     return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2), usage_tracker)
@@ -353,10 +382,11 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
 
 def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
+    cfg["max_new_tokens"] = int(cfg.get("reviser_max_tokens", cfg.get("max_new_tokens", 2048)))
     return build_structured_model(
         cfg,
         ReviserOutput,
-        load_prompt_with_protocol(prompt_dir(config, config_dir), "reviser.md"),
+        load_prompt(prompt_dir(config, config_dir), "reviser.md"),
         usage_tracker,
     )
 
@@ -365,14 +395,15 @@ def build_default_router(
     config: dict[str, Any],
     config_dir: str | Path,
     *,
-    self_review: bool = True,
+    self_review: bool = False,
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
+    cfg["max_new_tokens"] = int(cfg.get("router_max_tokens", cfg.get("max_new_tokens", 2048)))
     model = build_structured_model(
         cfg,
-        RouterLLMOutput,
-        load_prompt_with_protocol(prompt_dir(config, config_dir), "router.md"),
+        RouterAction,
+        load_prompt(prompt_dir(config, config_dir), "router.md"),
         usage_tracker,
     )
     return ProtocolSelfReviewModel(model, model) if self_review else model
