@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agents.subtype_review.schemas import ReviserOutput, RouterAction, VerifierOutput
+from agents.subtype_review.schemas import ReviserOutput, RouterAction, RouterLLMOutput, VerifierOutput
 from agents.subtype_review.tools import build_validation_tools
 from utils.llm_utils import (
     LocalLLMClient,
@@ -288,7 +288,7 @@ def build_default_router(
     cfg = dict(config["llm"])
     model = build_structured_model(
         cfg,
-        RouterAction,
+        RouterLLMOutput,
         load_prompt_with_protocol(prompt_dir(config, config_dir), "router.md"),
     )
     return ProtocolSelfReviewModel(model, model)

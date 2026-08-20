@@ -140,6 +140,17 @@ class RouterAction(BaseModel):
         return self
 
 
+class RouterLLMOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str
+    target_ids: list[str] = Field(default_factory=list)
+    dimension: str | None = None
+    scope: str | None = None
+    proposal_id: str | None = None
+    reason: str = ""
+
+
 class ReviserOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

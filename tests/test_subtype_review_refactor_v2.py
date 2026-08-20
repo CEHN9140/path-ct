@@ -28,7 +28,13 @@ from agents.subtype_review.graph import (
     validate_verifier_audit,
     verifier_node,
 )
-from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, ReviserOutput, RouterAction, VerifierOutput
+from agents.subtype_review.schemas import (
+    EVIDENCE_DIMENSIONS,
+    ReviserOutput,
+    RouterAction,
+    RouterLLMOutput,
+    VerifierOutput,
+)
 from agents.subtype_review.graph import initial_review_state
 from tools.subtype_review_common import bias_corrected_cramers_v, cliffs_delta, scoped_candidate_sets
 from tools.confound_test import CATEGORICAL_FIELDS, NUMERIC_FIELDS, global_categorical
@@ -48,6 +54,62 @@ class StaticModel:
         self.calls += 1
         self.payloads.append(payload)
         return self.response
+
+
+class SequentialModel:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.calls = 0
+        self.payloads = []
+
+    def invoke(self, payload):
+        self.calls += 1
+        self.payloads.append(payload)
+        return next(self.responses)
+
+
+def test_router_transport_schema_defers_action_contract_to_router_node():
+    malformed = RouterLLMOutput(action="accept", target_ids=["C1", "C2"])
+    assert malformed.target_ids == ["C1", "C2"]
+    with pytest.raises(ValueError, match="scientific actions require one target_id"):
+        RouterAction.model_validate(malformed.model_dump())
+
+
+def test_router_retries_transport_valid_but_contract_invalid_action():
+    state = initial_review_state([{
+        "cluster_id": "C1",
+        "member_ids": [f"P{i}" for i in range(20)],
+    }])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1"],
+        {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}},
+        cross_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "status": "supporting",
+        "metric_refs": [cross_ref],
+    })
+    add_identity_controls(state)
+    model = SequentialModel([
+        {"action": "accept", "target_ids": ["C1", "C2"]},
+        {"action": "split", "target_ids": ["C1"]},
+    ])
+
+    router_node(state, {}, model)
+
+    assert state["control"]["status"] == "reviewing"
+    assert state["action"]["action"] == "split"
+    assert model.payloads[1]["rejected_action"]["target_ids"] == ["C1", "C2"]
+    assert "validation_error" in model.payloads[1]
 
 
 def test_router_structural_actions_do_not_select_proposals():
