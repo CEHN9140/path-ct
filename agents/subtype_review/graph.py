@@ -910,59 +910,24 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         return []
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
     policy = dict(dict(state.get("control", {}) or {}).get("policy", {}) or {})
-    minimum = int(policy.get("accept_min_supporting_modalities", 2) or 2)
-    modality_counts = {set_id(item): 0 for item in sets}
-    for result in current_partition_evidence(state).get("results", []):
-        if result.get("dimension") != "cross_modal_consistency" or result.get("scope") != "set_identity":
-            continue
-        for child in result.get("results", []) or []:
-            if child.get("tool_name") != "multimodal_consistency_check":
-                continue
-            by_set = dict(dict(child.get("metrics", {}) or {}).get("identity_supporting_modalities_by_set", {}) or {})
-            for target in modality_counts:
-                modality_counts[target] = max(modality_counts[target], len(by_set.get(target, []) or []))
-    motives = {}
-    for item in sets:
-        target = set_id(item)
-        target_findings = [
-            row for row in findings
-            if target in {str(value) for value in row.get("target_ids", []) or []}
-        ]
-        cross_ok = modality_counts[target] >= minimum and any(
-            row.get("dimension") == "cross_modal_consistency"
-            and row.get("scope") == "set_identity"
-            and row.get("status") == "supporting"
-            for row in target_findings
-        )
-        biology_conflict = any(
-            row.get("dimension") == "biological_support"
-            and row.get("scope") == "set_identity"
-            and row.get("status") == "conflicting"
-            for row in target_findings
-        )
-        acceptable = (
-            cross_ok
-            and any(row.get("dimension") == "confounder_exclusion" and row.get("scope") == "set_identity" and row.get("status") != "unavailable" for row in target_findings)
-            and any(row.get("dimension") == "known_label_echo" and row.get("scope") == "partition" and row.get("status") != "unavailable" for row in findings)
-            and not any(blocks_set_acceptance(row, target) for row in findings)
-        )
-        motives[target] = not acceptable and (not cross_ok or biology_conflict)
     blocked = set(dict(state.get("control", {}) or {}).get("blocked_actions", []) or [])
     min_split_size = int(policy.get("min_split_size", 10) or 10)
+    invalid = {
+        set_id(item) for item in sets
+        if any(invalidates_set(row, set_id(item)) for row in findings)
+    }
     intents = [
         {"action": "split", "target_ids": [set_id(item)]}
         for item in sets
         if len(item.get("member_ids", []) or []) >= 2 * min_split_size
-        and motives[set_id(item)]
-        and not any(invalidates_set(row, set_id(item)) for row in findings)
+        and set_id(item) not in invalid
         and f"split:{set_id(item)}" not in blocked
     ]
     for index, left in enumerate(sets):
         for right in sets[index + 1:]:
             targets = sorted([set_id(left), set_id(right)])
             if (
-                any(motives[target] for target in targets)
-                and not any(invalidates_set(row, target) for row in findings for target in targets)
+                not invalid.intersection(targets)
                 and f"merge:{'+'.join(targets)}" not in blocked
             ):
                 intents.append({"action": "merge", "target_ids": targets})
@@ -1055,6 +1020,8 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         raise ValueError("Accept and Drop are blocked while a revision is active")
     target = action.target_ids[0]
     if action.action == "accept":
+        if any(target in intent["target_ids"] for intent in initial_revision_intents(state)):
+            raise ValueError("Accept is blocked by pending structural review")
         identity = [
             finding for finding in findings
             if finding.get("dimension") == "cross_modal_consistency"
@@ -1132,19 +1099,6 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     signature = partition_signature(current_sets(state))
     sets = current_sets(state)
     audit = dict(state.get("audit", {}) or {})
-    revision = dict(state.get("revision", {}) or {})
-    if revision.get("status") == "evidence_collection":
-        if supported_revision_candidates(state):
-            revision["status"] = "ready_for_revision"
-            state["revision"] = revision
-        elif not any(request["scope"] in {"split_proposal", "merge_proposal"} for request in required_evidence_requests(state)):
-            targets = sorted(str(item) for item in revision.get("target_ids", []) or [])
-            key = f"{revision.get('action')}:{'+'.join(targets)}"
-            abandon_revision(state, key)
-            audit = dict(state["audit"])
-            append_trace(state, {"node": "router", "event": "revision_unsupported", "intent": key})
-            control = dict(state["control"])
-            revision = {}
     gaps = list(audit.get("gaps", []) or [])
     attempted = attempted_evidence_keys(state)
     missing = {
@@ -1166,6 +1120,24 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         for key, row in missing.items()
         if key not in attempted
     ]
+    revision = dict(state.get("revision", {}) or {})
+    if revision.get("status") == "evidence_collection" and not any(
+        row["scope"] in {"split_proposal", "merge_proposal"} for row in requestable
+    ):
+        if supported_revision_candidates(state):
+            revision["status"] = "ready_for_revision"
+            state["revision"] = revision
+        else:
+            targets = sorted(str(item) for item in revision.get("target_ids", []) or [])
+            key = f"{revision.get('action')}:{'+'.join(targets)}"
+            abandon_revision(state, key)
+            audit = dict(state["audit"])
+            requestable = [
+                row for row in requestable
+                if row["scope"] in {"set_identity", "partition"}
+            ]
+            append_trace(state, {"node": "router", "event": "revision_unsupported", "intent": key})
+            control = dict(state["control"])
     available = [
         {"dimension": str(item.get("dimension", "")), "status": str(item.get("status", ""))}
         for item in list(dict(state.get("evidence", {}) or {}).get("results", []) or [])
