@@ -370,6 +370,14 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
             payload["subject_signature"] = request_signature
             results.append(payload)
             executed.append(payload)
+            if name == "confounder_exclusion" and request["scope"] == "set_identity":
+                partition_payload = dict(payload)
+                partition_payload["scope"] = "partition"
+                partition_payload["target_ids"] = []
+                partition_payload["subject_signature"] = subject_signature(
+                    name, "partition", all_sets
+                )
+                results.append(partition_payload)
             try:
                 from langchain_core.messages import ToolMessage
 
@@ -529,10 +537,45 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
             )
             or 2
         )
+        confound_metrics = {}
+        confound_evidence = None
+        for evidence_row in current_evidence.get("results", []) or []:
+            if (
+                evidence_row.get("dimension") == "confounder_exclusion"
+                and evidence_row.get("scope") == "set_identity"
+            ):
+                for child in evidence_row.get("results", []) or []:
+                    if child.get("tool_name") == "confound_test":
+                        metrics = dict(child.get("metrics", {}) or {})
+                        if metrics.get("deterministic_flags"):
+                            confound_metrics = metrics
+                            confound_evidence = evidence_row
+        if confound_evidence and not matching_evidence_results(
+            current_evidence,
+            "confounder_exclusion",
+            "partition",
+            subject_signature("confounder_exclusion", "partition", sets),
+            None,
+        ):
+            partition_evidence = dict(confound_evidence)
+            partition_evidence["scope"] = "partition"
+            partition_evidence["target_ids"] = []
+            partition_evidence["subject_signature"] = subject_signature(
+                "confounder_exclusion", "partition", sets
+            )
+            current_evidence["results"].append(partition_evidence)
+            state["evidence"]["results"].append(partition_evidence)
+
         for key in ("findings", "gaps"):
             rows = []
             for raw_row in list(audit_payload.get(key, []) or []):
                 row = dict(raw_row)
+                if (
+                    confound_metrics
+                    and row.get("dimension") == "confounder_exclusion"
+                    and row.get("scope") in {"partition", "set_identity"}
+                ):
+                    continue
                 if (
                     key == "findings"
                     and row.get("dimension") == "cross_modal_consistency"
@@ -556,6 +599,50 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 )
                 rows.append(row)
             audit_payload[key] = rows
+        if confound_metrics:
+            flags = dict(confound_metrics.get("deterministic_flags", {}) or {})
+            root = "tool_results.confound_test.metrics.deterministic_flags"
+            global_fields = list(flags.get("global_significant_fields", []) or [])
+            audit_payload["findings"].append({
+                "target_ids": [],
+                "dimension": "confounder_exclusion",
+                "scope": "partition",
+                "subject_signature": subject_signature(
+                    "confounder_exclusion", "partition", sets
+                ),
+                "status": (
+                    "conflicting" if flags.get("strong_technical_conflict")
+                    else "mixed" if global_fields
+                    else "supporting"
+                ),
+                "summary": "Python-derived partition-level technical association status.",
+                "metric_refs": [
+                    f"{root}.strong_technical_conflict",
+                    f"{root}.global_significant_fields",
+                ],
+            })
+            significant_by_set = dict(flags.get("set_significant_fields_by_set", {}) or {})
+            invalidated = {str(value) for value in flags.get("invalidated_set_ids", []) or []}
+            for target in sorted(set_id(item) for item in sets):
+                fields = list(significant_by_set.get(target, []) or [])
+                audit_payload["findings"].append({
+                    "target_ids": [target],
+                    "dimension": "confounder_exclusion",
+                    "scope": "set_identity",
+                    "subject_signature": subject_signature(
+                        "confounder_exclusion", "set_identity", sets, [target]
+                    ),
+                    "status": (
+                        "conflicting" if target in invalidated
+                        else "mixed" if fields
+                        else "supporting"
+                    ),
+                    "summary": "Python-derived set-level technical association status.",
+                    "metric_refs": [
+                        f"{root}.set_significant_fields_by_set.{target}",
+                        f"{root}.invalidated_set_ids",
+                    ],
+                })
         parsed = VerifierOutput.model_validate(audit_payload)
         validate_verifier_audit(parsed, state)
     except Exception as exc:
@@ -712,12 +799,20 @@ def validate_verifier_audit(audit: VerifierOutput, state: Mapping[str, Any]) -> 
 
 
 def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
-    if finding.get("status") != "conflicting":
-        return False
     if finding.get("scope") == "partition":
-        return finding.get("dimension") == "known_label_echo"
+        return (
+            finding.get("status") == "conflicting"
+            and finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
+        )
+    if (
+        finding.get("dimension") == "confounder_exclusion"
+        and finding.get("scope") == "set_identity"
+        and finding.get("status") == "mixed"
+    ):
+        return target in {str(value) for value in finding.get("target_ids", []) or []}
     return (
-        finding.get("scope") == "set_identity"
+        finding.get("status") == "conflicting"
+        and finding.get("scope") == "set_identity"
         and finding.get("dimension") in {
             "biological_support",
             "cross_modal_consistency",
@@ -728,11 +823,13 @@ def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
 
 
 def invalidates_set(finding: Mapping[str, Any], target: str) -> bool:
+    targets = {str(value) for value in finding.get("target_ids", []) or []}
     return (
         finding.get("dimension") == "confounder_exclusion"
         and finding.get("scope") == "set_identity"
         and finding.get("status") == "conflicting"
-        and target in {str(value) for value in finding.get("target_ids", []) or []}
+        and len(targets) == 1
+        and target in targets
     )
 
 

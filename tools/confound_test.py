@@ -189,6 +189,9 @@ def selected_ct_metadata(
     # Priority 1.5: selection_summary selected_series for n_slices / slice_thickness
     selected_series_n_slices = "1"
     selected_series_slice_thickness = ""
+    selected_series_pixel_row = ""
+    selected_series_pixel_col = ""
+    selected_series_z_spacing = ""
     if selection_path.exists():
         try:
             sel_series = dict(selection.get("selected_series", {}) or {})
@@ -198,6 +201,12 @@ def selected_ct_metadata(
                 selected_series_n_slices = str(ns)
             if st is not None:
                 selected_series_slice_thickness = str(st)
+            if sel_series.get("pixel_spacing_row") is not None:
+                selected_series_pixel_row = str(sel_series["pixel_spacing_row"])
+            if sel_series.get("pixel_spacing_col") is not None:
+                selected_series_pixel_col = str(sel_series["pixel_spacing_col"])
+            if sel_series.get("z_spacing_median") is not None:
+                selected_series_z_spacing = str(sel_series["z_spacing_median"])
         except Exception:
             pass
 
@@ -224,6 +233,7 @@ def selected_ct_metadata(
             "z_spacing": "",
         }
 
+    pixel_parts = str(matched_entry.get("PixelSpacing", "") or "").replace("\\", "/").split("/")
     return {
         "phase": selected_phase,
         "scanner_model": scanner_model
@@ -240,19 +250,14 @@ def selected_ct_metadata(
         or str(matched_entry.get("Slice Thickness", "") or "").strip()
         or str(matched_entry.get("SliceThickness", "") or "").strip(),
         "study_year": str(matched_entry.get("Study Date", "") or "").strip(),
-        "pixel_spacing_row": str(
-            matched_entry.get("Pixel Spacing Row", "") or ""
-        ).strip()
-        or str(matched_entry.get("PixelSpacing", "") or "").split("\\")[0].strip()
-        if "/" not in str(matched_entry.get("PixelSpacing", "") or "")
-        else str(matched_entry.get("PixelSpacing", "") or "").split("/")[0].strip(),
-        "pixel_spacing_col": str(
-            matched_entry.get("Pixel Spacing Column", "") or ""
-        ).strip()
-        or str(matched_entry.get("PixelSpacing", "") or "").split("\\")[-1].strip()
-        if "/" not in str(matched_entry.get("PixelSpacing", "") or "")
-        else str(matched_entry.get("PixelSpacing", "") or "").split("/")[-1].strip(),
-        "z_spacing": str(matched_entry.get("Spacing Between Slices", "") or "").strip()
+        "pixel_spacing_row": selected_series_pixel_row
+        or str(matched_entry.get("Pixel Spacing Row", "") or "").strip()
+        or pixel_parts[0].strip(),
+        "pixel_spacing_col": selected_series_pixel_col
+        or str(matched_entry.get("Pixel Spacing Column", "") or "").strip()
+        or pixel_parts[-1].strip(),
+        "z_spacing": selected_series_z_spacing
+        or str(matched_entry.get("Spacing Between Slices", "") or "").strip()
         or str(matched_entry.get("SliceThickness", "") or "").strip(),
     }
 
@@ -765,6 +770,7 @@ def confound_decision_metrics(
         for field, row in global_metrics.items()
     }
     per_set = {}
+    set_significant_fields = {}
     for set_id, fields in set_metrics.items():
         associations = []
         for field, value in fields.items():
@@ -814,6 +820,15 @@ def confound_decision_metrics(
 
         associations.sort(key=association_p)
         per_set[set_id] = associations[:5]
+        set_significant_fields[set_id] = [
+            ":".join(str(row[key]) for key in ("field", "level") if row.get(key) is not None)
+            for row in associations
+            if row.get("q_value") is not None and float(row["q_value"]) <= alpha
+        ]
+    global_significant_fields = [
+        field for field, row in global_rows.items()
+        if row.get("q_value") is not None and float(row["q_value"]) <= alpha
+    ]
     categorical_conflicts = [
         field for field, row in global_rows.items()
         if row.get("q_value") is not None
@@ -831,6 +846,9 @@ def confound_decision_metrics(
         "sets": per_set,
         "deterministic_flags": {
             "strong_technical_conflict": bool(categorical_conflicts or numeric_conflicts),
+            "global_significant_fields": global_significant_fields,
+            "set_significant_fields_by_set": set_significant_fields,
+            "invalidated_set_ids": [],
             "categorical_strong_fields": categorical_conflicts,
             "numeric_large_effect_fields": numeric_conflicts,
             "thresholds": {

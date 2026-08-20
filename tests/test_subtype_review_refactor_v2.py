@@ -16,6 +16,7 @@ from agents.subtype_review.graph import (
     evidence_request_key,
     execute_tool_calls,
     initial_revision_intents,
+    invalidates_set,
     partition_signature,
     reactivate_provisional_sets,
     required_evidence_requests,
@@ -38,7 +39,12 @@ from agents.subtype_review.schemas import (
 )
 from agents.subtype_review.graph import initial_review_state
 from tools.subtype_review_common import bias_corrected_cramers_v, cliffs_delta, scoped_candidate_sets
-from tools.confound_test import CATEGORICAL_FIELDS, NUMERIC_FIELDS, global_categorical
+from tools.confound_test import (
+    CATEGORICAL_FIELDS,
+    NUMERIC_FIELDS,
+    global_categorical,
+    selected_ct_metadata,
+)
 from tools.mutation_enrichment import enrichment_rows
 from tools.cnv_characterization import cnv_characterization
 from tools.multimodal_consistency_check import compute_cross_modal_consistency
@@ -941,6 +947,82 @@ def test_legal_drop_completes_review():
     assert complete_audit(state)
 
 
+def test_aggregate_confound_finding_cannot_invalidate_every_target():
+    finding = {
+        "target_ids": ["C1", "C2"],
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "status": "conflicting",
+    }
+
+    assert not invalidates_set(finding, "C1")
+    assert not invalidates_set(finding, "C2")
+
+
+def test_verifier_replaces_confound_interpretation_with_python_statuses():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    targets = ["C1", "C2"]
+    root = "tool_results.confound_test.metrics"
+    state["evidence"]["results"] = [{
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": targets,
+        "subject_signature": subject_signature(
+            "confounder_exclusion", "set_identity", state["sets"], targets
+        ),
+        "proposal_id": None,
+        "status": "success",
+        "results": [{
+            "tool_name": "confound_test",
+            "status": "success",
+            "metrics": {
+                "global": {},
+                "sets": {},
+                "deterministic_flags": {
+                    "strong_technical_conflict": False,
+                    "global_significant_fields": ["ct_manufacturer"],
+                    "set_significant_fields_by_set": {
+                        "C1": [],
+                        "C2": ["ct_scanner_model:GE"],
+                    },
+                    "invalidated_set_ids": [],
+                },
+            },
+            "metric_refs": [
+                f"{root}.global",
+                f"{root}.sets",
+                f"{root}.deterministic_flags",
+            ],
+        }],
+    }]
+    model = StaticModel({
+        "findings": [{
+            "target_ids": targets,
+            "dimension": "confounder_exclusion",
+            "scope": "set_identity",
+            "status": "conflicting",
+            "metric_refs": [f"{root}.deterministic_flags"],
+        }],
+        "gaps": [],
+    })
+
+    verifier_node(state, {}, model)
+
+    confound = [
+        row for row in state["audit"]["findings"]
+        if row["dimension"] == "confounder_exclusion"
+    ]
+    assert [(row["scope"], row["target_ids"], row["status"]) for row in confound] == [
+        ("partition", [], "mixed"),
+        ("set_identity", ["C1"], "supporting"),
+        ("set_identity", ["C2"], "mixed"),
+    ]
+    assert not any(invalidates_set(row, target) for row in confound for target in targets)
+
+
 def test_drop_evidence_does_not_reactivate_a_provisionally_dropped_set():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     state["sets"][0]["status"] = "provisionally_dropped"
@@ -1666,6 +1748,24 @@ def test_ct_spacing_is_numeric_and_sparse_categorical_has_permutation_p():
     )
     assert metrics["chi_square_p_value"] is not None
     assert metrics["test_method"] == "permutation_chi_square"
+
+
+def test_selected_ct_metadata_reads_spacing_from_selected_series(tmp_path):
+    case_dir = tmp_path / "ct_qc" / "C1"
+    case_dir.mkdir(parents=True)
+    (case_dir / "selection_summary.json").write_text(
+        '{"selected_files":[{"selected_source_file":"scan"}],'
+        '"selected_series":{"pixel_spacing_row":0.72,"pixel_spacing_col":0.73,'
+        '"z_spacing_median":2.5}}',
+        encoding="utf-8",
+    )
+    state = {"inventory": {"CT": [{"File Path": "scan"}]}}
+
+    metadata = selected_ct_metadata("C1", state, str(tmp_path))
+
+    assert metadata["pixel_spacing_row"] == "0.72"
+    assert metadata["pixel_spacing_col"] == "0.73"
+    assert metadata["z_spacing"] == "2.5"
 
 
 def test_cnv_reports_continuous_and_gain_loss_events_with_ranked_summary(tmp_path):

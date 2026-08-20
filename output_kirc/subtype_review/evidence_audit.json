@@ -9,7 +9,7 @@
       "proposal_id": null,
       "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
       "status": "mixed",
-      "summary": "C0001 is supported by RNA only; CT and WSI do not support identity, and genomic does not support identity.",
+      "summary": "C0001 is supported by RNA only; CT, WSI, and genomic do not support identity.",
       "metric_refs": [
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
       ]
@@ -57,34 +57,88 @@
       ]
     },
     {
-      "target_ids": [
-        "C0001",
-        "C0002",
-        "C0003",
-        "C0004"
-      ],
-      "dimension": "confounder_exclusion",
-      "scope": "set_identity",
-      "proposal_id": null,
-      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-      "status": "conflicting",
-      "summary": "Strong technical confounders detected: CT manufacturer, scanner model, and reconstruction kernel show significant association with set membership (global Cramér's V > 0.3 for manufacturer and kernel; set-level odds ratios > 4 for C0002 and C0003).",
-      "metric_refs": [
-        "tool_results.confound_test.metrics.global",
-        "tool_results.confound_test.metrics.sets",
-        "tool_results.confound_test.metrics.deterministic_flags"
-      ]
-    },
-    {
       "target_ids": [],
       "dimension": "known_label_echo",
       "scope": "partition",
       "proposal_id": null,
       "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
       "status": "supporting",
-      "summary": "Partition does not echo known stage or grade labels: AMI < 0.06, ARI < 0.07, optimal mapping accuracy < 0.43 for stage; AMI < 0.05, ARI < 0.02, optimal mapping accuracy < 0.37 for grade. No near-identity structure.",
+      "summary": "Partition is not redundant with stage or grade; AMI and ARI are low, indicating independent structure.",
       "metric_refs": [
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
+      ]
+    },
+    {
+      "target_ids": [],
+      "dimension": "confounder_exclusion",
+      "scope": "partition",
+      "proposal_id": null,
+      "subject_signature": "34e4882b77fa3803c41f8f5d2698c8195b34c65b7ab96c4ff81fcc5142ec1795",
+      "status": "mixed",
+      "summary": "Python-derived partition-level technical association status.",
+      "metric_refs": [
+        "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+        "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields"
+      ]
+    },
+    {
+      "target_ids": [
+        "C0001"
+      ],
+      "dimension": "confounder_exclusion",
+      "scope": "set_identity",
+      "proposal_id": null,
+      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+      "status": "supporting",
+      "summary": "Python-derived set-level technical association status.",
+      "metric_refs": [
+        "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
+        "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+      ]
+    },
+    {
+      "target_ids": [
+        "C0002"
+      ],
+      "dimension": "confounder_exclusion",
+      "scope": "set_identity",
+      "proposal_id": null,
+      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+      "status": "supporting",
+      "summary": "Python-derived set-level technical association status.",
+      "metric_refs": [
+        "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
+        "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+      ]
+    },
+    {
+      "target_ids": [
+        "C0003"
+      ],
+      "dimension": "confounder_exclusion",
+      "scope": "set_identity",
+      "proposal_id": null,
+      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+      "status": "mixed",
+      "summary": "Python-derived set-level technical association status.",
+      "metric_refs": [
+        "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0003",
+        "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+      ]
+    },
+    {
+      "target_ids": [
+        "C0004"
+      ],
+      "dimension": "confounder_exclusion",
+      "scope": "set_identity",
+      "proposal_id": null,
+      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+      "status": "supporting",
+      "summary": "Python-derived set-level technical association status.",
+      "metric_refs": [
+        "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0004",
+        "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
       ]
     }
   ],
