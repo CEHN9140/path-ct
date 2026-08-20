@@ -117,7 +117,7 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
     }
 
 
-def tool_known_label_echo_test(
+def known_label_echo_test(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -192,7 +192,7 @@ def tool_known_label_echo_test(
         ),
     }
     return tool_result(
-        tool_name="tool_known_label_echo_test",
+        tool_name="known_label_echo_test",
         status="success",
         cluster_id=cluster_id,
         output_root=output_root,

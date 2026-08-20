@@ -130,7 +130,7 @@ def enrichment_rows(feature_names, table, candidate_sets):
 
 def empty_result(cluster_id, output_root, reason):
     return tool_result(
-        tool_name="tool_mutation_enrichment",
+        tool_name="mutation_enrichment",
         status="failure",
         cluster_id=cluster_id,
         output_root=output_root,
@@ -144,7 +144,7 @@ def empty_result(cluster_id, output_root, reason):
     )
 
 
-def tool_mutation_enrichment(
+def mutation_enrichment(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -181,7 +181,7 @@ def tool_mutation_enrichment(
         return empty_result(cluster_id, output_root, "missing_candidate_sets")
     rows = enrichment_rows(feature_names, table, candidate_sets)
     return tool_result(
-        tool_name="tool_mutation_enrichment",
+        tool_name="mutation_enrichment",
         status="success",
         cluster_id=cluster_id,
         output_root=output_root,

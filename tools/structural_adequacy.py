@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.cluster import SpectralClustering
 
 from tools.subtype_review_common import assign_groupwise_fdr, tool_parameters, tool_result
-from tools.tool_multimodal_consistency_check import (
+from tools.multimodal_consistency_check import (
     modality_affinity_path,
     normalize_affinity,
     partition_separation,

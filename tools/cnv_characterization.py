@@ -20,7 +20,7 @@ from tools.subtype_review_common import (
 )
 
 
-def tool_cnv_characterization(
+def cnv_characterization(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -34,7 +34,7 @@ def tool_cnv_characterization(
     feature_names, table = read_case_feature_table(str(path))
     if not feature_names or not table:
         return tool_result(
-            tool_name="tool_cnv_characterization",
+            tool_name="cnv_characterization",
             status="failure",
             cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
             output_root=output_root,
@@ -45,7 +45,7 @@ def tool_cnv_characterization(
     groups = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
     if len(groups) < 2:
         return tool_result(
-            tool_name="tool_cnv_characterization",
+            tool_name="cnv_characterization",
             status="failure",
             cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
             output_root=output_root,
@@ -164,7 +164,7 @@ def tool_cnv_characterization(
             )[:10],
         }
     return tool_result(
-        tool_name="tool_cnv_characterization",
+        tool_name="cnv_characterization",
         status="success",
         cluster_id=str(cluster_state.get("cluster_id", "unknown_cluster")),
         output_root=output_root,

@@ -263,7 +263,7 @@ def compute_cross_modal_consistency(
     }
 
 
-def tool_multimodal_consistency_check(
+def multimodal_consistency_check(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -307,7 +307,7 @@ def tool_multimodal_consistency_check(
         effect_epsilon=float(parameters.get("effect_epsilon", DEFAULT_EFFECT_EPSILON)),
     )
     return tool_result(
-        tool_name="tool_multimodal_consistency_check",
+        tool_name="multimodal_consistency_check",
         status="success",
         cluster_id=cluster_id,
         output_root=output_root,

@@ -11,7 +11,7 @@ Audit the complete current partition and the supplied scoped evidence. Do not ch
     "proposal_id": null,
     "status": "supporting",
     "summary": "WSI and RNA support the set identity.",
-    "metric_refs": ["tool_results.tool_multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"]
+    "metric_refs": ["tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"]
   }],
   "gaps": []
 }

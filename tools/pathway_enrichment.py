@@ -43,7 +43,7 @@ def rna_feature_path(patient_states_by_id):
 
 def empty_pathway_result(cluster_id, output_root, summary, missing_reason):
     return tool_result(
-        tool_name="tool_pathway_enrichment",
+        tool_name="pathway_enrichment",
         status="failure",
         cluster_id=cluster_id,
         output_root=output_root,
@@ -221,7 +221,7 @@ def gene_differential_expression_rows(feature_frame, candidate_sets):
     )
 
 
-def tool_pathway_enrichment(
+def pathway_enrichment(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -278,7 +278,7 @@ def tool_pathway_enrichment(
     )
     rows = pathway_rows(score_frame, pathway_gene_counts, candidate_sets)
     return tool_result(
-        tool_name="tool_pathway_enrichment",
+        tool_name="pathway_enrichment",
         status="success",
         cluster_id=cluster_id,
         output_root=output_root,

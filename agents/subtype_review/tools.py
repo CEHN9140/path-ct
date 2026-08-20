@@ -1,59 +1,14 @@
 from __future__ import annotations
 
-import importlib
 from typing import Any, Callable, Mapping
 
+from tools.cnv_characterization import cnv_characterization
+from tools.confound_test import confound_test
+from tools.known_label_echo_test import known_label_echo_test
+from tools.multimodal_consistency_check import multimodal_consistency_check
+from tools.mutation_enrichment import mutation_enrichment
+from tools.pathway_enrichment import pathway_enrichment
 from utils.tool_utils import to_jsonable
-
-DEFAULT_TOOL_DEFINITIONS = {
-    "tool_mutation_enrichment": {
-        "module": "tools.tool_mutation_enrichment",
-        "function": "tool_mutation_enrichment",
-    },
-    "tool_pathway_enrichment": {
-        "module": "tools.tool_pathway_enrichment",
-        "function": "tool_pathway_enrichment",
-    },
-    "tool_confound_test": {
-        "module": "tools.tool_confound_test",
-        "function": "tool_confound_test",
-    },
-    "tool_known_label_echo_test": {
-        "module": "tools.tool_known_label_echo_test",
-        "function": "tool_known_label_echo_test",
-    },
-    "tool_multimodal_consistency_check": {
-        "module": "tools.tool_multimodal_consistency_check",
-        "function": "tool_multimodal_consistency_check",
-    },
-    "tool_cnv_characterization": {
-        "module": "tools.tool_cnv_characterization",
-        "function": "tool_cnv_characterization",
-    },
-}
-
-
-def normalize_tool_definitions(
-    raw: Mapping[str, Any] | None = None,
-) -> dict[str, dict[str, Any]]:
-    definitions = dict(raw or DEFAULT_TOOL_DEFINITIONS)
-    return {
-        str(name): {
-            "module": str(dict(item or {}).get("module", "") or ""),
-            "function": str(dict(item or {}).get("function", "") or ""),
-        }
-        for name, item in definitions.items()
-    }
-
-
-def load_available_tool_functions(
-    definitions: Mapping[str, Mapping[str, Any]],
-) -> dict[str, Callable[..., Any]]:
-    functions: dict[str, Callable[..., Any]] = {}
-    for name, item in definitions.items():
-        module = importlib.import_module(str(item.get("module", "")))
-        functions[str(name)] = getattr(module, str(item.get("function", "")))
-    return functions
 
 
 def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -64,15 +19,11 @@ def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
         metrics = results.get("metrics", {})
     metrics = to_jsonable(metrics or {})
     tool_name = str(payload.get("tool_name", "") or "")
-    metric_refs = [
-        f"tool_results.{tool_name}.metrics.{key}"
-        for key in metrics
-    ]
     return {
         "tool_name": tool_name,
         "status": "success" if str(payload.get("status", "")).lower() == "success" else "failure",
         "metrics": metrics,
-        "metric_refs": metric_refs,
+        "metric_refs": [f"tool_results.{tool_name}.metrics.{key}" for key in metrics],
         "warnings": list(results.get("warnings", []) or []),
         "missing_reason": str(results.get("missing_reason", "") or ""),
         "errors": list(payload.get("errors", []) or []),
@@ -80,9 +31,9 @@ def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_validation_function(
-    tool_name: str,
-    tool_function: Callable[..., Any],
+def validation_result(
+    dimension: str,
+    functions: list[tuple[str, Callable[..., Any]]],
     cluster_state: Mapping[str, Any],
     patient_states_by_id: Mapping[str, Mapping[str, Any]],
     output_root: str,
@@ -93,101 +44,96 @@ def run_validation_function(
     target_ids: list[str] | None = None,
     proposal: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    try:
-        raw = tool_function(
-            dict(cluster_state),
-            {str(key): dict(value) for key, value in patient_states_by_id.items()},
-            output_root,
-            config_dir=config_dir,
-            all_cluster_states=all_cluster_states,
-            scope=scope,
-            target_ids=list(target_ids or []),
-            proposal=dict(proposal or {}),
-        )
-    except Exception as exc:
-        raw = {
-            "tool_name": tool_name,
-            "status": "failure",
-            "results": {"metrics": {}, "warnings": [], "missing_reason": ""},
-            "errors": [f"{type(exc).__name__}: {exc}"],
-        }
-    return compact_tool_result(raw)
-
-
-def execute_capability(
-    capability: str,
-    tool_functions: Mapping[str, Callable[..., Any]],
-    cluster_state: Mapping[str, Any],
-    patient_states_by_id: Mapping[str, Mapping[str, Any]],
-    output_root: str,
-    config_dir: str,
-    all_cluster_states: list[dict[str, Any]],
-    *,
-    scope: str = "set_identity",
-    target_ids: list[str] | None = None,
-    proposal: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    mapping = {
-        "biological_support": [
-            "tool_mutation_enrichment",
-            "tool_pathway_enrichment",
-            "tool_cnv_characterization",
-        ],
-        "cross_modal_consistency": ["tool_multimodal_consistency_check"],
-        "confounder_exclusion": ["tool_confound_test"],
-        "known_label_echo": ["tool_known_label_echo_test"],
-    }
-    names = mapping.get(str(capability), [])
-    results = [
-        run_validation_function(
-            name,
-            tool_functions[name],
-            cluster_state,
-            patient_states_by_id,
-            output_root,
-            config_dir,
-            all_cluster_states,
-            scope=scope,
-            target_ids=target_ids,
-            proposal=proposal,
-        )
-        for name in names
-        if name in tool_functions
-    ]
+    results = []
+    for name, function in functions:
+        try:
+            raw = function(
+                dict(cluster_state),
+                {str(key): dict(value) for key, value in patient_states_by_id.items()},
+                output_root,
+                config_dir=config_dir,
+                all_cluster_states=all_cluster_states,
+                scope=scope,
+                target_ids=list(target_ids or []),
+                proposal=dict(proposal or {}),
+            )
+        except Exception as exc:
+            raw = {
+                "tool_name": name,
+                "status": "failure",
+                "results": {"metrics": {}, "warnings": [], "missing_reason": ""},
+                "errors": [f"{type(exc).__name__}: {exc}"],
+            }
+        results.append(compact_tool_result(raw))
     return {
-        "capability": str(capability),
-        "status": "success" if results and all(
-            item["status"] == "success" for item in results
-        ) else "failure",
+        "dimension": dimension,
+        "status": "success" if all(item["status"] == "success" for item in results) else "failure",
         "results": results,
     }
+
+
+def biological_support(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return validation_result(
+        "biological_support",
+        [
+            ("pathway_enrichment", pathway_enrichment),
+            ("mutation_enrichment", mutation_enrichment),
+            ("cnv_characterization", cnv_characterization),
+        ],
+        *args,
+        **kwargs,
+    )
+
+
+def cross_modal_consistency(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return validation_result(
+        "cross_modal_consistency",
+        [("multimodal_consistency_check", multimodal_consistency_check)],
+        *args,
+        **kwargs,
+    )
+
+
+def confounder_exclusion(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return validation_result(
+        "confounder_exclusion",
+        [("confound_test", confound_test)],
+        *args,
+        **kwargs,
+    )
+
+
+def known_label_echo(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return validation_result(
+        "known_label_echo",
+        [("known_label_echo_test", known_label_echo_test)],
+        *args,
+        **kwargs,
+    )
+
+
+VALIDATION_FUNCTIONS = {
+    "biological_support": biological_support,
+    "cross_modal_consistency": cross_modal_consistency,
+    "confounder_exclusion": confounder_exclusion,
+    "known_label_echo": known_label_echo,
+}
 
 
 def build_validation_tools() -> list[Any]:
     from langchain_core.tools import tool
 
-    def make(name: str, description: str, func: Callable[..., Any]) -> Any:
-        return tool(name, description=description)(func)
+    descriptions = {
+        "biological_support": "Compute RNA, WXS and CNV biological evidence for the requested scope.",
+        "cross_modal_consistency": "Compute CT, WSI, RNA and genomic consistency for the requested scope.",
+        "confounder_exclusion": "Compute CT acquisition-confounder evidence for the requested scope.",
+        "known_label_echo": "Compute whole-partition stage and grade echo evidence.",
+    }
 
-    def biological_support() -> str:
-        """Compute RNA, WXS and CNV biological evidence for the requested scope."""
-        return "biological_support"
-
-    def cross_modal_consistency() -> str:
-        """Compute CT, WSI, RNA and genomic consistency for the current partition."""
-        return "cross_modal_consistency"
-
-    def confounder_exclusion() -> str:
-        """Compute CT acquisition-confounder evidence for the current partition."""
-        return "confounder_exclusion"
-
-    def known_label_echo() -> str:
-        """Compute whole-partition stage and grade echo evidence."""
-        return "known_label_echo"
+    def request_validation() -> str:
+        return "Use the pending evidence request supplied by Python."
 
     return [
-        make("biological_support", biological_support.__doc__ or "", biological_support),
-        make("cross_modal_consistency", cross_modal_consistency.__doc__ or "", cross_modal_consistency),
-        make("confounder_exclusion", confounder_exclusion.__doc__ or "", confounder_exclusion),
-        make("known_label_echo", known_label_echo.__doc__ or "", known_label_echo),
+        tool(name, description=description)(request_validation)
+        for name, description in descriptions.items()
     ]

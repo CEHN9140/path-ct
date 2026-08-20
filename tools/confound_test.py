@@ -843,7 +843,7 @@ def confound_decision_metrics(
     }
 
 
-def tool_confound_test(
+def confound_test(
     cluster_state,
     patient_states_by_id,
     output_root,
@@ -860,7 +860,7 @@ def tool_confound_test(
     }
     if not memberships:
         return tool_result(
-            tool_name="tool_confound_test",
+            tool_name="confound_test",
             status="failure",
             cluster_id=cluster_id,
             output_root=output_root,
@@ -901,7 +901,7 @@ def tool_confound_test(
     assign_q_values(global_metrics, set_metrics)
 
     return tool_result(
-        tool_name="tool_confound_test",
+        tool_name="confound_test",
         status="success",
         cluster_id=cluster_id,
         output_root=output_root,

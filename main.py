@@ -16,7 +16,6 @@ from agents.inventory import inventory_case
 from agents.quality_control import ct_qc, wsi_qc
 from agents.subtype_review.graph import build_review_graph, initial_review_state, save_review_outputs
 from agents.subtype_review.llm import build_default_reviser, build_default_router, build_default_verifier
-from agents.subtype_review.tools import load_available_tool_functions, normalize_tool_definitions
 from utils.patient_store import save_patient_states
 from utils.report_store import save_final_output
 from utils.llm_utils import load_yaml_file
@@ -117,8 +116,6 @@ def run_pipeline(
     )
 
     review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
-    tool_definitions = normalize_tool_definitions(review_config.get("tools", {}))
-    tool_functions = load_available_tool_functions(tool_definitions)
     review_patients = list(candidate_output.get("patient_states", patient_states))
     patient_states_by_id = {
         str(item.get("case_id", item.get("Case_ID", ""))): dict(item)
@@ -129,7 +126,6 @@ def run_pipeline(
         "patient_states_by_id": patient_states_by_id,
         "output_root": str(args.output_root),
         "config_dir": str(args.config_dir),
-        "tool_functions": tool_functions,
     }
     verifier_model = build_default_verifier(review_config, args.config_dir)
     reviser_model = build_default_reviser(review_config, args.config_dir)
@@ -138,7 +134,6 @@ def run_pipeline(
         verifier_model=verifier_model,
         router_model=router_model,
         reviser_model=reviser_model,
-        tool_functions=tool_functions,
         runtime=review_runtime,
     )
     review_state = initial_review_state(candidate_output.get("candidate_clusters", []))

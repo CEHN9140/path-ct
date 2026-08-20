@@ -11,7 +11,7 @@ def generate_structure_proposals(
     all_cluster_states: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Generate deterministic legal Split/Merge proposals without scientific labels."""
-    from tools.tool_structural_adequacy import generate_structure_proposal_metrics
+    from tools.structural_adequacy import generate_structure_proposal_metrics
 
     raw = generate_structure_proposal_metrics(
         dict(cluster_state),
