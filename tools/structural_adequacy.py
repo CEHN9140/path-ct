@@ -361,7 +361,9 @@ def generate_structure_proposal_metrics(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     memberships = {
         str(state.get("set_id") or state.get("cluster_id")): sorted(
             str(case_id) for case_id in list(state.get("member_ids", []) or [])
@@ -489,7 +491,7 @@ def generate_structure_proposal_metrics(
         tool_name="revision_candidates",
         status="success",
         cluster_id=str(cluster_state.get("cluster_id", "GLOBAL")),
-        output_root=output_root,
+        output_root=artifact_root,
         summary="Current subtype structure was measured and exact legal Split and Merge plans were generated.",
         metrics=metrics,
         decision_metrics=metrics,
@@ -507,7 +509,9 @@ def generate_revision_candidates(
     output_root,
     config_dir="",
     all_cluster_states=None,
+    artifact_root=None,
 ):
+    artifact_root = artifact_root or output_root
     states = [dict(item) for item in list(all_cluster_states or [cluster_state])]
     memberships = {
         str(item.get("set_id") or item.get("cluster_id")): sorted(
@@ -522,6 +526,7 @@ def generate_revision_candidates(
         output_root,
         config_dir=config_dir,
         all_cluster_states=states,
+        artifact_root=artifact_root,
     )
     metrics = dict(dict(raw.get("results", {}) or {}).get("metrics", {}) or {})
     targets = sorted(str(item) for item in target_ids)

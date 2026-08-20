@@ -116,6 +116,7 @@ def apply_review_policy(state: dict[str, Any], config: Mapping[str, Any]) -> Non
         "split_min_supporting_modalities": int(cross_modal.get("split_min_supporting_modalities", 2) or 2),
         "merge_min_supporting_modalities": int(cross_modal.get("merge_min_supporting_modalities", 2) or 2),
         "split_require_molecular_or_biology": bool(cross_modal.get("split_require_molecular_or_biology", True)),
+        "min_split_size": int(budget.get("min_split_size", 10) or 10),
     }
 
 

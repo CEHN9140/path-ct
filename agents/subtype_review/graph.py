@@ -1373,9 +1373,10 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
             targets,
             cluster_state,
             dict(runtime.get("patient_states_by_id", {}) or {}),
-            str(runtime.get("output_root", "")),
+            str(runtime.get("data_root", runtime.get("output_root", ""))),
             config_dir=str(runtime.get("config_dir", "")),
             all_cluster_states=current_sets(state),
+            artifact_root=str(runtime.get("review_output_root", runtime.get("output_root", ""))),
         )
         key = f"{action['action']}:{'+'.join(targets)}"
         if not candidates:

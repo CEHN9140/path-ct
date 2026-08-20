@@ -33,28 +33,24 @@ class LLMUsageTracker:
             )
         self.api_calls += 1
 
-    def record_request(self, response: Any) -> None:
-        self.before_request()
-        usage = response.get("usage", {}) if isinstance(response, dict) else getattr(response, "usage", {})
-        if not usage:
-            return
-        values = {
-            "prompt_tokens": getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens"),
-            "completion_tokens": getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens"),
-            "total_tokens": getattr(usage, "total_tokens", None) if not isinstance(usage, dict) else usage.get("total_tokens"),
-        }
-        for key, value in values.items():
-            if value is not None:
-                setattr(self, key, int(getattr(self, key) or 0) + int(value))
-
     def record_response(self, response: Any) -> None:
-        usage = response.get("usage", {}) if isinstance(response, dict) else getattr(response, "usage", {})
+        if isinstance(response, dict):
+            usage = response.get("usage") or response.get("usage_metadata")
+            metadata = response.get("response_metadata") or {}
+            usage = usage or metadata.get("token_usage")
+        else:
+            usage = (
+                getattr(response, "usage", None)
+                or getattr(response, "usage_metadata", None)
+                or (getattr(response, "response_metadata", {}) or {}).get("token_usage")
+            )
         if not usage:
             return
+        get_value = usage.get if isinstance(usage, dict) else lambda key: getattr(usage, key, None)
         values = {
-            "prompt_tokens": getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens"),
-            "completion_tokens": getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens"),
-            "total_tokens": getattr(usage, "total_tokens", None) if not isinstance(usage, dict) else usage.get("total_tokens"),
+            "prompt_tokens": get_value("prompt_tokens") or get_value("input_tokens"),
+            "completion_tokens": get_value("completion_tokens") or get_value("output_tokens"),
+            "total_tokens": get_value("total_tokens"),
         }
         for key, value in values.items():
             if value is not None:
