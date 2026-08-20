@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from agents.subtype_review.schemas import (
     ReviserOutput,
-    RouterAction,
+    RouterSelection,
     VerifierOutput,
 )
 from agents.subtype_review.tools import build_validation_tools
@@ -402,14 +402,14 @@ def build_default_router(
     cfg["max_new_tokens"] = int(cfg.get("router_max_tokens", cfg.get("max_new_tokens", 2048)))
     model = build_structured_model(
         cfg,
-        RouterAction,
+        RouterSelection,
         load_prompt(prompt_dir(config, config_dir), "router.md"),
         usage_tracker,
     )
     return ProtocolSelfReviewModel(model, model) if self_review else model
 
 
-def parse_router_action(value: Any) -> RouterAction:
+def parse_router_selection(value: Any) -> RouterSelection:
     if hasattr(value, "model_dump"):
-        return RouterAction.model_validate(value.model_dump())
-    return RouterAction.model_validate(parse_json_content(value))
+        return RouterSelection.model_validate(value.model_dump())
+    return RouterSelection.model_validate(parse_json_content(value))

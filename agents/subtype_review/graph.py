@@ -10,7 +10,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
-from agents.subtype_review.llm import LLMCallBudgetExceeded, parse_json_content, parse_router_action
+from agents.subtype_review.llm import LLMCallBudgetExceeded, parse_json_content, parse_router_selection
 from agents.subtype_review.llm_summary import summarize_audit, summarize_evidence
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
@@ -801,12 +801,6 @@ def blocks_set_acceptance(finding: Mapping[str, Any], target: str) -> bool:
             finding.get("status") == "conflicting"
             and finding.get("dimension") in {"known_label_echo", "confounder_exclusion"}
         )
-    if (
-        finding.get("dimension") == "confounder_exclusion"
-        and finding.get("scope") == "set_identity"
-        and finding.get("status") == "mixed"
-    ):
-        return target in {str(value) for value in finding.get("target_ids", []) or []}
     return (
         finding.get("status") == "conflicting"
         and finding.get("scope") == "set_identity"
@@ -830,6 +824,66 @@ def invalidates_set(finding: Mapping[str, Any], target: str) -> bool:
     )
 
 
+def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
+    sets = current_sets(state)
+    findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
+    if not any(
+        row.get("dimension") == "cross_modal_consistency"
+        and row.get("scope") == "set_identity"
+        and row.get("status") == "supporting"
+        and target in {str(value) for value in row.get("target_ids", []) or []}
+        for row in findings
+    ):
+        return False, "Accept requires supporting cross-modal set identity evidence"
+
+    signature = subject_signature("cross_modal_consistency", "set_identity", sets, [target])
+    modalities = set()
+    for result in current_partition_evidence(state).get("results", []):
+        if (
+            result.get("dimension") == "cross_modal_consistency"
+            and result.get("scope") == "set_identity"
+            and not result.get("proposal_id")
+            and signature == str(result.get("subject_signature", ""))
+        ):
+            for child in result.get("results", []) or []:
+                if child.get("tool_name") == "multimodal_consistency_check":
+                    modalities.update(
+                        dict(child.get("metrics", {}) or {}).get(
+                            "identity_supporting_modalities_by_set", {}
+                        ).get(target, []) or []
+                    )
+    minimum = int(
+        dict(dict(state.get("control", {}) or {}).get("policy", {}) or {}).get(
+            "accept_min_supporting_modalities", 2
+        ) or 2
+    )
+    if len(modalities) < minimum:
+        return False, "Accept requires at least two supporting original modalities"
+
+    confound = [
+        row for row in findings
+        if row.get("dimension") == "confounder_exclusion"
+        and row.get("scope") == "set_identity"
+        and target in {str(value) for value in row.get("target_ids", []) or []}
+    ]
+    known_label = [
+        row for row in findings
+        if row.get("dimension") == "known_label_echo"
+        and row.get("scope") == "partition"
+        and (
+            not row.get("target_ids")
+            or target in {str(value) for value in row.get("target_ids", []) or []}
+        )
+    ]
+    if not any(row.get("status") != "unavailable" for row in confound) or not any(
+        row.get("status") != "unavailable" for row in known_label
+    ):
+        return False, "Accept requires available confounder and known-label evidence"
+    if any(blocks_set_acceptance(row, target) for row in findings):
+        return False, "Accept is vetoed by conflicting set-identity or partition evidence"
+    return True, ""
+
+
 def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) -> None:
     findings = [finding.model_dump() for finding in audit.findings]
     for item in state["sets"]:
@@ -839,10 +893,14 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
             blocks_set_acceptance(finding, target) for finding in findings
         ):
             item["status"] = "active"
-        elif status == "provisionally_dropped" and not any(
-            invalidates_set(finding, target) for finding in findings
+            item.pop("drop_reason", None)
+        elif (
+            status == "provisionally_dropped"
+            and item.get("drop_reason") == "technical_invalidation"
+            and not any(invalidates_set(finding, target) for finding in findings)
         ):
             item["status"] = "active"
+            item.pop("drop_reason", None)
 
 
 def revision_candidates(state: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -956,7 +1014,11 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
         drop_evidence = any(invalidates_set(finding, target) for finding in findings)
         if item.get("status") == "provisionally_accepted" and accept_blocker:
             return False
-        if item.get("status") == "provisionally_dropped" and not drop_evidence:
+        if (
+            item.get("status") == "provisionally_dropped"
+            and not drop_evidence
+            and item.get("drop_reason") != "insufficient_support_after_exhaustion"
+        ):
             return False
     return True
 
@@ -1066,7 +1128,10 @@ def supported_revision_candidates(state: Mapping[str, Any]) -> list[dict[str, An
 def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
     if state.get("revision") is not None:
         return []
-    sets = [item for item in current_sets(state) if str(item.get("status", "active")) == "active"]
+    sets = [
+        item for item in current_sets(state)
+        if str(item.get("status", "active")) != "provisionally_dropped"
+    ]
     if any(request["scope"] in {"set_identity", "partition"} for request in required_evidence_requests(state)):
         return []
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
@@ -1077,18 +1142,25 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         set_id(item) for item in sets
         if any(invalidates_set(row, set_id(item)) for row in findings)
     }
+    motives = {
+        set_id(item) for item in sets
+        if str(item.get("status", "active")) == "active"
+        and set_id(item) not in invalid
+        and not set_acceptance(state, set_id(item))[0]
+    }
     intents = [
         {"action": "split", "target_ids": [set_id(item)]}
         for item in sets
+        if set_id(item) in motives
         if len(item.get("member_ids", []) or []) >= 2 * min_split_size
-        and set_id(item) not in invalid
         and f"split:{set_id(item)}" not in blocked
     ]
     for index, left in enumerate(sets):
         for right in sets[index + 1:]:
             targets = sorted([set_id(left), set_id(right)])
             if (
-                not invalid.intersection(targets)
+                motives.intersection(targets)
+                and not invalid.intersection(targets)
                 and f"merge:{'+'.join(targets)}" not in blocked
             ):
                 intents.append({"action": "merge", "target_ids": targets})
@@ -1157,7 +1229,8 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
                 raise ValueError("Evidence request already attempted for this subject")
         return
     selected = [item for item in sets if set_id(item) in targets]
-    if any(str(item.get("status", "active")) != "active" for item in selected):
+    allowed_statuses = {"active", "provisionally_accepted"} if action.action == "merge" else {"active"}
+    if any(str(item.get("status", "active")) not in allowed_statuses for item in selected):
         raise ValueError("Router target is already provisionally decided")
     if any(request["scope"] in {"set_identity", "partition"} for request in required_evidence_requests(state)):
         raise ValueError("Scientific action is blocked by mandatory missing evidence")
@@ -1197,71 +1270,17 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         raise ValueError("Accept and Drop are blocked while a revision is active")
     target = action.target_ids[0]
     if action.action == "accept":
-        if any(target in intent["target_ids"] for intent in initial_revision_intents(state)):
-            raise ValueError("Accept is blocked by pending structural review")
-        identity = [
-            finding for finding in findings
-            if finding.get("dimension") == "cross_modal_consistency"
-            and finding.get("scope") == "set_identity"
-            and finding.get("status") == "supporting"
-            and target in {str(item) for item in finding.get("target_ids", [])}
-        ]
-        if not identity:
-            raise ValueError("Accept requires supporting cross-modal set identity evidence")
-        modality_count = 0
-        signature = subject_signature(
-            "cross_modal_consistency", "set_identity", sets, [target]
-        )
-        for result in current_partition_evidence(state).get("results", []):
-            if (
-                result.get("dimension") != "cross_modal_consistency"
-                or result.get("scope") != "set_identity"
-                or result.get("proposal_id")
-                or signature != str(result.get("subject_signature", ""))
-            ):
-                continue
-            for child in result.get("results", []) or []:
-                if child.get("tool_name") != "multimodal_consistency_check":
-                    continue
-                decision = dict(child.get("metrics", {}) or {})
-                by_set = dict(decision.get("identity_supporting_modalities_by_set", {}) or {})
-                modality_count = max(
-                    modality_count,
-                    len(list(by_set.get(target, []) or [])),
-                )
-        policy = dict(dict(state.get("control", {}) or {}).get("policy", {}) or {})
-        minimum = int(policy.get("accept_min_supporting_modalities", 2) or 2)
-        if modality_count < minimum:
-            raise ValueError("Accept requires at least two supporting original modalities")
-        confound = [
-            finding
-            for finding in findings
-            if finding.get("dimension") == "confounder_exclusion"
-            and finding.get("scope") == "set_identity"
-            and target
-            in {str(item) for item in finding.get("target_ids", []) or []}
-        ]
-        known_label = [
-            finding
-            for finding in findings
-            if finding.get("dimension") == "known_label_echo"
-            and finding.get("scope") == "partition"
-            and (
-                not finding.get("target_ids")
-                or target
-                in {str(item) for item in finding.get("target_ids", []) or []}
-            )
-        ]
-        if not any(row.get("status") != "unavailable" for row in confound) or not any(
-            row.get("status") != "unavailable" for row in known_label
-        ):
-            raise ValueError("Accept requires available confounder and known-label evidence")
-        if any(blocks_set_acceptance(finding, target) for finding in findings):
-            raise ValueError("Accept is vetoed by conflicting set-identity or partition evidence")
+        acceptable, reason = set_acceptance(state, target)
+        if not acceptable:
+            raise ValueError(reason)
     if action.action == "drop":
         positive = any(invalidates_set(finding, target) for finding in findings)
-        if not positive:
-            raise ValueError("Drop requires positive confounder set-identity invalidating evidence")
+        exhausted = (
+            not set_acceptance(state, target)[0]
+            and not any(target in intent["target_ids"] for intent in initial_revision_intents(state))
+        )
+        if not positive and not exhausted:
+            raise ValueError("Drop requires technical invalidation or exhausted unsupported identity")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
@@ -1325,21 +1344,36 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     elif revision:
         legal_action_candidates = []
     else:
-        legal_action_candidates = []
+        accept_candidates = []
         for item in sets:
             if str(item.get("status", "active")) != "active":
                 continue
-            for action_name in ("accept", "drop"):
-                candidate = RouterAction(action=action_name, target_ids=[set_id(item)])
-                try:
-                    validate_router_action(candidate, state)
-                except ValueError:
-                    continue
-                legal_action_candidates.append(candidate.model_dump())
-        legal_action_candidates.extend(
-            RouterAction(**intent).model_dump() for intent in initial_revision_intents(state)
-        )
-    if requestable:
+            candidate = RouterAction(action="accept", target_ids=[set_id(item)])
+            try:
+                validate_router_action(candidate, state)
+            except ValueError:
+                continue
+            accept_candidates.append(candidate.model_dump())
+        if accept_candidates:
+            legal_action_candidates = accept_candidates
+        else:
+            legal_action_candidates = [
+                RouterAction(**intent).model_dump() for intent in initial_revision_intents(state)
+            ]
+            if not legal_action_candidates:
+                for item in sets:
+                    if str(item.get("status", "active")) != "active":
+                        continue
+                    candidate = RouterAction(action="drop", target_ids=[set_id(item)])
+                    try:
+                        validate_router_action(candidate, state)
+                    except ValueError:
+                        continue
+                    legal_action_candidates.append(candidate.model_dump())
+    if requestable and (
+        not legal_action_candidates
+        or any(row["action"] != "accept" for row in legal_action_candidates)
+    ):
         legal_action_candidates.append(
             RouterAction(
                 action="need_more_evidence",
@@ -1356,6 +1390,10 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         state["control"] = control
         append_trace(state, {"node": "router", "event": "scientific_evidence_exhausted"})
         return state
+    legal_actions = [
+        {"action_id": f"A{index}", "action": row}
+        for index, row in enumerate(legal_action_candidates)
+    ]
     payload = {
         "sets": [
             {
@@ -1376,7 +1414,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             }
             for row in list(audit.get("findings", []) or [])
         ],
-        "legal_actions": legal_action_candidates,
+        "legal_actions": legal_actions,
         "revision": {
             key: to_jsonable(revision[key])
             for key in ("action", "target_ids", "status")
@@ -1385,10 +1423,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         "validation_error": dict(state.get("control", {}) or {}).get("error"),
     }
     action = None
-    legal_action_keys = {
-        json.dumps({key: value for key, value in row.items() if key != "reason"}, sort_keys=True)
-        for row in legal_action_candidates
-    }
+    legal_action_map = {row["action_id"]: row["action"] for row in legal_actions}
     for attempt in range(3):
         if len(legal_action_candidates) == 1:
             action = RouterAction(**legal_action_candidates[0])
@@ -1397,13 +1432,13 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         if result is None:
             return state
         try:
-            action = parse_router_action(result)
-            action_key = json.dumps(
-                {key: value for key, value in action.model_dump().items() if key != "reason"},
-                sort_keys=True,
-            )
-            if action_key not in legal_action_keys:
-                raise ValueError("Router action is outside legal_actions")
+            selection = parse_router_selection(result)
+            if selection.action_id not in legal_action_map:
+                raise ValueError("Router selected an unknown action_id")
+            action = RouterAction(**{
+                **legal_action_map[selection.action_id],
+                "reason": selection.reason,
+            })
             validate_router_action(action, state)
             break
         except Exception as exc:
@@ -1427,14 +1462,14 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                     "node": "router",
                     "event": "router_contract_exhausted",
                     "error": error,
-                    "legal_actions": legal_action_candidates,
+                    "legal_actions": legal_actions,
                 })
                 return state
             payload["validation_error"] = {
                 "error": error,
                 "rejected_action": rejected_action,
-                "legal_actions": legal_action_candidates,
-                "instruction": "Copy exactly one complete action from legal_actions.",
+                "legal_actions": legal_actions,
+                "instruction": "Return one action_id exactly as provided.",
             }
     if action is None:
         return state
@@ -1452,6 +1487,12 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         for item in state["sets"]:
             if set_id(item) == target:
                 item["status"] = "provisionally_accepted" if action.action == "accept" else "provisionally_dropped"
+                if action.action == "drop":
+                    item["drop_reason"] = (
+                        "technical_invalidation"
+                        if any(invalidates_set(row, target) for row in audit.get("findings", []) or [])
+                        else "insufficient_support_after_exhaustion"
+                    )
         if all(
             str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
             for item in current_sets(state)
@@ -1529,6 +1570,7 @@ def apply_merge(state: dict[str, Any], plan: Mapping[str, Any]) -> None:
 def reset_after_structural_change(state: dict[str, Any], signature: str) -> None:
     for item in current_sets(state):
         item["status"] = "active"
+        item.pop("drop_reason", None)
     state["audit"] = {"findings": [], "gaps": []}
     state["revision"] = None
     state["action"] = None

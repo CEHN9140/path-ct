@@ -183,6 +183,13 @@ class RouterAction(BaseModel):
         return self
 
 
+class RouterSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str
+    reason: str = Field(default="", max_length=120)
+
+
 class ReviserOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
