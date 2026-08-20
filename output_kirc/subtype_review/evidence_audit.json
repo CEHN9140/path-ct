@@ -7,9 +7,9 @@
       "dimension": "cross_modal_consistency",
       "scope": "set_identity",
       "proposal_id": null,
-      "subject_signature": "d3b9a9b3a308f2083a50278ba3bba5960824eaba4181916a52145caadd6152b7",
+      "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
       "status": "mixed",
-      "summary": "C0001 is supported by WSI and RNA, but not by CT or genomic modalities.",
+      "summary": "C0001 is supported by RNA only; CT and WSI do not support identity, and genomic does not support identity.",
       "metric_refs": [
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
       ]
@@ -21,9 +21,9 @@
       "dimension": "cross_modal_consistency",
       "scope": "set_identity",
       "proposal_id": null,
-      "subject_signature": "d3b9a9b3a308f2083a50278ba3bba5960824eaba4181916a52145caadd6152b7",
-      "status": "mixed",
-      "summary": "C0002 is supported by CT, WSI, and RNA, but not by genomic modality.",
+      "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+      "status": "supporting",
+      "summary": "C0002 is supported by WSI and RNA; CT and genomic do not support identity.",
       "metric_refs": [
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
       ]
@@ -35,26 +35,43 @@
       "dimension": "cross_modal_consistency",
       "scope": "set_identity",
       "proposal_id": null,
-      "subject_signature": "d3b9a9b3a308f2083a50278ba3bba5960824eaba4181916a52145caadd6152b7",
-      "status": "mixed",
-      "summary": "C0003 is supported by CT and WSI, but not by RNA or genomic modalities.",
+      "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+      "status": "supporting",
+      "summary": "C0003 is supported by CT and WSI; RNA and genomic do not support identity.",
       "metric_refs": [
         "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
       ]
     },
     {
       "target_ids": [
+        "C0004"
+      ],
+      "dimension": "cross_modal_consistency",
+      "scope": "set_identity",
+      "proposal_id": null,
+      "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+      "status": "supporting",
+      "summary": "C0004 is supported by CT, WSI, and RNA; genomic does not support identity.",
+      "metric_refs": [
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004"
+      ]
+    },
+    {
+      "target_ids": [
         "C0001",
         "C0002",
-        "C0003"
+        "C0003",
+        "C0004"
       ],
       "dimension": "confounder_exclusion",
       "scope": "set_identity",
       "proposal_id": null,
-      "subject_signature": "021379f35973e6017394528ab90c8218ce7fb8b9f1581b105ebd01725064d73b",
-      "status": "supporting",
-      "summary": "No strong technical confounders were detected; all global and set-level effects are below protocol thresholds.",
+      "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+      "status": "conflicting",
+      "summary": "Strong technical confounders detected: CT manufacturer, scanner model, and reconstruction kernel show significant association with set membership (global Cramér's V > 0.3 for manufacturer and kernel; set-level odds ratios > 4 for C0002 and C0003).",
       "metric_refs": [
+        "tool_results.confound_test.metrics.global",
+        "tool_results.confound_test.metrics.sets",
         "tool_results.confound_test.metrics.deterministic_flags"
       ]
     },
@@ -63,9 +80,9 @@
       "dimension": "known_label_echo",
       "scope": "partition",
       "proposal_id": null,
-      "subject_signature": "ea6761f204a91a4a9e70f8b5215e4f21dddc8a255276209f19412365b2167bec",
+      "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
       "status": "supporting",
-      "summary": "The current partition does not echo known stage or grade labels; AMI and ARI are near zero, indicating independent structure.",
+      "summary": "Partition does not echo known stage or grade labels: AMI < 0.06, ARI < 0.07, optimal mapping accuracy < 0.43 for stage; AMI < 0.05, ARI < 0.02, optimal mapping accuracy < 0.37 for grade. No near-identity structure.",
       "metric_refs": [
         "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
       ]

@@ -1061,6 +1061,51 @@ def test_successful_mandatory_evidence_without_finding_is_contract_failure():
         validate_verifier_audit(audit, state)
 
 
+def test_verifier_uses_python_threshold_for_set_identity_supporting_status():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C1"
+    confound_ref = "tool_results.confound_test.metrics.strong_technical_conflict"
+    known_ref = "tool_results.known_label_echo_test.metrics.near_identity"
+    state["evidence"]["results"] = [
+        evidence_row(
+            state, "cross_modal_consistency", "set_identity", ["C1"], {},
+            "multimodal_consistency_check",
+            {"identity_supporting_modalities_by_set": {"C1": ["wsi", "rna"]}},
+            cross_ref,
+        ),
+        evidence_row(
+            state, "confounder_exclusion", "set_identity", ["C1"], {},
+            "confound_test", {"strong_technical_conflict": False}, confound_ref,
+        ),
+        evidence_row(
+            state, "known_label_echo", "partition", [], {},
+            "known_label_echo_test", {"near_identity": False}, known_ref,
+        ),
+    ]
+    model = StaticModel({"findings": [
+        {
+            "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+            "scope": "set_identity", "status": "mixed", "metric_refs": [cross_ref],
+        },
+        {
+            "target_ids": ["C1"], "dimension": "confounder_exclusion",
+            "scope": "set_identity", "status": "supporting", "metric_refs": [confound_ref],
+        },
+        {
+            "target_ids": [], "dimension": "known_label_echo",
+            "scope": "partition", "status": "supporting", "metric_refs": [known_ref],
+        },
+    ], "gaps": []})
+
+    verifier_node(state, {}, model)
+
+    cross_modal = next(
+        row for row in state["audit"]["findings"]
+        if row["dimension"] == "cross_modal_consistency"
+    )
+    assert cross_modal["status"] == "supporting"
+
+
 def test_default_review_budget_allows_mandatory_evidence_rounds():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     assert state["control"]["max_rounds"] == 60
@@ -1106,6 +1151,47 @@ def test_router_executes_single_legal_scientific_action_without_llm_call():
 
     assert model.calls == 0
     assert state["action"]["action"] == "accept"
+
+
+def test_router_retries_with_explicit_legal_actions_then_ends_unresolved():
+    state = initial_review_state([
+        {"cluster_id": target, "member_ids": [f"{target}P{i}" for i in range(20)]}
+        for target in ("C1", "C2")
+    ])
+    targets = ["C1", "C2"]
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", targets, {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {target: ["ct", "rna"] for target in targets}},
+        cross_ref,
+    ))
+    state["audit"]["findings"].extend([
+        {
+            "target_ids": [target], "dimension": "cross_modal_consistency",
+            "scope": "set_identity", "status": "supporting", "metric_refs": [cross_ref],
+        }
+        for target in targets
+    ])
+    add_identity_controls(state, "C1")
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"], "dimension": "confounder_exclusion",
+        "scope": "set_identity", "status": "supporting",
+        "metric_refs": ["tool_results.confound_test.metrics.strong_technical_conflict"],
+    })
+    invalid = {"action": "need_more_evidence", "requests": [{
+        "dimension": "cross_modal_consistency", "scope": "set_identity",
+        "target_ids": ["C1"], "proposal_id": None,
+    }]}
+    model = StaticModel(invalid)
+
+    router_node(state, {}, model)
+
+    assert model.calls == 3
+    assert model.payloads[1]["validation_error"]["legal_actions"] == model.payloads[0]["legal_actions"]
+    assert state["control"]["status"] == "unresolved"
+    assert state["control"]["error"] is None
+    assert state["control"]["trace"][-1]["event"] == "router_contract_exhausted"
 
 
 def test_supported_structural_action_preempts_unrelated_evidence_requests():

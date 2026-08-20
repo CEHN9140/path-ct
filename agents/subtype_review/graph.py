@@ -509,10 +509,43 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         audit_payload = result if isinstance(result, Mapping) else parse_json_content(getattr(result, "content", result))
         audit_payload = dict(audit_payload)
         sets = current_sets(state)
+        identity_modalities_by_set = {}
+        for evidence_row in current_evidence.get("results", []) or []:
+            if (
+                evidence_row.get("dimension") != "cross_modal_consistency"
+                or evidence_row.get("scope") != "set_identity"
+            ):
+                continue
+            for child in evidence_row.get("results", []) or []:
+                if child.get("tool_name") == "multimodal_consistency_check":
+                    identity_modalities_by_set.update(
+                        dict(child.get("metrics", {}) or {}).get(
+                            "identity_supporting_modalities_by_set", {}
+                        )
+                    )
+        minimum = int(
+            dict(dict(state.get("control", {}) or {}).get("policy", {}) or {}).get(
+                "accept_min_supporting_modalities", 2
+            )
+            or 2
+        )
         for key in ("findings", "gaps"):
             rows = []
             for raw_row in list(audit_payload.get(key, []) or []):
                 row = dict(raw_row)
+                if (
+                    key == "findings"
+                    and row.get("dimension") == "cross_modal_consistency"
+                    and row.get("scope") == "set_identity"
+                ):
+                    supported = all(
+                        len(identity_modalities_by_set.get(str(target), []) or []) >= minimum
+                        for target in row.get("target_ids", []) or []
+                    )
+                    if supported and row.get("target_ids"):
+                        row["status"] = "supporting"
+                    elif row.get("status") == "supporting":
+                        row["status"] = "inconclusive"
                 proposal = proposal_by_id(state, str(row.get("proposal_id", "") or ""))
                 row["subject_signature"] = subject_signature(
                     str(row.get("dimension", "")),
@@ -1291,13 +1324,24 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             })
             if attempt == 2:
                 control = dict(state.get("control", {}) or {})
-                control["status"] = "review_failed_runtime"
-                control["error"] = error
+                control["status"] = "unresolved"
+                control["error"] = None
                 control["next"] = "end"
+                control["router_contract_error"] = error
                 state["control"] = control
-                append_trace(state, {"node": "router", "event": "contract_failure", "error": error})
+                append_trace(state, {
+                    "node": "router",
+                    "event": "router_contract_exhausted",
+                    "error": error,
+                    "legal_actions": legal_action_candidates,
+                })
                 return state
-            payload["validation_error"] = error
+            payload["validation_error"] = {
+                "error": error,
+                "rejected_action": rejected_action,
+                "legal_actions": legal_action_candidates,
+                "instruction": "Copy exactly one complete action from legal_actions.",
+            }
     if action is None:
         return state
     control = dict(state.get("control", {}) or {})

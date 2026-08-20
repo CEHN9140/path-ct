@@ -330,21 +330,19 @@ def wsi_tumor_seg(
 
 
 def nifti_geometry_matches(ct_path: str, mask_path: str) -> bool:
+    import nibabel as nib
     import numpy as np
-    import SimpleITK as sitk
 
     if not Path(ct_path).is_file() or not Path(mask_path).is_file():
         return False
     try:
-        ct_image = sitk.ReadImage(ct_path)
-        mask_image = sitk.ReadImage(mask_path)
+        ct_image = nib.load(ct_path)
+        mask_image = nib.load(mask_path)
     except Exception:
         return False
     return (
-        ct_image.GetSize() == mask_image.GetSize()
-        and np.allclose(ct_image.GetSpacing(), mask_image.GetSpacing(), atol=1e-4)
-        and np.allclose(ct_image.GetOrigin(), mask_image.GetOrigin(), atol=1e-4)
-        and np.allclose(ct_image.GetDirection(), mask_image.GetDirection(), atol=1e-4)
+        ct_image.shape == mask_image.shape
+        and np.allclose(ct_image.affine, mask_image.affine, atol=1e-4)
     )
 
 
