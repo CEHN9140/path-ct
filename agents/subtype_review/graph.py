@@ -391,9 +391,6 @@ def execute_tool_calls(state: dict[str, Any], ai_message: Any, runtime: Mapping[
                 messages.append({"role": "tool", "name": name, "content": payload})
     evidence["results"] = results
     state["evidence"] = evidence
-    for item in current_sets(state):
-        if str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}:
-            item["status"] = "active"
     state["messages"] = messages[-8:]
     control = dict(state.get("control", {}) or {})
     control["next"] = "audit"

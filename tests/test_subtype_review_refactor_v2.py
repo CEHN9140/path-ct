@@ -389,7 +389,12 @@ def test_first_structural_action_creates_revision_without_calling_model(monkeypa
 
 
 def test_execute_tool_calls_uses_concrete_names_for_multiple_requests(monkeypatch):
-    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    state["sets"][0]["status"] = "provisionally_accepted"
+    state["sets"][1]["status"] = "provisionally_dropped"
     state["action"] = RouterAction(
         action="need_more_evidence",
         requests=[
@@ -412,6 +417,23 @@ def test_execute_tool_calls_uses_concrete_names_for_multiple_requests(monkeypatc
     assert {row["dimension"] for row in state["evidence"]["results"]} == {
         "cross_modal_consistency", "confounder_exclusion"
     }
+    assert [row["status"] for row in state["sets"]] == [
+        "provisionally_accepted",
+        "provisionally_dropped",
+    ]
+
+
+def test_structural_change_reactivates_all_current_sets():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    state["sets"][0]["status"] = "provisionally_accepted"
+    state["sets"][1]["status"] = "provisionally_dropped"
+
+    reset_after_structural_change(state, partition_signature(state["sets"]))
+
+    assert [row["status"] for row in state["sets"]] == ["active", "active"]
 
 
 def test_review_graph_contains_only_three_agent_nodes():
