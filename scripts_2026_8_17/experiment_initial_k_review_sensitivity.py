@@ -28,7 +28,6 @@ from agents.subtype_review.llm import (  # noqa: E402
 from utils.io import write_json  # noqa: E402
 from utils.llm_utils import load_yaml_file  # noqa: E402
 
-
 INITIAL_KS = tuple(range(2, 9))
 EXPECTED_PATIENT_COUNT = 102
 DEFAULT_DATA_ROOT = ROOT / "output_kirc"
@@ -51,24 +50,34 @@ def labels_to_candidate_sets(
             f"Expected {expected_patient_count} patients for K={initial_k}, got {len(labels)}"
         )
     if expected_patient_ids is not None and set(labels) != set(expected_patient_ids):
-        raise ValueError("Consensus labels do not exactly match the patient-state cohort")
-    unique_labels = sorted(set(labels.values()), key=lambda value: (int(value) if value.isdigit() else value))
+        raise ValueError(
+            "Consensus labels do not exactly match the patient-state cohort"
+        )
+    unique_labels = sorted(
+        set(labels.values()), key=lambda value: int(value) if value.isdigit() else value
+    )
     if len(unique_labels) != initial_k:
-        raise ValueError(f"Consensus labels contain {len(unique_labels)} groups instead of K={initial_k}")
+        raise ValueError(
+            f"Consensus labels contain {len(unique_labels)} groups instead of K={initial_k}"
+        )
     candidate_sets = []
     for index, label in enumerate(unique_labels, 1):
-        members = sorted(patient_id for patient_id, value in labels.items() if value == label)
-        candidate_sets.append({
-            "cluster_id": f"K{initial_k}_C{index:02d}",
-            "member_ids": members,
-            "source_views": ["snf"],
-            "status": "under_review",
-            "generator": {
-                "algorithm": "consensus_hierarchical",
-                "initial_k": initial_k,
-                "cluster_label": label,
-            },
-        })
+        members = sorted(
+            patient_id for patient_id, value in labels.items() if value == label
+        )
+        candidate_sets.append(
+            {
+                "cluster_id": f"K{initial_k}_C{index:02d}",
+                "member_ids": members,
+                "source_views": ["snf"],
+                "status": "under_review",
+                "generator": {
+                    "algorithm": "consensus_hierarchical",
+                    "initial_k": initial_k,
+                    "cluster_label": label,
+                },
+            }
+        )
     members = [member for item in candidate_sets for member in item["member_ids"]]
     if len(members) != len(set(members)):
         raise ValueError("Consensus labels contain overlapping patients")
@@ -101,21 +110,42 @@ def load_initial_partition(
     initial_k: int,
     expected_patient_ids: set[str] | None = None,
 ) -> tuple[Path, list[dict[str, Any]]]:
-    path = data_root / "candidate_subtype" / "consensus_cluster" / f"consensus_hierarchical_K{initial_k}.json"
+    path = (
+        data_root
+        / "candidate_subtype"
+        / "consensus_cluster"
+        / f"consensus_hierarchical_K{initial_k}.json"
+    )
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return path, labels_to_candidate_sets(payload, initial_k, expected_patient_ids=expected_patient_ids)
+    return path, labels_to_candidate_sets(
+        payload, initial_k, expected_patient_ids=expected_patient_ids
+    )
 
 
-def apply_review_policy(state: dict[str, Any], config: Mapping[str, Any]) -> None:
+def apply_review_policy(
+    state: dict[str, Any],
+    config: Mapping[str, Any],
+    max_rounds: int | None = None,
+) -> None:
     budget = dict(config.get("budget", {}) or {})
     cross_modal = dict(config.get("cross_modal", {}) or {})
-    state["control"]["max_rounds"] = int(budget.get("max_rounds", 60) or 60)
+    state["control"]["max_rounds"] = int(
+        max_rounds if max_rounds is not None else budget.get("max_rounds", 60) or 60
+    )
     state["control"]["max_failures"] = int(budget.get("max_failures", 3) or 3)
     state["control"]["policy"] = {
-        "accept_min_supporting_modalities": int(cross_modal.get("accept_min_supporting_modalities", 2) or 2),
-        "split_min_supporting_modalities": int(cross_modal.get("split_min_supporting_modalities", 2) or 2),
-        "merge_min_supporting_modalities": int(cross_modal.get("merge_min_supporting_modalities", 2) or 2),
-        "split_require_molecular_or_biology": bool(cross_modal.get("split_require_molecular_or_biology", True)),
+        "accept_min_supporting_modalities": int(
+            cross_modal.get("accept_min_supporting_modalities", 2) or 2
+        ),
+        "split_min_supporting_modalities": int(
+            cross_modal.get("split_min_supporting_modalities", 2) or 2
+        ),
+        "merge_min_supporting_modalities": int(
+            cross_modal.get("merge_min_supporting_modalities", 2) or 2
+        ),
+        "split_require_molecular_or_biology": bool(
+            cross_modal.get("split_require_molecular_or_biology", True)
+        ),
         "min_split_size": int(budget.get("min_split_size", 10) or 10),
     }
 
@@ -128,10 +158,16 @@ def summarize_run(
 ) -> dict[str, Any]:
     final_sets = current_sets(state)
     control = dict(state.get("control", {}) or {})
-    initial_sizes = sorted(len(item.get("member_ids", []) or []) for item in initial_sets)
+    initial_sizes = sorted(
+        len(item.get("member_ids", []) or []) for item in initial_sets
+    )
     final_sizes = sorted(len(item.get("member_ids", []) or []) for item in final_sets)
-    accepted = [item for item in final_sets if item.get("status") == "provisionally_accepted"]
-    dropped = [item for item in final_sets if item.get("status") == "provisionally_dropped"]
+    accepted = [
+        item for item in final_sets if item.get("status") == "provisionally_accepted"
+    ]
+    dropped = [
+        item for item in final_sets if item.get("status") == "provisionally_dropped"
+    ]
     return {
         "initial_k": initial_k,
         "initial_cluster_sizes": initial_sizes,
@@ -143,7 +179,9 @@ def summarize_run(
         "total_tokens": usage.get("total_tokens"),
         "final_k": len(final_sets),
         "final_cluster_sizes": final_sizes,
-        "accepted_patient_count": len({member for item in accepted for member in item.get("member_ids", [])}),
+        "accepted_patient_count": len(
+            {member for item in accepted for member in item.get("member_ids", [])}
+        ),
         "dropped_set_count": len(dropped),
     }
 
@@ -153,7 +191,8 @@ def run_one(
     data_root: Path,
     review_root: Path,
     config_dir: Path,
-    max_llm_calls_per_run: int = 60,
+    max_rounds: int = 150,
+    max_llm_calls_per_run: int | None = None,
 ) -> dict[str, Any]:
     patient_states_by_id = load_patient_states(data_root)
     source_path, initial_sets = load_initial_partition(
@@ -163,22 +202,29 @@ def run_one(
     )
     run_root = review_root / f"K{initial_k}"
     run_root.mkdir(parents=True, exist_ok=True)
-    write_json(run_root / "initial_partition.json", {
-        "initial_k": initial_k,
-        "source": str(source_path),
-        "patient_count": sum(len(item["member_ids"]) for item in initial_sets),
-        "candidate_sets": initial_sets,
-    })
+    write_json(
+        run_root / "initial_partition.json",
+        {
+            "initial_k": initial_k,
+            "source": str(source_path),
+            "patient_count": sum(len(item["member_ids"]) for item in initial_sets),
+            "candidate_sets": initial_sets,
+        },
+    )
     review_config = load_yaml_file(config_dir / "subtype_review.yaml")
     tracker = LLMUsageTracker(max_llm_calls=max_llm_calls_per_run)
-    verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=tracker)
+    verifier_model = build_default_verifier(
+        review_config, config_dir, usage_tracker=tracker
+    )
     router_model = build_default_router(
         review_config,
         config_dir,
         self_review=False,
         usage_tracker=tracker,
     )
-    reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=tracker)
+    reviser_model = build_default_reviser(
+        review_config, config_dir, usage_tracker=tracker
+    )
     runtime = {
         "patient_states_by_id": patient_states_by_id,
         "output_root": str(data_root),
@@ -193,7 +239,7 @@ def run_one(
         runtime=runtime,
     )
     state = initial_review_state(initial_sets)
-    apply_review_policy(state, review_config)
+    apply_review_policy(state, review_config, max_rounds=max_rounds)
     state = graph.invoke(
         state,
         context=runtime,
@@ -223,17 +269,38 @@ def run_one(
 
 
 def write_run_summary(review_root: Path, rows: list[dict[str, Any]]) -> None:
-    write_json(review_root / "run1_summary.json", {"experiment": "initial_k_review_sensitivity", "run": 1, "runs": rows})
+    write_json(
+        review_root / "run1_summary.json",
+        {"experiment": "initial_k_review_sensitivity", "run": 1, "runs": rows},
+    )
     fields = [
-        "initial_k", "initial_cluster_sizes", "terminal_status", "rounds_used",
-        "api_calls", "prompt_tokens", "completion_tokens", "total_tokens",
-        "final_k", "final_cluster_sizes", "accepted_patient_count", "dropped_set_count",
+        "initial_k",
+        "initial_cluster_sizes",
+        "terminal_status",
+        "rounds_used",
+        "api_calls",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "final_k",
+        "final_cluster_sizes",
+        "accepted_patient_count",
+        "dropped_set_count",
     ]
-    with (review_root / "run1_summary.csv").open("w", newline="", encoding="utf-8") as handle:
+    with (review_root / "run1_summary.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for row in rows:
-            writer.writerow({key: json.dumps(row[key], ensure_ascii=False) if isinstance(row[key], list) else row[key] for key in fields})
+            writer.writerow(
+                {
+                    key: json.dumps(row[key], ensure_ascii=False)
+                    if isinstance(row[key], list)
+                    else row[key]
+                    for key in fields
+                }
+            )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -241,7 +308,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--review-root", type=Path, default=DEFAULT_REVIEW_ROOT)
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
-    parser.add_argument("--max-llm-calls-per-run", type=int, default=60)
+    parser.add_argument("--max-rounds", type=int, default=60)
+    parser.add_argument("--max-llm-calls-per-run", type=int, default=None)
     parser.add_argument("--initial-k", type=int, choices=INITIAL_KS, action="append")
     return parser
 
@@ -250,11 +318,28 @@ def main() -> None:
     args = build_parser().parse_args()
     args.review_root.mkdir(parents=True, exist_ok=True)
     rows = [
-        run_one(k, args.data_root, args.review_root, args.config_dir, args.max_llm_calls_per_run)
+        run_one(
+            k,
+            args.data_root,
+            args.review_root,
+            args.config_dir,
+            args.max_rounds,
+            args.max_llm_calls_per_run,
+        )
         for k in args.initial_k or INITIAL_KS
     ]
     write_run_summary(args.review_root, rows)
-    print(json.dumps({"run": 1, "initial_k": [row["initial_k"] for row in rows], "output_root": str(args.review_root)}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "run": 1,
+                "initial_k": [row["initial_k"] for row in rows],
+                "output_root": str(args.review_root),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
