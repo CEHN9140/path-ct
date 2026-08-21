@@ -945,6 +945,7 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
 
     signature = subject_signature("cross_modal_consistency", "set_identity", sets, [target])
     modalities = set()
+    moderate_modalities = set()
     evidence_level = None
     for result in current_partition_evidence(state).get("results", []):
         if (
@@ -955,21 +956,21 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
         ):
             for child in result.get("results", []) or []:
                 if child.get("tool_name") == "multimodal_consistency_check":
+                    metrics = dict(child.get("metrics", {}) or {})
                     modalities.update(
-                        dict(child.get("metrics", {}) or {}).get(
+                        metrics.get(
                             "identity_supporting_modalities_by_set", {}
                         ).get(target, []) or []
                     )
-                    evidence_level = dict(
-                        child.get("metrics", {}) or {}
-                    ).get("identity_evidence_level_by_set", {}).get(target)
+                    moderate_modalities.update(
+                        metrics.get("identity_moderate_modalities_by_set", {}).get(target, []) or []
+                    )
+                    evidence_level = metrics.get("identity_evidence_level_by_set", {}).get(target)
     minimum = int(
         dict(dict(state.get("control", {}) or {}).get("policy", {}) or {}).get(
             "accept_min_supporting_modalities", 2
         ) or 2
     )
-    if len(modalities) < minimum:
-        return False, "Accept requires at least two supporting original modalities"
     if evidence_level and evidence_level not in {"concordant", "complementary"}:
         return False, f"Accept requires concordant or complementary identity evidence, got {evidence_level}"
 
@@ -981,6 +982,17 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
     ]
     if not any(row.get("status") != "unavailable" for row in biology):
         return False, "Accept requires available set-level biological evidence"
+    biology_supporting = any(row.get("status") == "supporting" for row in biology)
+    if evidence_level == "concordant" and len(modalities) < minimum:
+        return False, "Accept requires at least two supporting original modalities"
+    if evidence_level == "complementary" and (
+        not modalities
+        or not moderate_modalities.difference(modalities)
+        or not biology_supporting
+    ):
+        return False, "Complementary Accept requires one supporting modality, one distinct moderate modality, and supporting biology"
+    if evidence_level is None and len(modalities) < minimum:
+        return False, "Accept requires at least two supporting original modalities"
 
     confound = [
         row for row in findings
@@ -1325,11 +1337,9 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         if len(item.get("member_ids", []) or []) >= 2 * min_split_size
         and f"split:{set_id(item)}" not in blocked
     ]
-    active_ids = {
-        set_id(item) for item in sets if str(item.get("status", "active")) == "active"
-    }
+    merge_ids = {set_id(item) for item in sets if set_id(item) not in invalid}
     for targets in sorted(merge_signals):
-        if set(targets).issubset(active_ids) and f"merge:{'+'.join(targets)}" not in blocked:
+        if set(targets).issubset(merge_ids) and f"merge:{'+'.join(targets)}" not in blocked:
             intents.append({"action": "merge", "target_ids": list(targets)})
     return intents
 

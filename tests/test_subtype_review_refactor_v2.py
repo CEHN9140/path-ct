@@ -365,6 +365,38 @@ def test_initial_revision_intents_skip_acceptable_sets():
     validate_router_action(RouterAction(action="accept", target_ids=["C1"]), state)
 
 
+def test_complementary_identity_can_accept_with_biology_support():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]}])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1"],
+        {},
+        "multimodal_consistency_check",
+        {
+            "identity_supporting_modalities_by_set": {"C1": ["ct"]},
+            "identity_moderate_modalities_by_set": {"C1": ["wsi"]},
+            "identity_evidence_level_by_set": {"C1": "complementary"},
+        },
+        cross_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "status": "supporting",
+        "metric_refs": [cross_ref],
+    })
+    add_identity_controls(state)
+    for finding in state["audit"]["findings"]:
+        if finding["dimension"] == "biological_support":
+            finding["status"] = "supporting"
+
+    assert set_acceptance(state, "C1")[0] is True
+
+
 def test_only_conflicting_biology_triggers_initial_structural_review():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]}])
     cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
@@ -422,7 +454,7 @@ def test_structural_intent_blocks_are_exact():
     assert not [row for row in intents if row["action"] == "merge"]
 
 
-def test_nonacceptable_set_cannot_speculatively_merge_with_accepted_counterpart():
+def test_accepted_set_can_reenter_merge_review_with_boundary_signal():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
         {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
@@ -443,11 +475,19 @@ def test_nonacceptable_set_cannot_speculatively_merge_with_accepted_counterpart(
         "target_ids": ["C2"], "dimension": "confounder_exclusion", "scope": "set_identity",
         "status": "supporting", "metric_refs": ["tool_results.confound_test.metrics.strong_technical_conflict"],
     })
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1", "C2"],
+        {},
+        "multimodal_consistency_check",
+        {"merge_candidate_pairs_by_modality": {"C1+C2": ["ct", "wsi"]}},
+        "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+    ))
     state["sets"][1]["status"] = "provisionally_accepted"
 
-    assert initial_revision_intents(state) == []
-    with pytest.raises(ValueError, match="deterministic revision motive"):
-        validate_router_action(RouterAction(action="merge", target_ids=["C1", "C2"]), state)
+    assert initial_revision_intents(state) == [{"action": "merge", "target_ids": ["C1", "C2"]}]
 
 
 def test_merge_intent_is_bounded_to_two_active_structural_motives():
