@@ -1303,6 +1303,12 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         set_id(item) for item in sets
         if any(invalidates_set(row, set_id(item)) for row in findings)
     }
+    split_signals = set(
+        str(target)
+        for target in dict(state.get("control", {}) or {}).get(
+            "structural_split_sets", []
+        ) or []
+    )
     cross_metrics = {}
     for result in current_partition_evidence(state).get("results", []) or []:
         if (
@@ -1312,13 +1318,6 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         ):
             for child in result.get("results", []) or []:
                 cross_metrics.update(dict(child.get("metrics", {}) or {}))
-    split_signals = {
-        str(target)
-        for target, modalities in dict(
-            cross_metrics.get("split_candidate_sets_by_modality", {}) or {}
-        ).items()
-        if modalities
-    }
     merge_signals = {
         tuple(sorted(str(value) for value in pair.split("+")))
         for pair, modalities in dict(
@@ -1512,6 +1511,38 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         for key, row in missing.items()
         if key not in attempted
     ]
+    if (
+        state.get("revision") is None
+        and not requestable
+        and "structural_split_sets" not in control
+        and runtime.get("data_root")
+        and runtime.get("config_dir")
+    ):
+        from tools.structural_adequacy import generate_structure_proposal_metrics
+
+        signature = partition_signature(sets)
+        raw = generate_structure_proposal_metrics(
+            {
+                "cluster_id": partition_artifact_id(signature),
+                "member_ids": sorted(
+                    member for item in sets for member in item.get("member_ids", [])
+                ),
+            },
+            runtime.get("patient_states_by_id", {}),
+            str(runtime["data_root"]),
+            config_dir=str(runtime["config_dir"]),
+            all_cluster_states=sets,
+            artifact_root=str(runtime.get("review_output_root", runtime["data_root"])),
+        )
+        metrics = dict(dict(raw.get("results", {}) or {}).get("metrics", {}) or {})
+        control["structural_split_sets"] = sorted({
+            str(row.get("source_set_id", ""))
+            for row in metrics.get("split_candidates", []) or []
+            if int(row.get("child_count", 0) or 0) == 2
+            and float(dict(row.get("selection_adjusted_null", {}) or {}).get("q_value", 1) or 1) <= 0.05
+            and float(dict(row.get("selection_adjusted_null", {}) or {}).get("separation_gain_over_null", 0) or 0) > 0
+        })
+        state["control"] = control
     revision = dict(state.get("revision", {}) or {})
     if revision.get("status") == "evidence_collection" and not any(
         row["scope"] in {"split_proposal", "merge_proposal"} for row in requestable
@@ -1762,6 +1793,7 @@ def reset_after_structural_change(state: dict[str, Any], signature: str) -> None
     state["action"] = None
     state["messages"] = []
     control = dict(state.get("control", {}) or {})
+    control.pop("structural_split_sets", None)
     control["visited_partitions"] = list(control.get("visited_partitions", []) or []) + [signature]
     control["blocked_actions"] = []
     control["next"] = "audit"

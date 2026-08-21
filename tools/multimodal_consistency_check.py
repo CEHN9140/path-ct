@@ -209,7 +209,6 @@ def compute_cross_modal_consistency(
     modality_flags = {}
     identity_modalities_by_set = {set_id: [] for set_id in memberships}
     identity_moderate_modalities_by_set = {set_id: [] for set_id in memberships}
-    split_sets_by_modality = {set_id: [] for set_id in memberships}
     merge_pairs_by_modality = {}
     for modality, row in rows.items():
         per_set = row.get("per_set", {})
@@ -251,18 +250,14 @@ def compute_cross_modal_consistency(
                 )
             )
             moderate_identity = (
-                float(values.get("median_silhouette", 0) or 0) > 0
+                float(values.get("median_silhouette", 0) or 0) > effect_epsilon
+                and float(values.get("normalized_affinity_separation", 0) or 0) > effect_epsilon
                 and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
             )
             if strong_identity:
                 identity_modalities_by_set.setdefault(set_id, []).append(modality)
             if moderate_identity:
                 identity_moderate_modalities_by_set.setdefault(set_id, []).append(modality)
-            if (
-                float(values.get("median_silhouette", 0) or 0) < 0
-                or float(values.get("fraction_silhouette_positive", 1) or 0) < 0.5
-            ):
-                split_sets_by_modality.setdefault(set_id, []).append(modality)
         labels_unique = sorted(str(value) for value in np.unique(labels))
         for index, left in enumerate(labels_unique):
             left_members = np.flatnonzero(labels == left)
@@ -301,7 +296,6 @@ def compute_cross_modal_consistency(
                 )
                 for set_id in memberships
             },
-            "split_candidate_sets_by_modality": split_sets_by_modality,
             "merge_candidate_pairs_by_modality": merge_pairs_by_modality,
             "split_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["split_support"]],
             "merge_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_support"]],

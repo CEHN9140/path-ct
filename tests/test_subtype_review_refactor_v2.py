@@ -123,7 +123,7 @@ def test_verifier_payload_contains_summary_not_full_metrics():
     assert payload["evidence_summary"][0]["tool_results"][0]["metric_refs"] == ["m"]
 
 
-def test_cross_modal_reports_within_set_and_boundary_signals():
+def test_cross_modal_does_not_turn_negative_silhouette_into_split_signal():
     case_ids = ["P1", "P2", "Q1", "Q2"]
     memberships = {"C1": ["P1", "P2"], "C2": ["Q1", "Q2"]}
     affinity = np.full((4, 4), 0.9, dtype=float)
@@ -136,7 +136,7 @@ def test_cross_modal_reports_within_set_and_boundary_signals():
     )
     metrics = result["decision_metrics"]
 
-    assert set(metrics["split_candidate_sets_by_modality"]) == {"C1", "C2"}
+    assert "split_candidate_sets_by_modality" not in metrics
     assert set(metrics["merge_candidate_pairs_by_modality"]) == {"C1+C2"}
 
 
@@ -233,7 +233,7 @@ def test_base_review_requests_biology_evidence():
     }
 
 
-def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
+def test_router_exposes_accept_and_positive_split_as_equal_legal_actions(monkeypatch):
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]},
         {"cluster_id": "C2", "member_ids": [f"Q{i}" for i in range(20)]},
@@ -250,7 +250,6 @@ def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
             "identity_supporting_modalities_by_set": {
                 "C1": ["ct", "rna"], "C2": ["ct", "rna"],
             },
-            "split_candidate_sets_by_modality": {"C1": ["ct"]},
         },
         cross_ref,
     ))
@@ -269,6 +268,19 @@ def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
         "metric_refs": [cross_ref],
     })
     add_identity_controls(state)
+    monkeypatch.setattr(
+        "tools.structural_adequacy.generate_structure_proposal_metrics",
+        lambda *args, **kwargs: {
+            "results": {"metrics": {"split_candidates": [{
+                "source_set_id": "C1",
+                "child_count": 2,
+                "selection_adjusted_null": {
+                    "q_value": 0.01,
+                    "separation_gain_over_null": 0.2,
+                },
+            }]}},
+        },
+    )
     confound_ref = "tool_results.confound_test.metrics.strong_technical_conflict"
     state["evidence"]["results"].append(evidence_row(
         state, "confounder_exclusion", "set_identity", ["C2"], {},
@@ -293,10 +305,45 @@ def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
     })
     model = StaticModel({"action_id": "A0", "reason": "accept"})
 
-    router_node(state, {}, model)
+    router_node(state, {"data_root": "output", "config_dir": "configs"}, model)
 
     actions = {row["action"]["action"] for row in model.payloads[0]["legal_actions"]}
     assert {"accept", "split"}.issubset(actions)
+
+
+def test_moderate_identity_requires_material_normalized_separation(monkeypatch):
+    def separation(_similarity, _labels):
+        return {"normalized_affinity_separation": 0.0005}, {
+            "C1": {
+                "normalized_affinity_separation": 0.0005,
+                "median_silhouette": 0.2,
+                "fraction_affinity_margin_positive": 0.75,
+            },
+            "C2": {
+                "normalized_affinity_separation": 0.01,
+                "median_silhouette": 0.2,
+                "fraction_affinity_margin_positive": 0.75,
+            },
+        }
+
+    monkeypatch.setattr(
+        "tools.multimodal_consistency_check.partition_separation", separation
+    )
+    monkeypatch.setattr(
+        "sklearn.metrics.silhouette_samples",
+        lambda _distance, _labels, metric: np.asarray([0.2, 0.2, 0.2, 0.2]),
+    )
+    affinity = np.eye(4)
+    result = compute_cross_modal_consistency(
+        {modality: affinity for modality in ("ct", "wsi", "rna", "genomic")},
+        ["P1", "P2", "P3", "P4"],
+        {"C1": ["P1", "P2"], "C2": ["P3", "P4"]},
+        permanova_permutations=9,
+    )
+
+    moderate = result["decision_metrics"]["identity_moderate_modalities_by_set"]
+    assert "ct" not in moderate["C1"]
+    assert "ct" in moderate["C2"]
 
 
 def test_exhausted_insufficient_support_becomes_unresolved():
