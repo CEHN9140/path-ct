@@ -56,6 +56,20 @@ def accepted_assignments(final_sets: Sequence[Mapping[str, Any]]) -> dict[str, s
     return dict(sorted(assignments.items()))
 
 
+def scientifically_terminal(summary: Mapping[str, Any]) -> bool:
+    raw_status = str(summary.get("raw_control_status", ""))
+    review_status = str(summary.get("status", ""))
+    contract_failed = any(
+        row.get("event") == "router_contract_exhausted"
+        for row in summary.get("decision_trace", []) or []
+    )
+    return (
+        raw_status in {"complete", "unresolved"}
+        and review_status.startswith("review_complete")
+        and not contract_failed
+    )
+
+
 def compare_runs(left: Mapping[str, str], right: Mapping[str, str]) -> dict[str, Any]:
     left_ids, right_ids = set(left), set(right)
     shared = sorted(left_ids & right_ids)
@@ -223,12 +237,14 @@ def analyze(
                 continue
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             raw_status = str(summary.get("raw_control_status", ""))
+            review_status = str(summary.get("status", ""))
+            valid_for_analysis = scientifically_terminal(summary)
             assignments = accepted_assignments(summary.get("partition_sets", []))
             usage = dict(summary.get("llm_usage", {}) or {})
             row = {
                 "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
-                "repeat": repeat, "valid_for_analysis": raw_status == "complete",
-                "raw_control_status": raw_status, "review_status": summary.get("status"),
+                "repeat": repeat, "valid_for_analysis": valid_for_analysis,
+                "raw_control_status": raw_status, "review_status": review_status,
                 "partition_assessment": summary.get("partition_assessment", "unavailable"),
                 "rounds_used": summary.get("rounds_used"),
                 "accepted_set_count": len(set(assignments.values())),
@@ -236,7 +252,7 @@ def analyze(
                 "api_calls": usage.get("api_calls"), "total_tokens": usage.get("total_tokens"),
             }
             execution_rows.append(row)
-            if raw_status == "complete":
+            if valid_for_analysis:
                 runs.append({**row, "assignments": assignments})
 
     experiment_root.mkdir(parents=True, exist_ok=True)
@@ -422,7 +438,10 @@ def analyze(
         ).items())),
         "patient_count": len(patient_ids),
         "accepted_only": True,
-        "scientific_denominator": "raw_control_status == complete",
+        "scientific_denominator": (
+            "review_status starts with review_complete, raw_control_status is "
+            "complete or scientific unresolved, and no router_contract_exhausted"
+        ),
         "primary_core_definition": {
             "acceptance_frequency": primary_threshold,
             "minimum_pairwise_coacceptance": primary_threshold,
@@ -512,7 +531,7 @@ def main() -> None:
                         and metadata.get("repeat") == repeat
                         and metadata.get("source") == str(source_path)
                         and metadata.get("review_signature") == review_signature
-                        and summary.get("raw_control_status") == "complete"
+                        and scientifically_terminal(summary)
                     )
                 if reusable:
                     print(f"[reuse] run{repeat}/K{initial_k}")
