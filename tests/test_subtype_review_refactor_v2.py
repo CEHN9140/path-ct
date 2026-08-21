@@ -173,6 +173,40 @@ def test_router_executes_sole_legal_action_without_llm_call():
     assert model.calls == 0
 
 
+def test_python_derived_complementary_finding_is_supporting():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]}])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1"],
+        {},
+        "multimodal_consistency_check",
+        {
+            "identity_supporting_modalities_by_set": {"C1": ["ct"]},
+            "identity_moderate_modalities_by_set": {"C1": ["wsi"]},
+            "identity_evidence_level_by_set": {"C1": "complementary"},
+        },
+        cross_ref,
+    ))
+    state["evidence"]["results"][-1]["results"][0]["metric_refs"] = [
+        "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+        "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+        "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+    ]
+    add_identity_controls(state)
+
+    verifier_node(state, {}, StaticModel({"findings": [], "gaps": []}))
+
+    finding = next(
+        row for row in state["audit"]["findings"]
+        if row["dimension"] == "cross_modal_consistency"
+    )
+    assert finding["status"] == "supporting"
+    assert "complementary" in finding["summary"]
+
+
 def test_router_structural_actions_do_not_select_proposals():
     split = RouterAction(action="split", target_ids=["C1"])
     merge = RouterAction(action="merge", target_ids=["C2", "C1"])
@@ -265,7 +299,7 @@ def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
     assert {"accept", "split"}.issubset(actions)
 
 
-def test_exhausted_insufficient_support_is_distinguished_from_technical_drop():
+def test_exhausted_insufficient_support_becomes_unresolved():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
     state["evidence"]["results"].append(evidence_row(
@@ -287,9 +321,11 @@ def test_exhausted_insufficient_support_is_distinguished_from_technical_drop():
         "scope": "set_identity", "status": "inconclusive", "metric_refs": [biology_ref],
     })
 
-    validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
+    with pytest.raises(ValueError, match="technical invalidation"):
+        validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
     router_node(state, {}, StaticModel({"action_id": "unused", "reason": ""}))
-    assert state["sets"][0]["drop_reason"] == "insufficient_validation_after_exhaustion"
+    assert state["sets"][0]["status"] == "unresolved"
+    assert state["sets"][0]["unresolved_reason"] == "insufficient_validation_after_exhaustion"
 
 
 def test_reviser_output_contains_only_plan_and_reason():
@@ -952,7 +988,7 @@ def test_inconclusive_biology_does_not_block_accept_when_identity_is_supported()
     )
 
 
-def test_conflicting_set_identity_biology_blocks_accept_and_allows_exhausted_drop():
+def test_conflicting_set_identity_biology_blocks_accept_and_does_not_allow_drop_without_invalidation():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
     biology_ref = "tool_results.pathway_enrichment.metrics.signal"
@@ -984,10 +1020,11 @@ def test_conflicting_set_identity_biology_blocks_accept_and_allows_exhausted_dro
         validate_router_action(
             RouterAction(action="accept", target_ids=["C1"]), state
         )
-    validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
+    with pytest.raises(ValueError, match="technical invalidation"):
+        validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
 
 
-def test_drop_allows_insufficient_support_after_structural_options_are_exhausted():
+def test_drop_does_not_allow_insufficient_support_after_structural_options_are_exhausted():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
     state["evidence"]["results"].append(evidence_row(
@@ -999,7 +1036,8 @@ def test_drop_allows_insufficient_support_after_structural_options_are_exhausted
         "scope": "set_identity", "status": "inconclusive", "metric_refs": [ref],
     })
     add_identity_controls(state)
-    validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
+    with pytest.raises(ValueError, match="technical invalidation"):
+        validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
 
 
 def test_mixed_confounder_is_an_acceptance_caveat_not_a_veto():
@@ -1386,7 +1424,7 @@ def test_split_proposal_confound_blocks_split_without_invalidating_parent():
     state["revision"] = None
     state["control"]["blocked_actions"].append("split:C1")
     validate_router_action(RouterAction(action="accept", target_ids=["C1"]), state)
-    with pytest.raises(ValueError, match="technical invalidation or exhausted"):
+    with pytest.raises(ValueError, match="technical invalidation"):
         validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
 
 
@@ -1897,7 +1935,7 @@ def test_budget_exhaustion_uses_public_unresolved_status(tmp_path):
     assert summary["status"] == "review_complete_with_unresolved_sets"
 
 
-def test_evidence_exhaustion_drops_an_unsupported_set_without_calling_router():
+def test_evidence_exhaustion_marks_an_unsupported_set_unresolved_without_calling_router():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
     state["evidence"] = {"results": []}
     state["audit"] = {"findings": [], "gaps": []}
@@ -1922,9 +1960,9 @@ def test_evidence_exhaustion_drops_an_unsupported_set_without_calling_router():
     add_identity_controls(state)
     model = StaticModel({"action_id": "unused", "reason": ""})
     router_node(state, {}, model)
-    assert state["sets"][0]["status"] == "provisionally_dropped"
-    assert state["sets"][0]["drop_reason"] == "insufficient_validation_after_exhaustion"
-    assert state["control"]["status"] == "complete"
+    assert state["sets"][0]["status"] == "unresolved"
+    assert state["sets"][0]["unresolved_reason"] == "insufficient_validation_after_exhaustion"
+    assert state["control"]["status"] == "unresolved"
     assert model.calls == 0
 
 

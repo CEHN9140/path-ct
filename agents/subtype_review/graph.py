@@ -562,6 +562,9 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
         audit_payload = dict(audit_payload)
         sets = current_sets(state)
         identity_modalities_by_set = {}
+        identity_moderate_modalities_by_set = {}
+        identity_evidence_level_by_set = {}
+        identity_metric_refs = set()
         identity_evidence_available = False
         identity_evidence_attempted = False
         for evidence_row in current_evidence.get("results", []) or []:
@@ -573,13 +576,19 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
             identity_evidence_attempted = True
             for child in evidence_row.get("results", []) or []:
                 if child.get("tool_name") == "multimodal_consistency_check":
+                    metrics = dict(child.get("metrics", {}) or {})
+                    identity_metric_refs.update(child.get("metric_refs", []) or [])
                     identity_evidence_available = (
                         identity_evidence_available or child.get("status") == "success"
                     )
                     identity_modalities_by_set.update(
-                        dict(child.get("metrics", {}) or {}).get(
-                            "identity_supporting_modalities_by_set", {}
-                        )
+                        metrics.get("identity_supporting_modalities_by_set", {})
+                    )
+                    identity_moderate_modalities_by_set.update(
+                        metrics.get("identity_moderate_modalities_by_set", {})
+                    )
+                    identity_evidence_level_by_set.update(
+                        metrics.get("identity_evidence_level_by_set", {})
                     )
         minimum = int(
             dict(dict(state.get("control", {}) or {}).get("policy", {}) or {}).get(
@@ -642,9 +651,23 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                 rows.append(row)
             audit_payload[key] = rows
         if identity_evidence_attempted:
-            ref_root = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
             for target in sorted(set_id(item) for item in sets):
                 modalities = sorted(identity_modalities_by_set.get(target, []) or [])
+                moderate_modalities = sorted(identity_moderate_modalities_by_set.get(target, []) or [])
+                evidence_level = identity_evidence_level_by_set.get(target)
+                status = {
+                    "concordant": "supporting",
+                    "complementary": "supporting",
+                    "modality_dominant": "mixed",
+                    "inconclusive": "inconclusive",
+                }.get(evidence_level)
+                if status is None:
+                    status = (
+                        "unavailable" if not identity_evidence_available
+                        else "supporting" if len(modalities) >= minimum
+                        else "mixed" if modalities
+                        else "inconclusive"
+                    )
                 audit_payload["findings"].append({
                     "target_ids": [target],
                     "dimension": "cross_modal_consistency",
@@ -652,17 +675,13 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
                     "subject_signature": subject_signature(
                         "cross_modal_consistency", "set_identity", sets, [target]
                     ),
-                    "status": (
-                        "unavailable" if not identity_evidence_available
-                        else "supporting" if len(modalities) >= minimum
-                        else "mixed" if modalities
-                        else "inconclusive"
-                    ),
+                    "status": status,
                     "summary": (
-                        f"Python-derived identity support from {len(modalities)} original modalities: "
-                        + (", ".join(modalities) if modalities else "none")
+                        f"Python-derived identity level={evidence_level or 'unavailable'}; "
+                        f"supporting={', '.join(modalities) if modalities else 'none'}; "
+                        f"moderate={', '.join(moderate_modalities) if moderate_modalities else 'none'}"
                     ),
-                    "metric_refs": [f"{ref_root}.{target}"] if identity_evidence_available else [],
+                    "metric_refs": sorted(identity_metric_refs) if identity_evidence_available else [],
                 })
         if confound_metrics:
             flags = dict(confound_metrics.get("deterministic_flags", {}) or {})
@@ -1456,13 +1475,8 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
         if not acceptable:
             raise ValueError(reason)
     if action.action == "drop":
-        positive = any(invalidates_set(finding, target) for finding in findings)
-        exhausted = (
-            not set_acceptance(state, target)[0]
-            and not any(target in intent["target_ids"] for intent in initial_revision_intents(state))
-        )
-        if not positive and not exhausted:
-            raise ValueError("Drop requires technical invalidation or exhausted unsupported identity")
+        if not any(invalidates_set(finding, target) for finding in findings):
+            raise ValueError("Drop requires technical invalidation")
 
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
@@ -1552,6 +1566,10 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             ).model_dump()
         )
     if not requestable and not legal_action_candidates:
+        for item in current_sets(state):
+            if str(item.get("status", "active")) == "active":
+                item["status"] = "unresolved"
+                item["unresolved_reason"] = "insufficient_validation_after_exhaustion"
         control["status"] = "unresolved"
         control["error"] = None
         control["next"] = "end"
@@ -1975,6 +1993,9 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "llm_usage": to_jsonable(control.get("llm_usage", {})),
         "partition_sets": to_jsonable(sets),
         "accepted_subtype_sets": to_jsonable(accepted_sets),
+        "unresolved_sets": to_jsonable([
+            item for item in sets if item.get("status") == "unresolved"
+        ]),
         "partition_patient_count": len({member for item in sets for member in item.get("member_ids", [])}),
         "accepted_patient_count": len({member for item in accepted_sets for member in item.get("member_ids", [])}),
         "partition_assessment": partition_assessment,

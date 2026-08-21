@@ -1,14 +1,14 @@
 {
   "final_review_summary": {
     "stage": "subtype_review",
-    "status": "review_complete_with_dropped_sets",
-    "raw_control_status": "complete",
-    "rounds_used": 11,
+    "status": "review_complete_with_unresolved_sets",
+    "raw_control_status": "unresolved",
+    "rounds_used": 10,
     "llm_usage": {
-      "api_calls": 19,
-      "prompt_tokens": 85391,
-      "completion_tokens": 2588,
-      "total_tokens": 87979
+      "api_calls": 17,
+      "prompt_tokens": 85081,
+      "completion_tokens": 2634,
+      "total_tokens": 87715
     },
     "partition_sets": [
       {
@@ -46,9 +46,9 @@
           "TCGA-CZ-5468",
           "TCGA-CZ-5985"
         ],
-        "status": "provisionally_dropped",
+        "status": "unresolved",
         "parent_ids": [],
-        "drop_reason": "insufficient_validation_after_exhaustion"
+        "unresolved_reason": "insufficient_validation_after_exhaustion"
       },
       {
         "set_id": "C0002",
@@ -247,10 +247,7 @@
         "parent_ids": []
       }
     ],
-    "partition_patient_count": 103,
-    "accepted_patient_count": 73,
-    "partition_assessment": "mixed",
-    "dropped_set_registry": [
+    "unresolved_sets": [
       {
         "set_id": "C0001",
         "cluster_id": "C0001",
@@ -286,11 +283,15 @@
           "TCGA-CZ-5468",
           "TCGA-CZ-5985"
         ],
-        "status": "provisionally_dropped",
+        "status": "unresolved",
         "parent_ids": [],
-        "drop_reason": "insufficient_validation_after_exhaustion"
+        "unresolved_reason": "insufficient_validation_after_exhaustion"
       }
     ],
+    "partition_patient_count": 103,
+    "accepted_patient_count": 73,
+    "partition_assessment": "mixed",
+    "dropped_set_registry": [],
     "revision": null,
     "audit": {
       "findings": [
@@ -351,7 +352,7 @@
           "proposal_id": null,
           "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
           "status": "supporting",
-          "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows chr14q loss and JAK2 loss trends (q=0.421).",
+          "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05) but top effects include chr13q/7q/14q.",
           "metric_refs": [
             "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
             "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
@@ -365,7 +366,7 @@
           "proposal_id": null,
           "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
           "status": "supporting",
-          "summary": "Known label echo test shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
+          "summary": "Known label structure comparison shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
           "metric_refs": [
             "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
             "tool_results.known_label_echo_test.metrics.analysis_scope",
@@ -381,9 +382,19 @@
           "proposal_id": null,
           "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
           "status": "mixed",
-          "summary": "Python-derived identity support from 1 original modalities: rna",
+          "summary": "Python-derived identity level=modality_dominant; supporting=rna; moderate=rna",
           "metric_refs": [
-            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+            "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+            "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+            "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.modality_flags",
+            "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
           ]
         },
         {
@@ -395,9 +406,19 @@
           "proposal_id": null,
           "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
           "status": "supporting",
-          "summary": "Python-derived identity support from 2 original modalities: rna, wsi",
+          "summary": "Python-derived identity level=concordant; supporting=rna, wsi; moderate=rna, wsi",
           "metric_refs": [
-            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
+            "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+            "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+            "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.modality_flags",
+            "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
           ]
         },
         {
@@ -409,9 +430,19 @@
           "proposal_id": null,
           "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
           "status": "supporting",
-          "summary": "Python-derived identity support from 2 original modalities: ct, wsi",
+          "summary": "Python-derived identity level=concordant; supporting=ct, wsi; moderate=ct, wsi",
           "metric_refs": [
-            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
+            "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+            "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+            "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.modality_flags",
+            "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
           ]
         },
         {
@@ -423,9 +454,19 @@
           "proposal_id": null,
           "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
           "status": "supporting",
-          "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+          "summary": "Python-derived identity level=concordant; supporting=ct, rna, wsi; moderate=ct, rna, wsi",
           "metric_refs": [
-            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004"
+            "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+            "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+            "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+            "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+            "tool_results.multimodal_consistency_check.metrics.modality_flags",
+            "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+            "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
           ]
         },
         {
@@ -761,7 +802,7 @@
               "proposal_id": null,
               "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
               "status": "supporting",
-              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows chr14q loss and JAK2 loss trends (q=0.421).",
+              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05) but top effects include chr13q/7q/14q.",
               "metric_refs": [
                 "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
                 "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
@@ -775,7 +816,7 @@
               "proposal_id": null,
               "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
               "status": "supporting",
-              "summary": "Known label echo test shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
+              "summary": "Known label structure comparison shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
               "metric_refs": [
                 "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
                 "tool_results.known_label_echo_test.metrics.analysis_scope",
@@ -791,9 +832,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "mixed",
-              "summary": "Python-derived identity support from 1 original modalities: rna",
+              "summary": "Python-derived identity level=modality_dominant; supporting=rna; moderate=rna",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -805,9 +856,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: rna, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=rna, wsi; moderate=rna, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -819,9 +880,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: ct, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=ct, wsi; moderate=ct, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -833,9 +904,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=ct, rna, wsi; moderate=ct, rna, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -1008,7 +1089,7 @@
           "scope": null,
           "proposal_id": null,
           "requests": [],
-          "reason": "C0001 has only one supporting modality and mixed cross-modal consistency; split is authorized."
+          "reason": "C0001 modality-dominant identity insufficient for Accept; split to resolve heterogeneity."
         },
         "metric_refs": []
       },
@@ -1032,16 +1113,15 @@
         "node": "router",
         "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
         "action": {
-          "action": "merge",
+          "action": "split",
           "target_ids": [
-            "C0001",
-            "C0003"
+            "C0002"
           ],
           "dimension": null,
           "scope": null,
           "proposal_id": null,
           "requests": [],
-          "reason": "Complementary identity: C0001 RNA support, C0003 two modalities; merge may improve robustness."
+          "reason": "C0002 has concordant cross-modal consistency and supporting biology, but splitting may refine identity."
         },
         "metric_refs": []
       },
@@ -1049,9 +1129,9 @@
         "round": 3,
         "node": "reviser",
         "event": "candidates_generated",
-        "intent": "merge:C0001+C0003",
+        "intent": "split:C0002",
         "candidate_ids": [
-          "merge:C0001+C0003"
+          "split:C0002:k2:p1"
         ]
       },
       {
@@ -1067,12 +1147,11 @@
           "requests": [
             {
               "dimension": "cross_modal_consistency",
-              "scope": "merge_proposal",
+              "scope": "split_proposal",
               "target_ids": [
-                "C0001",
-                "C0003"
+                "C0002"
               ],
-              "proposal_id": "merge:C0001+C0003"
+              "proposal_id": "split:C0002:k2:p1"
             }
           ],
           "reason": ""
@@ -1091,8 +1170,8 @@
           {
             "dimension": "cross_modal_consistency",
             "status": "success",
-            "scope": "merge_proposal",
-            "subject_signature": "27e6618fa5bac3ea51b83c7004e5271298716beeca7a54cf8eca9e7fdcad6244",
+            "scope": "split_proposal",
+            "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
             "tool_results": [
               {
                 "tool_name": "multimodal_consistency_check",
@@ -1111,7 +1190,7 @@
                   "tool_results.multimodal_consistency_check.metrics.effect_epsilon"
                 ],
                 "artifact_paths": {
-                  "full_metrics": "/data/qijun/path-ct/output_kirc/evidence/merge_proposal/merge_C0001_C0003/subtype_review/p_cbbdaee910469063/multimodal_consistency_check_full_metrics.json",
+                  "full_metrics": "/data/qijun/path-ct/output_kirc/evidence/split_proposal/split_C0002_k2_p1/subtype_review/p_cbbdaee910469063/multimodal_consistency_check_full_metrics.json",
                   "figures": {}
                 }
               }
@@ -1183,7 +1262,7 @@
               "proposal_id": null,
               "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
               "status": "supporting",
-              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows chr14q loss and JAK2 loss trends (q=0.421).",
+              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05) but top effects include chr13q/7q/14q.",
               "metric_refs": [
                 "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
                 "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
@@ -1197,7 +1276,7 @@
               "proposal_id": null,
               "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
               "status": "supporting",
-              "summary": "Known label echo test shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
+              "summary": "Known label structure comparison shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
               "metric_refs": [
                 "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
                 "tool_results.known_label_echo_test.metrics.analysis_scope",
@@ -1213,9 +1292,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "mixed",
-              "summary": "Python-derived identity support from 1 original modalities: rna",
+              "summary": "Python-derived identity level=modality_dominant; supporting=rna; moderate=rna",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -1227,9 +1316,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: rna, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=rna, wsi; moderate=rna, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -1241,9 +1340,19 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: ct, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=ct, wsi; moderate=ct, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -1255,9 +1364,602 @@
               "proposal_id": null,
               "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
               "status": "supporting",
-              "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
+              "summary": "Python-derived identity level=concordant; supporting=ct, rna, wsi; moderate=ct, rna, wsi",
               "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004"
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+              ]
+            },
+            {
+              "target_ids": [],
+              "dimension": "confounder_exclusion",
+              "scope": "partition",
+              "proposal_id": null,
+              "subject_signature": "34e4882b77fa3803c41f8f5d2698c8195b34c65b7ab96c4ff81fcc5142ec1795",
+              "status": "mixed",
+              "summary": "Python-derived partition-level technical association status.",
+              "metric_refs": [
+                "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+                "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0001"
+              ],
+              "dimension": "confounder_exclusion",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+              "status": "supporting",
+              "summary": "Python-derived set-level technical association status.",
+              "metric_refs": [
+                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
+                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0002"
+              ],
+              "dimension": "confounder_exclusion",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+              "status": "supporting",
+              "summary": "Python-derived set-level technical association status.",
+              "metric_refs": [
+                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
+                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0003"
+              ],
+              "dimension": "confounder_exclusion",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+              "status": "mixed",
+              "summary": "Python-derived set-level technical association status.",
+              "metric_refs": [
+                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0003",
+                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0004"
+              ],
+              "dimension": "confounder_exclusion",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+              "status": "supporting",
+              "summary": "Python-derived set-level technical association status.",
+              "metric_refs": [
+                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0004",
+                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0002"
+              ],
+              "dimension": "cross_modal_consistency",
+              "scope": "split_proposal",
+              "proposal_id": "split:C0002:k2:p1",
+              "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
+              "status": "mixed",
+              "summary": "Split proposal for C0002: WSI supports split (split_supporting_modalities includes wsi), but CT, RNA, and genomic do not. Identity evidence for child_1 and child_2 is complementary, with WSI supporting both children. No merge candidate pairs identified.",
+              "metric_refs": [
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon"
+              ]
+            }
+          ],
+          "gaps": []
+        },
+        "evidence_inventory": [
+          {
+            "dimension": "biological_support",
+            "scope": "set_identity",
+            "proposal_id": null,
+            "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.cnv_characterization.metrics.per_comparison_cnv",
+              "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+              "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
+            ],
+            "missing_reasons": []
+          },
+          {
+            "dimension": "confounder_exclusion",
+            "scope": "set_identity",
+            "proposal_id": null,
+            "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.confound_test.metrics.deterministic_flags",
+              "tool_results.confound_test.metrics.global",
+              "tool_results.confound_test.metrics.sets"
+            ],
+            "missing_reasons": []
+          },
+          {
+            "dimension": "confounder_exclusion",
+            "scope": "partition",
+            "proposal_id": null,
+            "subject_signature": "34e4882b77fa3803c41f8f5d2698c8195b34c65b7ab96c4ff81fcc5142ec1795",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.confound_test.metrics.deterministic_flags",
+              "tool_results.confound_test.metrics.global",
+              "tool_results.confound_test.metrics.sets"
+            ],
+            "missing_reasons": []
+          },
+          {
+            "dimension": "cross_modal_consistency",
+            "scope": "set_identity",
+            "proposal_id": null,
+            "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+              "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+              "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+              "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+              "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+              "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+              "tool_results.multimodal_consistency_check.metrics.modality_flags",
+              "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+              "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+            ],
+            "missing_reasons": []
+          },
+          {
+            "dimension": "cross_modal_consistency",
+            "scope": "split_proposal",
+            "proposal_id": "split:C0002:k2:p1",
+            "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+              "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+              "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+              "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+              "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+              "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+              "tool_results.multimodal_consistency_check.metrics.modality_flags",
+              "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+              "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+            ],
+            "missing_reasons": []
+          },
+          {
+            "dimension": "known_label_echo",
+            "scope": "partition",
+            "proposal_id": null,
+            "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
+            "status": "success",
+            "has_metrics": true,
+            "metric_refs": [
+              "tool_results.known_label_echo_test.metrics.analysis_scope",
+              "tool_results.known_label_echo_test.metrics.decision_semantics",
+              "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
+            ],
+            "missing_reasons": []
+          }
+        ]
+      },
+      {
+        "round": 4,
+        "node": "router",
+        "event": "revision_unsupported",
+        "intent": "split:C0002"
+      },
+      {
+        "round": 5,
+        "node": "router",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "action": {
+          "action": "accept",
+          "target_ids": [
+            "C0002"
+          ],
+          "dimension": null,
+          "scope": null,
+          "proposal_id": null,
+          "requests": [],
+          "reason": "C0002 has concordant modalities and supporting biology, meeting acceptance criteria."
+        },
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv",
+          "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
+          "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
+          "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
+          "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+          "tool_results.known_label_echo_test.metrics.analysis_scope",
+          "tool_results.known_label_echo_test.metrics.decision_semantics",
+          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+          "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+          "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+          "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.modality_flags",
+          "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
+        ]
+      },
+      {
+        "round": 6,
+        "node": "router",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "action": {
+          "action": "split",
+          "target_ids": [
+            "C0004"
+          ],
+          "dimension": null,
+          "scope": null,
+          "proposal_id": null,
+          "requests": [],
+          "reason": "C0004 has concordant cross-modal consistency and supporting biology, but mixed confounder exclusion; split to refine."
+        },
+        "metric_refs": []
+      },
+      {
+        "round": 6,
+        "node": "reviser",
+        "event": "no_candidates",
+        "intent": "split:C0004"
+      },
+      {
+        "round": 7,
+        "node": "router",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "action": {
+          "action": "accept",
+          "target_ids": [
+            "C0004"
+          ],
+          "dimension": null,
+          "scope": null,
+          "proposal_id": null,
+          "requests": [],
+          "reason": "C0004 has concordant cross-modal consistency and supporting biology, meeting acceptance criteria."
+        },
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv",
+          "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
+          "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
+          "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0004",
+          "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
+          "tool_results.known_label_echo_test.metrics.analysis_scope",
+          "tool_results.known_label_echo_test.metrics.decision_semantics",
+          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+          "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+          "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+          "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.modality_flags",
+          "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
+        ]
+      },
+      {
+        "round": 8,
+        "node": "router",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "action": {
+          "action": "merge",
+          "target_ids": [
+            "C0001",
+            "C0003"
+          ],
+          "dimension": null,
+          "scope": null,
+          "proposal_id": null,
+          "requests": [],
+          "reason": ""
+        },
+        "metric_refs": []
+      },
+      {
+        "round": 8,
+        "node": "reviser",
+        "event": "candidates_generated",
+        "intent": "merge:C0001+C0003",
+        "candidate_ids": [
+          "merge:C0001+C0003"
+        ]
+      },
+      {
+        "round": 9,
+        "node": "router",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "action": {
+          "action": "need_more_evidence",
+          "target_ids": [],
+          "dimension": null,
+          "scope": null,
+          "proposal_id": null,
+          "requests": [
+            {
+              "dimension": "cross_modal_consistency",
+              "scope": "merge_proposal",
+              "target_ids": [
+                "C0001",
+                "C0003"
+              ],
+              "proposal_id": "merge:C0001+C0003"
+            }
+          ],
+          "reason": ""
+        },
+        "metric_refs": []
+      },
+      {
+        "round": 9,
+        "node": "verifier",
+        "event": "tools",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "dimensions": [
+          "cross_modal_consistency"
+        ],
+        "evidence_refs": [
+          {
+            "dimension": "cross_modal_consistency",
+            "status": "success",
+            "scope": "merge_proposal",
+            "subject_signature": "27e6618fa5bac3ea51b83c7004e5271298716beeca7a54cf8eca9e7fdcad6244",
+            "tool_results": [
+              {
+                "tool_name": "multimodal_consistency_check",
+                "status": "success",
+                "metric_refs": [
+                  "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                  "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                  "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                  "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                  "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                  "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                  "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                  "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
+                  "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                  "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                  "tool_results.multimodal_consistency_check.metrics.effect_epsilon"
+                ],
+                "artifact_paths": {
+                  "full_metrics": "/data/qijun/path-ct/output_kirc/evidence/merge_proposal/merge_C0001_C0003/subtype_review/p_cbbdaee910469063/multimodal_consistency_check_full_metrics.json",
+                  "figures": {}
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "round": 9,
+        "node": "verifier",
+        "event": "audit",
+        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
+        "audit": {
+          "findings": [
+            {
+              "target_ids": [
+                "C0001"
+              ],
+              "dimension": "biological_support",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
+              "status": "supporting",
+              "summary": "RNA pathway enrichment shows 24 significant pathways (q<0.05) including HALLMARK_PANCREAS_BETA_CELLS; WXS mutation enrichment identifies BAP1 (q=0.021); CNV shows VHL/PBRM1/SETD2/BAP1 differences vs rest (q=0.068).",
+              "metric_refs": [
+                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
+                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0002"
+              ],
+              "dimension": "biological_support",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
+              "status": "supporting",
+              "summary": "RNA pathway enrichment shows 22 significant pathways (q<0.05) including HALLMARK_ALLOGRAFT_REJECTION; WXS mutation enrichment identifies missense and TMB differences (q<0.05); CNV shows chr7p/20q/7q/2p differences vs rest (q<0.05).",
+              "metric_refs": [
+                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
+                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0003"
+              ],
+              "dimension": "biological_support",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
+              "status": "inconclusive",
+              "summary": "RNA pathway enrichment shows 0 significant pathways (q<0.05); WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05).",
+              "metric_refs": [
+                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
+                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0004"
+              ],
+              "dimension": "biological_support",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
+              "status": "supporting",
+              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05) but top effects include chr13q/7q/14q.",
+              "metric_refs": [
+                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
+                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
+                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
+              ]
+            },
+            {
+              "target_ids": [],
+              "dimension": "known_label_echo",
+              "scope": "partition",
+              "proposal_id": null,
+              "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
+              "status": "supporting",
+              "summary": "Known label structure comparison shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
+              "metric_refs": [
+                "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
+                "tool_results.known_label_echo_test.metrics.analysis_scope",
+                "tool_results.known_label_echo_test.metrics.decision_semantics"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0001"
+              ],
+              "dimension": "cross_modal_consistency",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+              "status": "mixed",
+              "summary": "Python-derived identity level=modality_dominant; supporting=rna; moderate=rna",
+              "metric_refs": [
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0002"
+              ],
+              "dimension": "cross_modal_consistency",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+              "status": "supporting",
+              "summary": "Python-derived identity level=concordant; supporting=rna, wsi; moderate=rna, wsi",
+              "metric_refs": [
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0003"
+              ],
+              "dimension": "cross_modal_consistency",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+              "status": "supporting",
+              "summary": "Python-derived identity level=concordant; supporting=ct, wsi; moderate=ct, wsi",
+              "metric_refs": [
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
+              ]
+            },
+            {
+              "target_ids": [
+                "C0004"
+              ],
+              "dimension": "cross_modal_consistency",
+              "scope": "set_identity",
+              "proposal_id": null,
+              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
+              "status": "supporting",
+              "summary": "Python-derived identity level=concordant; supporting=ct, rna, wsi; moderate=ct, rna, wsi",
+              "metric_refs": [
+                "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+                "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+                "tool_results.multimodal_consistency_check.metrics.modality_flags",
+                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
               ]
             },
             {
@@ -1343,7 +2045,7 @@
               "proposal_id": "merge:C0001+C0003",
               "subject_signature": "27e6618fa5bac3ea51b83c7004e5271298716beeca7a54cf8eca9e7fdcad6244",
               "status": "conflicting",
-              "summary": "Merge proposal C0001+C0003 is not supported by any modality (merge_supporting_modalities empty). CT and WSI show strong boundary (merge_strong_boundary_modalities includes ct, wsi), indicating the two sets should remain separate.",
+              "summary": "Merge proposal C0001+C0003 is not supported by any modality; CT and WSI show strong boundary (merge_support=false, merge_strong_boundary=true), RNA and Genomic also do not support merge. No modality supports merging these sets.",
               "metric_refs": [
                 "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
                 "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
@@ -1457,13 +2159,13 @@
         ]
       },
       {
-        "round": 4,
+        "round": 9,
         "node": "router",
         "event": "revision_unsupported",
         "intent": "merge:C0001+C0003"
       },
       {
-        "round": 5,
+        "round": 10,
         "node": "router",
         "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
         "action": {
@@ -1475,7 +2177,7 @@
           "scope": null,
           "proposal_id": null,
           "requests": [],
-          "reason": "C0003 has supporting cross-modal consistency and inconclusive biology; confounder mixed but not invalidating."
+          "reason": ""
         },
         "metric_refs": [
           "tool_results.cnv_characterization.metrics.per_comparison_cnv",
@@ -1486,499 +2188,17 @@
           "tool_results.known_label_echo_test.metrics.analysis_scope",
           "tool_results.known_label_echo_test.metrics.decision_semantics",
           "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003",
-          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
-        ]
-      },
-      {
-        "round": 6,
-        "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "drop",
-          "target_ids": [
-            "C0001"
-          ],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [],
-          "reason": "C0001 has only 1 supporting modality and mixed confounder status, insufficient for Accept."
-        },
-        "metric_refs": [
-          "tool_results.cnv_characterization.metrics.per_comparison_cnv",
-          "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
-          "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
-          "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
-          "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
-          "tool_results.known_label_echo_test.metrics.analysis_scope",
-          "tool_results.known_label_echo_test.metrics.decision_semantics",
-          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001",
-          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
-        ]
-      },
-      {
-        "round": 7,
-        "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "split",
-          "target_ids": [
-            "C0002"
-          ],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [],
-          "reason": "C0002 has supporting biology and two modalities; split authorized to refine identity."
-        },
-        "metric_refs": []
-      },
-      {
-        "round": 7,
-        "node": "reviser",
-        "event": "candidates_generated",
-        "intent": "split:C0002",
-        "candidate_ids": [
-          "split:C0002:k2:p1"
-        ]
-      },
-      {
-        "round": 8,
-        "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "need_more_evidence",
-          "target_ids": [],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [
-            {
-              "dimension": "cross_modal_consistency",
-              "scope": "split_proposal",
-              "target_ids": [
-                "C0002"
-              ],
-              "proposal_id": "split:C0002:k2:p1"
-            }
-          ],
-          "reason": ""
-        },
-        "metric_refs": []
-      },
-      {
-        "round": 8,
-        "node": "verifier",
-        "event": "tools",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "dimensions": [
-          "cross_modal_consistency"
-        ],
-        "evidence_refs": [
-          {
-            "dimension": "cross_modal_consistency",
-            "status": "success",
-            "scope": "split_proposal",
-            "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
-            "tool_results": [
-              {
-                "tool_name": "multimodal_consistency_check",
-                "status": "success",
-                "metric_refs": [
-                  "tool_results.multimodal_consistency_check.metrics.modality_flags",
-                  "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
-                  "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
-                  "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
-                  "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
-                  "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
-                  "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
-                  "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
-                  "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
-                  "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
-                  "tool_results.multimodal_consistency_check.metrics.effect_epsilon"
-                ],
-                "artifact_paths": {
-                  "full_metrics": "/data/qijun/path-ct/output_kirc/evidence/split_proposal/split_C0002_k2_p1/subtype_review/p_cbbdaee910469063/multimodal_consistency_check_full_metrics.json",
-                  "figures": {}
-                }
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "round": 8,
-        "node": "verifier",
-        "event": "audit",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "audit": {
-          "findings": [
-            {
-              "target_ids": [
-                "C0001"
-              ],
-              "dimension": "biological_support",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
-              "status": "supporting",
-              "summary": "RNA pathway enrichment shows 24 significant pathways (q<0.05) including HALLMARK_PANCREAS_BETA_CELLS; WXS mutation enrichment identifies BAP1 (q=0.021); CNV shows VHL/PBRM1/SETD2/BAP1 differences vs rest (q=0.068).",
-              "metric_refs": [
-                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
-                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0002"
-              ],
-              "dimension": "biological_support",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
-              "status": "supporting",
-              "summary": "RNA pathway enrichment shows 22 significant pathways (q<0.05) including HALLMARK_ALLOGRAFT_REJECTION; WXS mutation enrichment identifies missense and TMB differences (q<0.05); CNV shows chr7p/20q/7q/2p differences vs rest (q<0.05).",
-              "metric_refs": [
-                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
-                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0003"
-              ],
-              "dimension": "biological_support",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
-              "status": "inconclusive",
-              "summary": "RNA pathway enrichment shows 0 significant pathways (q<0.05); WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows no significant features (q<0.05).",
-              "metric_refs": [
-                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
-                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0004"
-              ],
-              "dimension": "biological_support",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
-              "status": "supporting",
-              "summary": "RNA pathway enrichment shows 7 significant pathways (q<0.05) including HALLMARK_ANGIOGENESIS; WXS mutation enrichment shows 0 significant features (q<0.05); CNV shows chr14q loss and JAK2 loss trends (q=0.421).",
-              "metric_refs": [
-                "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment",
-                "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-                "tool_results.cnv_characterization.metrics.per_comparison_cnv"
-              ]
-            },
-            {
-              "target_ids": [],
-              "dimension": "known_label_echo",
-              "scope": "partition",
-              "proposal_id": null,
-              "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
-              "status": "supporting",
-              "summary": "Known label echo test shows low AMI (stage: 0.059, grade: 0.046) and ARI (stage: 0.067, grade: 0.016), indicating no near-identity with stage or grade partitions.",
-              "metric_refs": [
-                "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-                "tool_results.known_label_echo_test.metrics.analysis_scope",
-                "tool_results.known_label_echo_test.metrics.decision_semantics"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0001"
-              ],
-              "dimension": "cross_modal_consistency",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
-              "status": "mixed",
-              "summary": "Python-derived identity support from 1 original modalities: rna",
-              "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0001"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0002"
-              ],
-              "dimension": "cross_modal_consistency",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
-              "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: rna, wsi",
-              "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0003"
-              ],
-              "dimension": "cross_modal_consistency",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
-              "status": "supporting",
-              "summary": "Python-derived identity support from 2 original modalities: ct, wsi",
-              "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0003"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0004"
-              ],
-              "dimension": "cross_modal_consistency",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
-              "status": "supporting",
-              "summary": "Python-derived identity support from 3 original modalities: ct, rna, wsi",
-              "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004"
-              ]
-            },
-            {
-              "target_ids": [],
-              "dimension": "confounder_exclusion",
-              "scope": "partition",
-              "proposal_id": null,
-              "subject_signature": "34e4882b77fa3803c41f8f5d2698c8195b34c65b7ab96c4ff81fcc5142ec1795",
-              "status": "mixed",
-              "summary": "Python-derived partition-level technical association status.",
-              "metric_refs": [
-                "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
-                "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0001"
-              ],
-              "dimension": "confounder_exclusion",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-              "status": "supporting",
-              "summary": "Python-derived set-level technical association status.",
-              "metric_refs": [
-                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0001",
-                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0002"
-              ],
-              "dimension": "confounder_exclusion",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-              "status": "supporting",
-              "summary": "Python-derived set-level technical association status.",
-              "metric_refs": [
-                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
-                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0003"
-              ],
-              "dimension": "confounder_exclusion",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-              "status": "mixed",
-              "summary": "Python-derived set-level technical association status.",
-              "metric_refs": [
-                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0003",
-                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0004"
-              ],
-              "dimension": "confounder_exclusion",
-              "scope": "set_identity",
-              "proposal_id": null,
-              "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-              "status": "supporting",
-              "summary": "Python-derived set-level technical association status.",
-              "metric_refs": [
-                "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0004",
-                "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids"
-              ]
-            },
-            {
-              "target_ids": [
-                "C0002"
-              ],
-              "dimension": "cross_modal_consistency",
-              "scope": "split_proposal",
-              "proposal_id": "split:C0002:k2:p1",
-              "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
-              "status": "mixed",
-              "summary": "WSI supports the split (split_supporting_modalities includes wsi), but CT, RNA, and genomic do not. Identity evidence for child_1 and child_2 is complementary, with WSI supporting both children. No merge candidate pairs are identified.",
-              "metric_refs": [
-                "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
-                "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
-                "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
-                "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
-                "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality"
-              ]
-            }
-          ],
-          "gaps": []
-        },
-        "evidence_inventory": [
-          {
-            "dimension": "biological_support",
-            "scope": "set_identity",
-            "proposal_id": null,
-            "subject_signature": "aed1ad6a85bc39ca3573d825dbfe29d73cca72e3ab7b07c0594b0616c1c64eb9",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.cnv_characterization.metrics.per_comparison_cnv",
-              "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-              "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
-            ],
-            "missing_reasons": []
-          },
-          {
-            "dimension": "confounder_exclusion",
-            "scope": "set_identity",
-            "proposal_id": null,
-            "subject_signature": "a7bc2c696f4afcf9fc5f7236fc9170158078c91e23e67224f0c81f17894f955b",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.confound_test.metrics.deterministic_flags",
-              "tool_results.confound_test.metrics.global",
-              "tool_results.confound_test.metrics.sets"
-            ],
-            "missing_reasons": []
-          },
-          {
-            "dimension": "confounder_exclusion",
-            "scope": "partition",
-            "proposal_id": null,
-            "subject_signature": "34e4882b77fa3803c41f8f5d2698c8195b34c65b7ab96c4ff81fcc5142ec1795",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.confound_test.metrics.deterministic_flags",
-              "tool_results.confound_test.metrics.global",
-              "tool_results.confound_test.metrics.sets"
-            ],
-            "missing_reasons": []
-          },
-          {
-            "dimension": "cross_modal_consistency",
-            "scope": "set_identity",
-            "proposal_id": null,
-            "subject_signature": "60ca688cc1a17721e8a41bf0f353c350c83726eef52253e2dce9c82ac66e59f3",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
-              "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
-              "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
-              "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
-              "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
-              "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
-              "tool_results.multimodal_consistency_check.metrics.modality_flags",
-              "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
-              "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
-            ],
-            "missing_reasons": []
-          },
-          {
-            "dimension": "cross_modal_consistency",
-            "scope": "split_proposal",
-            "proposal_id": "split:C0002:k2:p1",
-            "subject_signature": "2dff6d3ef65b2da16b9d675f463e8bd62715ddd571097edd39a3a38d310e50e2",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
-              "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
-              "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
-              "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
-              "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
-              "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
-              "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
-              "tool_results.multimodal_consistency_check.metrics.modality_flags",
-              "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
-              "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
-            ],
-            "missing_reasons": []
-          },
-          {
-            "dimension": "known_label_echo",
-            "scope": "partition",
-            "proposal_id": null,
-            "subject_signature": "7c70e6d91aaeb62154084d8d10e06a546d79010947856972daa1ad0753908cc6",
-            "status": "success",
-            "has_metrics": true,
-            "metric_refs": [
-              "tool_results.known_label_echo_test.metrics.analysis_scope",
-              "tool_results.known_label_echo_test.metrics.decision_semantics",
-              "tool_results.known_label_echo_test.metrics.known_label_structure_comparison"
-            ],
-            "missing_reasons": []
-          }
-        ]
-      },
-      {
-        "round": 8,
-        "node": "router",
-        "event": "revision_unsupported",
-        "intent": "split:C0002"
-      },
-      {
-        "round": 9,
-        "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "accept",
-          "target_ids": [
-            "C0002"
-          ],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [],
-          "reason": "C0002 meets acceptance criteria: supporting biology, two-modality consistency, and clean confounders."
-        },
-        "metric_refs": [
-          "tool_results.cnv_characterization.metrics.per_comparison_cnv",
-          "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
-          "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
-          "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0002",
-          "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
-          "tool_results.known_label_echo_test.metrics.analysis_scope",
-          "tool_results.known_label_echo_test.metrics.decision_semantics",
-          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0002",
+          "tool_results.multimodal_consistency_check.metrics.effect_epsilon",
+          "tool_results.multimodal_consistency_check.metrics.identity_evidence_level_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_moderate_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set",
+          "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.merge_strong_boundary_modalities",
+          "tool_results.multimodal_consistency_check.metrics.merge_supporting_modalities",
+          "tool_results.multimodal_consistency_check.metrics.modality_flags",
+          "tool_results.multimodal_consistency_check.metrics.split_candidate_sets_by_modality",
+          "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities",
           "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
           "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
         ]
@@ -1986,54 +2206,7 @@
       {
         "round": 10,
         "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "split",
-          "target_ids": [
-            "C0004"
-          ],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [],
-          "reason": ""
-        },
-        "metric_refs": []
-      },
-      {
-        "round": 10,
-        "node": "reviser",
-        "event": "no_candidates",
-        "intent": "split:C0004"
-      },
-      {
-        "round": 11,
-        "node": "router",
-        "partition_signature": "[[\"TCGA-B0-4712\", \"TCGA-B0-4821\", \"TCGA-B0-5081\", \"TCGA-B0-5088\", \"TCGA-B0-5106\", \"TCGA-B0-5703\", \"TCGA-B0-5709\", \"TCGA-B8-5550\", \"TCGA-B8-5551\", \"TCGA-B8-A54E\", \"TCGA-BP-4770\", \"TCGA-BP-4960\", \"TCGA-BP-4962\", \"TCGA-BP-4971\", \"TCGA-BP-4986\", \"TCGA-BP-4988\", \"TCGA-BP-5010\", \"TCGA-BP-5175\", \"TCGA-BP-5191\", \"TCGA-BP-5196\", \"TCGA-BP-5199\", \"TCGA-CJ-4637\", \"TCGA-CJ-4641\", \"TCGA-CJ-4900\", \"TCGA-CJ-4902\", \"TCGA-CJ-4923\", \"TCGA-CJ-6028\", \"TCGA-CJ-6033\", \"TCGA-CZ-5468\", \"TCGA-CZ-5985\"], [\"TCGA-B0-5085\", \"TCGA-B0-5115\", \"TCGA-B0-5117\", \"TCGA-B0-5696\", \"TCGA-B0-5697\", \"TCGA-B0-5698\", \"TCGA-B0-5812\", \"TCGA-B8-4619\", \"TCGA-B8-5165\", \"TCGA-B8-5546\", \"TCGA-BP-4782\", \"TCGA-BP-4965\", \"TCGA-BP-4970\", \"TCGA-BP-4972\", \"TCGA-BP-4976\", \"TCGA-BP-4982\", \"TCGA-BP-4994\", \"TCGA-BP-4995\", \"TCGA-BP-4999\", \"TCGA-BP-5004\", \"TCGA-BP-5006\", \"TCGA-BP-5007\", \"TCGA-BP-5174\", \"TCGA-BP-5181\", \"TCGA-BP-5184\", \"TCGA-BP-5186\", \"TCGA-BP-5187\", \"TCGA-BP-5189\", \"TCGA-BP-5190\", \"TCGA-BP-5192\", \"TCGA-BP-5194\", \"TCGA-BP-5195\", \"TCGA-CJ-4904\"], [\"TCGA-B0-5702\", \"TCGA-B0-5706\", \"TCGA-B8-4148\", \"TCGA-B8-5159\", \"TCGA-B8-5162\", \"TCGA-B8-5164\", \"TCGA-B8-5549\", \"TCGA-B8-5553\", \"TCGA-B8-A54F\", \"TCGA-BP-4167\", \"TCGA-BP-4967\", \"TCGA-BP-4989\", \"TCGA-CZ-4863\", \"TCGA-CZ-4865\", \"TCGA-CZ-5451\", \"TCGA-CZ-5984\", \"TCGA-G6-A8L7\"], [\"TCGA-B0-5712\", \"TCGA-B8-4151\", \"TCGA-B8-4153\", \"TCGA-B8-4622\", \"TCGA-B8-5158\", \"TCGA-B8-A54D\", \"TCGA-B8-A54G\", \"TCGA-BP-4164\", \"TCGA-BP-4977\", \"TCGA-BP-4992\", \"TCGA-BP-5000\", \"TCGA-BP-5001\", \"TCGA-BP-5009\", \"TCGA-BP-5180\", \"TCGA-BP-5183\", \"TCGA-BP-5200\", \"TCGA-CJ-4903\", \"TCGA-CJ-6027\", \"TCGA-CJ-6030\", \"TCGA-CZ-4859\", \"TCGA-CZ-5462\", \"TCGA-CZ-5988\", \"TCGA-G6-A5PC\"]]",
-        "action": {
-          "action": "accept",
-          "target_ids": [
-            "C0004"
-          ],
-          "dimension": null,
-          "scope": null,
-          "proposal_id": null,
-          "requests": [],
-          "reason": ""
-        },
-        "metric_refs": [
-          "tool_results.cnv_characterization.metrics.per_comparison_cnv",
-          "tool_results.confound_test.metrics.deterministic_flags.global_significant_fields",
-          "tool_results.confound_test.metrics.deterministic_flags.invalidated_set_ids",
-          "tool_results.confound_test.metrics.deterministic_flags.set_significant_fields_by_set.C0004",
-          "tool_results.confound_test.metrics.deterministic_flags.strong_technical_conflict",
-          "tool_results.known_label_echo_test.metrics.analysis_scope",
-          "tool_results.known_label_echo_test.metrics.decision_semantics",
-          "tool_results.known_label_echo_test.metrics.known_label_structure_comparison",
-          "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set.C0004",
-          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment",
-          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
-        ]
+        "event": "scientific_evidence_exhausted"
       }
     ]
   }
