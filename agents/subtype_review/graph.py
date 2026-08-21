@@ -945,6 +945,7 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
 
     signature = subject_signature("cross_modal_consistency", "set_identity", sets, [target])
     modalities = set()
+    evidence_level = None
     for result in current_partition_evidence(state).get("results", []):
         if (
             result.get("dimension") == "cross_modal_consistency"
@@ -959,6 +960,9 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
                             "identity_supporting_modalities_by_set", {}
                         ).get(target, []) or []
                     )
+                    evidence_level = dict(
+                        child.get("metrics", {}) or {}
+                    ).get("identity_evidence_level_by_set", {}).get(target)
     minimum = int(
         dict(dict(state.get("control", {}) or {}).get("policy", {}) or {}).get(
             "accept_min_supporting_modalities", 2
@@ -966,6 +970,17 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
     )
     if len(modalities) < minimum:
         return False, "Accept requires at least two supporting original modalities"
+    if evidence_level and evidence_level not in {"concordant", "complementary"}:
+        return False, f"Accept requires concordant or complementary identity evidence, got {evidence_level}"
+
+    biology = [
+        row for row in findings
+        if row.get("dimension") == "biological_support"
+        and row.get("scope") == "set_identity"
+        and target in {str(value) for value in row.get("target_ids", []) or []}
+    ]
+    if not any(row.get("status") != "unavailable" for row in biology):
+        return False, "Accept requires available set-level biological evidence"
 
     confound = [
         row for row in findings
@@ -986,6 +1001,8 @@ def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
         row.get("status") != "unavailable" for row in known_label
     ):
         return False, "Accept requires available confounder and known-label evidence"
+    if any(row.get("status") == "conflicting" for row in known_label):
+        return False, "Accept is blocked by conflicting partition known-label evidence"
     if any(blocks_set_acceptance(row, target) for row in findings):
         return False, "Accept is vetoed by conflicting set-identity or partition evidence"
     return True, ""
@@ -1060,6 +1077,7 @@ def required_evidence_requests(
                 "subject_signature": signature,
             })
 
+    add("biological_support", "set_identity", set_ids)
     add("cross_modal_consistency", "set_identity", set_ids)
     add("confounder_exclusion", "set_identity", set_ids)
     add("known_label_echo", "partition", [])
@@ -1103,8 +1121,7 @@ def required_evidence_requests(
                 continue
             add("confounder_exclusion", scope, targets, proposal)
             add("known_label_echo", scope, targets, proposal)
-            if action == "merge" or not modalities.intersection({"rna", "genomic"}):
-                add("biological_support", scope, targets, proposal)
+            add("biological_support", scope, targets, proposal)
     unique = {evidence_request_key({"dimension": row["dimension"], **row}): row for row in requests}
     return list(unique.values())
 
@@ -1130,7 +1147,7 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
             item.get("status") == "provisionally_dropped"
             and not drop_evidence
             and item.get("drop_reason") not in {
-                "insufficient_support_after_exhaustion",
+                "insufficient_validation_after_exhaustion",
             }
         ):
             return False
@@ -1196,8 +1213,7 @@ def supported_revision_candidates(state: Mapping[str, Any]) -> list[dict[str, An
             "confounder_exclusion",
             "known_label_echo",
         }
-        if action == "merge" or not supporting_modalities.intersection({"rna", "genomic"}):
-            required_dimensions.add("biological_support")
+        required_dimensions.add("biological_support")
         if any(
             not any(
                 finding.get("dimension") == dimension
@@ -1256,6 +1272,29 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         set_id(item) for item in sets
         if any(invalidates_set(row, set_id(item)) for row in findings)
     }
+    cross_metrics = {}
+    for result in current_partition_evidence(state).get("results", []) or []:
+        if (
+            result.get("dimension") == "cross_modal_consistency"
+            and result.get("scope") == "set_identity"
+            and not result.get("proposal_id")
+        ):
+            for child in result.get("results", []) or []:
+                cross_metrics.update(dict(child.get("metrics", {}) or {}))
+    split_signals = {
+        str(target)
+        for target, modalities in dict(
+            cross_metrics.get("split_candidate_sets_by_modality", {}) or {}
+        ).items()
+        if modalities
+    }
+    merge_signals = {
+        tuple(sorted(str(value) for value in pair.split("+")))
+        for pair, modalities in dict(
+            cross_metrics.get("merge_candidate_pairs_by_modality", {}) or {}
+        ).items()
+        if modalities and len(pair.split("+")) == 2
+    }
     motives = set()
     for item in sets:
         target = set_id(item)
@@ -1267,7 +1306,7 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
             and (
                 (
                     row.get("dimension") == "cross_modal_consistency"
-                    and row.get("status") in {"mixed", "inconclusive", "conflicting"}
+                    and row.get("status") in {"mixed", "conflicting"}
                 )
                 or (
                     row.get("dimension") == "biological_support"
@@ -1277,6 +1316,8 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
             for row in findings
         ):
             motives.add(target)
+        if target in split_signals:
+            motives.add(target)
     intents = [
         {"action": "split", "target_ids": [set_id(item)]}
         for item in sets
@@ -1284,10 +1325,12 @@ def initial_revision_intents(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         if len(item.get("member_ids", []) or []) >= 2 * min_split_size
         and f"split:{set_id(item)}" not in blocked
     ]
-    if len(motives) == 2:
-        targets = sorted(motives)
-        if f"merge:{'+'.join(targets)}" not in blocked:
-            intents.append({"action": "merge", "target_ids": targets})
+    active_ids = {
+        set_id(item) for item in sets if str(item.get("status", "active")) == "active"
+    }
+    for targets in sorted(merge_signals):
+        if set(targets).issubset(active_ids) and f"merge:{'+'.join(targets)}" not in blocked:
+            intents.append({"action": "merge", "target_ids": list(targets)})
     return intents
 
 
@@ -1393,6 +1436,11 @@ def validate_router_action(action: RouterAction, state: Mapping[str, Any]) -> No
     if state.get("revision") is not None:
         raise ValueError("Accept and Drop are blocked while a revision is active")
     target = action.target_ids[0]
+    if any(
+        target in intent["target_ids"]
+        for intent in initial_revision_intents(state)
+    ):
+        raise ValueError("Scientific action is blocked by pending structural review")
     if action.action == "accept":
         acceptable, reason = set_acceptance(state, target)
         if not acceptable:
@@ -1468,36 +1516,22 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     elif revision:
         legal_action_candidates = []
     else:
-        accept_candidates = []
+        legal_action_candidates = []
         for item in sets:
             if str(item.get("status", "active")) != "active":
                 continue
-            candidate = RouterAction(action="accept", target_ids=[set_id(item)])
-            try:
-                validate_router_action(candidate, state)
-            except ValueError:
-                continue
-            accept_candidates.append(candidate.model_dump())
-        if accept_candidates:
-            legal_action_candidates = accept_candidates
-        else:
-            legal_action_candidates = [
-                RouterAction(**intent).model_dump() for intent in initial_revision_intents(state)
-            ]
-            if not legal_action_candidates:
-                for item in sets:
-                    if str(item.get("status", "active")) != "active":
-                        continue
-                    candidate = RouterAction(action="drop", target_ids=[set_id(item)])
-                    try:
-                        validate_router_action(candidate, state)
-                    except ValueError:
-                        continue
-                    legal_action_candidates.append(candidate.model_dump())
-    if requestable and (
-        not legal_action_candidates
-        or any(row["action"] != "accept" for row in legal_action_candidates)
-    ):
+            for action_name in ("accept", "drop"):
+                candidate = RouterAction(action=action_name, target_ids=[set_id(item)])
+                try:
+                    validate_router_action(candidate, state)
+                except ValueError:
+                    continue
+                legal_action_candidates.append(candidate.model_dump())
+        legal_action_candidates.extend(
+            RouterAction(**intent).model_dump()
+            for intent in initial_revision_intents(state)
+        )
+    if requestable:
         legal_action_candidates.append(
             RouterAction(
                 action="need_more_evidence",
@@ -1616,7 +1650,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
                     if any(invalidates_set(row, target) for row in findings):
                         item["drop_reason"] = "technical_invalidation"
                     else:
-                        item["drop_reason"] = "insufficient_support_after_exhaustion"
+                        item["drop_reason"] = "insufficient_validation_after_exhaustion"
         if all(
             str(item.get("status", "")) in {"provisionally_accepted", "provisionally_dropped"}
             for item in current_sets(state)

@@ -208,6 +208,9 @@ def compute_cross_modal_consistency(
         row["permanova_q_value"] = round_value(q_value)
     modality_flags = {}
     identity_modalities_by_set = {set_id: [] for set_id in memberships}
+    identity_moderate_modalities_by_set = {set_id: [] for set_id in memberships}
+    split_sets_by_modality = {set_id: [] for set_id in memberships}
+    merge_pairs_by_modality = {}
     for modality, row in rows.items():
         per_set = row.get("per_set", {})
         weak_boundary = all(
@@ -238,18 +241,68 @@ def compute_cross_modal_consistency(
             "merge_strong_boundary": strong_boundary,
         }
         for set_id, values in per_set.items():
-            if (
+            strong_identity = (
                 float(values.get("median_silhouette", 0) or 0) > effect_epsilon
                 and float(values.get("normalized_affinity_separation", 0) or 0) > effect_epsilon
                 and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
-            ):
+                and (
+                    row.get("permanova_q_value") is None
+                    or float(row.get("permanova_q_value", 1) or 1) <= 0.05
+                )
+            )
+            moderate_identity = (
+                float(values.get("median_silhouette", 0) or 0) > 0
+                and float(values.get("fraction_affinity_margin_positive", 0) or 0) > 0.5
+            )
+            if strong_identity:
                 identity_modalities_by_set.setdefault(set_id, []).append(modality)
+            if moderate_identity:
+                identity_moderate_modalities_by_set.setdefault(set_id, []).append(modality)
+            if (
+                float(values.get("median_silhouette", 0) or 0) < 0
+                or float(values.get("fraction_silhouette_positive", 1) or 0) < 0.5
+            ):
+                split_sets_by_modality.setdefault(set_id, []).append(modality)
+        labels_unique = sorted(str(value) for value in np.unique(labels))
+        for index, left in enumerate(labels_unique):
+            left_members = np.flatnonzero(labels == left)
+            left_within = float(
+                similarity[np.ix_(left_members, left_members)][
+                    ~np.eye(len(left_members), dtype=bool)
+                ].mean()
+            )
+            for right in labels_unique[index + 1:]:
+                right_members = np.flatnonzero(labels == right)
+                right_within = float(
+                    similarity[np.ix_(right_members, right_members)][
+                        ~np.eye(len(right_members), dtype=bool)
+                    ].mean()
+                )
+                between = float(similarity[np.ix_(left_members, right_members)].mean())
+                if between >= min(left_within, right_within):
+                    merge_pairs_by_modality.setdefault(f"{left}+{right}", []).append(modality)
     return {
         "modality_partition_support": rows,
         "decision_metrics": {
             "modality_flags": modality_flags,
             "identity_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["identity_support"]],
             "identity_supporting_modalities_by_set": identity_modalities_by_set,
+            "identity_moderate_modalities_by_set": identity_moderate_modalities_by_set,
+            "identity_evidence_level_by_set": {
+                set_id: (
+                    "concordant" if len(identity_modalities_by_set[set_id]) >= 2
+                    else "complementary" if identity_modalities_by_set[set_id]
+                    and len(identity_moderate_modalities_by_set[set_id]) >= 2
+                    else "modality_dominant" if (
+                        identity_modalities_by_set[set_id]
+                        or identity_moderate_modalities_by_set[set_id]
+                    )
+                    else "inconclusive"
+                )
+                for set_id in memberships
+            },
+            "split_candidate_sets_by_modality": split_sets_by_modality,
+            "merge_candidate_pairs_by_modality": merge_pairs_by_modality,
             "split_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["split_support"]],
             "merge_supporting_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_support"]],
             "merge_strong_boundary_modalities": [modality for modality, flags in modality_flags.items() if flags["merge_strong_boundary"]],

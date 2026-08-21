@@ -771,6 +771,7 @@ def confound_decision_metrics(
     }
     per_set = {}
     set_significant_fields = {}
+    set_strong_fields = {}
     for set_id, fields in set_metrics.items():
         associations = []
         for field, value in fields.items():
@@ -825,6 +826,22 @@ def confound_decision_metrics(
             for row in associations
             if row.get("q_value") is not None and float(row["q_value"]) <= alpha
         ]
+        set_strong_fields[set_id] = [
+            ":".join(str(row[key]) for key in ("field", "level") if row.get(key) is not None)
+            for row in associations
+            if row.get("q_value") is not None
+            and float(row["q_value"]) <= alpha
+            and (
+                (
+                    row.get("field_type") == "numeric"
+                    and abs(float(row.get("cliffs_delta", 0) or 0)) >= numeric_large_cliffs_delta
+                )
+                or (
+                    row.get("field_type") == "categorical"
+                    and abs(float(row.get("delta_fraction", 0) or 0)) >= categorical_strong_v
+                )
+            )
+        ]
     global_significant_fields = [
         field for field, row in global_rows.items()
         if row.get("q_value") is not None and float(row["q_value"]) <= alpha
@@ -848,7 +865,10 @@ def confound_decision_metrics(
             "strong_technical_conflict": bool(categorical_conflicts or numeric_conflicts),
             "global_significant_fields": global_significant_fields,
             "set_significant_fields_by_set": set_significant_fields,
-            "invalidated_set_ids": [],
+            "set_strong_fields_by_set": set_strong_fields,
+            "invalidated_set_ids": sorted(
+                set_id for set_id, fields in set_strong_fields.items() if fields
+            ),
             "categorical_strong_fields": categorical_conflicts,
             "numeric_large_effect_fields": numeric_conflicts,
             "thresholds": {

@@ -123,6 +123,23 @@ def test_verifier_payload_contains_summary_not_full_metrics():
     assert payload["evidence_summary"][0]["tool_results"][0]["metric_refs"] == ["m"]
 
 
+def test_cross_modal_reports_within_set_and_boundary_signals():
+    case_ids = ["P1", "P2", "Q1", "Q2"]
+    memberships = {"C1": ["P1", "P2"], "C2": ["Q1", "Q2"]}
+    affinity = np.full((4, 4), 0.9, dtype=float)
+    np.fill_diagonal(affinity, 1.0)
+
+    result = compute_cross_modal_consistency(
+        {modality: affinity for modality in ("ct", "wsi", "rna", "genomic")},
+        case_ids,
+        memberships,
+    )
+    metrics = result["decision_metrics"]
+
+    assert set(metrics["split_candidate_sets_by_modality"]) == {"C1", "C2"}
+    assert set(metrics["merge_candidate_pairs_by_modality"]) == {"C1+C2"}
+
+
 def test_router_executes_sole_legal_action_without_llm_call():
     state = initial_review_state([{
         "cluster_id": "C1",
@@ -166,6 +183,113 @@ def test_router_structural_actions_do_not_select_proposals():
         RouterAction(action="split", target_ids=["C1"], proposal_id="p1")
     with pytest.raises(ValueError):
         RouterAction(action="merge", target_ids=["C1"])
+
+
+def test_base_review_requests_biology_evidence():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+
+    assert {
+        (row["dimension"], row["scope"])
+        for row in required_evidence_requests(state)
+    } == {
+        ("biological_support", "set_identity"),
+        ("cross_modal_consistency", "set_identity"),
+        ("confounder_exclusion", "set_identity"),
+        ("known_label_echo", "partition"),
+    }
+
+
+def test_router_exposes_accept_and_positive_split_as_equal_legal_actions():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)]},
+        {"cluster_id": "C2", "member_ids": [f"Q{i}" for i in range(20)]},
+    ])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state,
+        "cross_modal_consistency",
+        "set_identity",
+        ["C1", "C2"],
+        {},
+        "multimodal_consistency_check",
+        {
+            "identity_supporting_modalities_by_set": {
+                "C1": ["ct", "rna"], "C2": ["ct", "rna"],
+            },
+            "split_candidate_sets_by_modality": {"C1": ["ct"]},
+        },
+        cross_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "status": "supporting",
+        "metric_refs": [cross_ref],
+    })
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"],
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "status": "supporting",
+        "metric_refs": [cross_ref],
+    })
+    add_identity_controls(state)
+    confound_ref = "tool_results.confound_test.metrics.strong_technical_conflict"
+    state["evidence"]["results"].append(evidence_row(
+        state, "confounder_exclusion", "set_identity", ["C2"], {},
+        "confound_test", {"strong_technical_conflict": False}, confound_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"], "dimension": "confounder_exclusion",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [confound_ref],
+    })
+    biology_ref = "tool_results.pathway_enrichment.metrics.signal"
+    state["evidence"]["results"].append(evidence_row(
+        state, "biological_support", "set_identity", ["C1", "C2"], {},
+        "pathway_enrichment", {"signal": 1}, biology_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "biological_support",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [biology_ref],
+    })
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"], "dimension": "biological_support",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [biology_ref],
+    })
+    model = StaticModel({"action_id": "A0", "reason": "accept"})
+
+    router_node(state, {}, model)
+
+    actions = {row["action"]["action"] for row in model.payloads[0]["legal_actions"]}
+    assert {"accept", "split"}.issubset(actions)
+
+
+def test_exhausted_insufficient_support_is_distinguished_from_technical_drop():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    cross_ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1"], {},
+        "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": []}}, cross_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "status": "inconclusive", "metric_refs": [cross_ref],
+    })
+    add_identity_controls(state)
+    biology_ref = "tool_results.pathway_enrichment.metrics.signal"
+    state["evidence"]["results"].append(evidence_row(
+        state, "biological_support", "set_identity", ["C1"], {},
+        "pathway_enrichment", {"signal": 0}, biology_ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "biological_support",
+        "scope": "set_identity", "status": "inconclusive", "metric_refs": [biology_ref],
+    })
+
+    validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
+    router_node(state, {}, StaticModel({"action_id": "unused", "reason": ""}))
+    assert state["sets"][0]["drop_reason"] == "insufficient_validation_after_exhaustion"
 
 
 def test_reviser_output_contains_only_plan_and_reason():
@@ -351,10 +475,8 @@ def test_merge_intent_is_bounded_to_two_active_structural_motives():
 
     assert not [row for row in initial_revision_intents(state) if row["action"] == "merge"]
     state["sets"][2]["status"] = "provisionally_dropped"
-    state["sets"][2]["drop_reason"] = "insufficient_support_after_exhaustion"
-    assert [row for row in initial_revision_intents(state) if row["action"] == "merge"] == [
-        {"action": "merge", "target_ids": ["C1", "C2"]}
-    ]
+    state["sets"][2]["drop_reason"] = "insufficient_validation_after_exhaustion"
+    assert [row for row in initial_revision_intents(state) if row["action"] == "merge"] == []
 
 
 def test_blocked_intents_persist_until_partition_changes(monkeypatch):
@@ -633,6 +755,7 @@ def add_identity_controls(state, target="C1", confound_status="supporting"):
     targets = [item["set_id"] for item in state["sets"] if item["status"] != "retired"]
     confound_ref = "tool_results.confound_test.metrics.strong_technical_conflict"
     known_ref = "tool_results.known_label_echo_test.metrics.near_identity"
+    biology_ref = "tool_results.pathway_enrichment.metrics.signal"
     state["evidence"]["results"].extend([
         evidence_row(
             state,
@@ -654,6 +777,16 @@ def add_identity_controls(state, target="C1", confound_status="supporting"):
             {"near_identity": False},
             known_ref,
         ),
+        evidence_row(
+            state,
+            "biological_support",
+            "set_identity",
+            targets,
+            {},
+            "pathway_enrichment",
+            {"signal": 0},
+            biology_ref,
+        ),
     ])
     state["audit"]["findings"].extend([
         {
@@ -670,10 +803,20 @@ def add_identity_controls(state, target="C1", confound_status="supporting"):
             "status": "supporting",
             "metric_refs": [known_ref],
         },
+        *[
+            {
+                "target_ids": [item],
+                "dimension": "biological_support",
+                "scope": "set_identity",
+                "status": "inconclusive",
+                "metric_refs": [biology_ref],
+            }
+            for item in targets
+        ],
     ])
 
 
-def add_proposal_checks(state, proposal, scope, targets, include_biology=False):
+def add_proposal_checks(state, proposal, scope, targets, include_biology=True):
     checks = [
         (
             "confounder_exclusion",
@@ -960,6 +1103,7 @@ def test_python_generates_tiered_mandatory_evidence_requests():
         for row in required_evidence_requests(state)
     }
     assert initial == {
+        ("biological_support", "set_identity", None),
         ("cross_modal_consistency", "set_identity", None),
         ("confounder_exclusion", "set_identity", None),
         ("known_label_echo", "partition", None),
@@ -983,7 +1127,7 @@ def test_python_generates_tiered_mandatory_evidence_requests():
     }
     assert ("confounder_exclusion", "split_proposal", "p1") in follow_up
     assert ("known_label_echo", "split_proposal", "p1") in follow_up
-    assert ("biological_support", "split_proposal", "p1") not in follow_up
+    assert ("biological_support", "split_proposal", "p1") in follow_up
 
 
 def test_verifier_cannot_borrow_metric_ref_from_another_proposal():
@@ -1324,7 +1468,7 @@ def test_verifier_derives_cross_modal_identity_status_per_set():
     }
     assert cross == {"C1": "mixed", "C2": "supporting", "C3": "inconclusive"}
     assert set_acceptance(state, "C1")[0] is False
-    assert set_acceptance(state, "C2")[0] is True
+    assert set_acceptance(state, "C2")[0] is False
     assert set_acceptance(state, "C3")[0] is False
     requirements = [
         row for row in model.payloads[0]["mandatory_finding_requirements"]
@@ -1739,7 +1883,7 @@ def test_evidence_exhaustion_drops_an_unsupported_set_without_calling_router():
     model = StaticModel({"action_id": "unused", "reason": ""})
     router_node(state, {}, model)
     assert state["sets"][0]["status"] == "provisionally_dropped"
-    assert state["sets"][0]["drop_reason"] == "insufficient_support_after_exhaustion"
+    assert state["sets"][0]["drop_reason"] == "insufficient_validation_after_exhaustion"
     assert state["control"]["status"] == "complete"
     assert model.calls == 0
 
@@ -1917,7 +2061,7 @@ def test_imaging_only_split_waits_for_biology_support():
         "target_ids": ["C1"], "proposal_id": "p1", "dimension": "cross_modal_consistency",
         "scope": "split_proposal", "status": "supporting", "metric_refs": [ref],
     })
-    add_proposal_checks(state, proposal, "split_proposal", ["C1"])
+    add_proposal_checks(state, proposal, "split_proposal", ["C1"], include_biology=False)
 
     assert any(
         row["dimension"] == "biological_support" and row["proposal_id"] == "p1"
