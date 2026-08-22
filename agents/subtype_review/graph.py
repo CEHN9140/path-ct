@@ -140,11 +140,11 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "round": 0,
             "failures": 0,
             "status": "reviewing",
-            "next": "init_agent",
+            "next": "prepare_round",
             "error": None,
             "max_rounds": 10,
             "max_failures": 3,
-            "extra_tools": [],
+            "extra_tool_requests": [],
             "pending_tools": [],
             "budget_evidence": False,
             "trace": [],
@@ -152,13 +152,16 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
     }
 
 
-def init_agent_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
+def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     if state["control"].get("status") != "reviewing":
         return state
     values = context_values(runtime)
     tools = registry(values)
     control = dict(state["control"])
-    extra = list(control.get("extra_tools", []) or [])
+    extra_requests = [
+        ToolRequest.model_validate(request).model_dump()
+        for request in control.get("extra_tool_requests", []) or []
+    ]
     default_names = [
         name for name, metadata in tools.items() if metadata.get("default_every_round")
     ]
@@ -168,24 +171,33 @@ def init_agent_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             control["next"] = "end"
             state["control"] = control
             return state
-        names = extra
+        names = []
     else:
-        names = [*default_names, *extra]
-    if not names:
+        names = default_names
+    if not names and not extra_requests:
         raise ValueError("No scientific tools are available for the round")
     if any(name not in tools for name in names):
+        raise ValueError("Round contains an unregistered scientific tool")
+    if any(request["tool_name"] not in tools for request in extra_requests):
         raise ValueError("Round contains an unregistered scientific tool")
     state["round_evidence"] = []
     state["messages"] = []
     state["router_plan"] = None
     state["revision_plan"] = None
     state["revision_result"] = None
-    control["pending_tools"] = tool_requests_for_round(state, names, tools)
-    control["extra_tools"] = []
+    control["pending_tools"] = [
+        *tool_requests_for_round(state, names, tools),
+        *extra_requests,
+    ]
+    control["extra_tool_requests"] = []
     control["next"] = "verifier_acquire"
     control["partition_signature"] = partition_signature(current_sets(state))
     state["control"] = control
-    append_trace(state, {"node": "init_agent", "event": "prepared", "tools": names})
+    append_trace(state, {
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [request["tool_name"] for request in control["pending_tools"]],
+    })
     return state
 
 
@@ -242,6 +254,11 @@ def execute_tool_calls(
             artifact_root=str(runtime.get("artifact_root", runtime.get("data_root", ""))),
         )
         compact = compact_tool_result(raw, name)
+        if compact["status"] == "runtime_failure":
+            raise RuntimeError(
+                f"Scientific tool {name} failed at runtime: "
+                f"{'; '.join(compact.get('errors', []))}"
+            )
         compact.update({
             "dimension": metadata["dimension"],
             "scope": metadata["scope"],
@@ -287,7 +304,8 @@ def expected_report_keys(state: Mapping[str, Any], runtime: Mapping[str, Any]) -
         if metadata["scope"] == "partition":
             keys.add((metadata["dimension"], "partition", ""))
         else:
-            keys.update((metadata["dimension"], "set_identity", target) for target in sets)
+            targets = request.get("target_ids", []) or sets
+            keys.update((metadata["dimension"], "set_identity", target) for target in targets)
     return keys
 
 
@@ -517,7 +535,6 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         payload = {
             "partition": state["partition"],
             "evidence_reports": summarize_reports(state.get("reports", [])),
-            "raw_structural_metrics": structure_metrics(state),
             "tool_registry": registry_payload,
             "round": int(control.get("round", 0)) + 1,
         }
@@ -537,14 +554,14 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         "plan": plan.model_dump(),
     })
     if any(action.action == "need_more_evidence" for action in plan.actions):
-        control["extra_tools"] = sorted({
-            request.tool_name
+        control["extra_tool_requests"] = [
+            request.model_dump()
             for action in plan.actions
             if action.action == "need_more_evidence"
             for request in action.tool_requests
-        })
+        ]
         control["budget_evidence"] = control["round"] >= control.get("max_rounds", 10)
-        control["next"] = "init_agent"
+        control["next"] = "prepare_round"
     elif any(action.action in {"split", "merge"} for action in plan.actions):
         control["next"] = "reviser"
     else:
@@ -699,7 +716,7 @@ def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             control["status"] = "review_incomplete_due_to_round_budget"
             control["next"] = "end"
         else:
-            control["next"] = "init_agent"
+            control["next"] = "prepare_round"
         state["control"] = control
     except Exception as exc:
         mark_failure(state, "reviser", exc)
@@ -727,8 +744,8 @@ def route_router(state: Mapping[str, Any]) -> str:
         return "end"
     if control.get("error"):
         return "router"
-    if control.get("next") == "init_agent":
-        return "init_agent"
+    if control.get("next") == "prepare_round":
+        return "prepare_round"
     if control.get("next") == "reviser":
         return "reviser"
     return "end"
@@ -740,28 +757,28 @@ def route_reviser(state: Mapping[str, Any]) -> str:
         return "end"
     if control.get("error"):
         return "reviser"
-    return "init_agent" if control.get("next") == "init_agent" else "end"
+    return "prepare_round" if control.get("next") == "prepare_round" else "end"
 
 
 def build_review_graph() -> Any:
     graph = StateGraph(ReviewState, context_schema=ReviewContext)
-    graph.add_node("init_agent", lambda state, runtime: init_agent_node(state, runtime))
+    graph.add_node("prepare_round", lambda state, runtime: prepare_round_node(state, runtime))
     graph.add_node("verifier", lambda state, runtime: verifier_node(state, runtime))
     graph.add_node("router", lambda state, runtime: router_node(state, runtime))
     graph.add_node("reviser", lambda state, runtime: reviser_node(state, runtime))
-    graph.add_edge(START, "init_agent")
-    graph.add_edge("init_agent", "verifier")
+    graph.add_edge(START, "prepare_round")
+    graph.add_edge("prepare_round", "verifier")
     graph.add_conditional_edges(
         "verifier", route_verifier,
         {"verifier": "verifier", "router": "router", "end": END},
     )
     graph.add_conditional_edges(
         "router", route_router,
-        {"init_agent": "init_agent", "reviser": "reviser", "router": "router", "end": END},
+        {"prepare_round": "prepare_round", "reviser": "reviser", "router": "router", "end": END},
     )
     graph.add_conditional_edges(
         "reviser", route_reviser,
-        {"init_agent": "init_agent", "reviser": "reviser", "end": END},
+        {"prepare_round": "prepare_round", "reviser": "reviser", "end": END},
     )
     return graph.compile()
 

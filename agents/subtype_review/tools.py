@@ -119,18 +119,44 @@ DEFAULT_REVIEW_TOOLS = tuple(
 EXTRA_REVIEW_TOOLS = tuple(
     name for name, metadata in TOOL_REGISTRY.items() if not metadata["default_every_round"]
 )
+
+
 def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
     payload = dict(raw or {})
     results = dict(payload.get("results", {}) or {})
     metrics = to_jsonable(results.get("decision_metrics", results.get("metrics", {})) or {})
+    errors = list(payload.get("errors", []) or [])
+    missing_reason = str(results.get("missing_reason", "") or "")
+    raw_status = str(payload.get("status", "")).lower()
+    if raw_status == "success":
+        status = "success"
+    elif raw_status in {"unavailable", "scientific_unavailable", "missing"} or (
+        missing_reason and not errors
+    ):
+        status = "scientific_unavailable"
+    else:
+        status = "runtime_failure"
+    metric_refs = []
+
+    def collect_leaves(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key in sorted(value):
+                collect_leaves(value[key], f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                collect_leaves(item, f"{path}[{index}]")
+        else:
+            metric_refs.append(path)
+
+    collect_leaves(metrics, f"tool_results.{tool_name}.metrics")
     return {
         "tool_name": tool_name,
-        "status": "success" if str(payload.get("status", "")).lower() == "success" else "failure",
+        "status": status,
         "metrics": metrics,
-        "metric_refs": [f"tool_results.{tool_name}.metrics.{key}" for key in metrics],
+        "metric_refs": metric_refs,
         "warnings": list(results.get("warnings", []) or []),
-        "missing_reason": str(results.get("missing_reason", "") or ""),
-        "errors": list(payload.get("errors", []) or []),
+        "missing_reason": missing_reason,
+        "errors": errors,
         "artifact_paths": dict(payload.get("artifacts", {}) or {}),
     }
 

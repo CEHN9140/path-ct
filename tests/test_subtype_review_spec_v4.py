@@ -11,11 +11,12 @@ from agents.subtype_review.graph import (
     reviser_node,
     router_node,
     save_review_outputs,
+    validate_reports,
     validate_router_plan,
 )
 from agents.subtype_review.llm import LLMUsageTracker
-from agents.subtype_review.schemas import EvidenceReport, RouterPlan
-from agents.subtype_review.tools import TOOL_REGISTRY
+from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, RouterPlan
+from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
 from tools.structural_adequacy import execute_split_membership, structure_diagnostics
 
 
@@ -159,11 +160,14 @@ def test_need_evidence_is_highest_priority_and_other_actions_do_not_execute():
         "router_model": Router(),
     })
     assert state["control"]["round"] == 1
-    assert state["control"]["next"] == "init_agent"
+    assert state["control"]["next"] == "prepare_round"
     assert state["partition"]["sets"][0] == {
         "set_id": "C1", "member_ids": ["P1"], "revision_lineage": []
     }
-    assert state["control"]["extra_tools"] == ["clinical_characterization"]
+    assert state["control"]["extra_tool_requests"] == [{
+        "tool_name": "clinical_characterization",
+        "target_ids": ["C1"],
+    }]
 
 
 def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
@@ -173,7 +177,7 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
 
         def invoke(self, payload):
             if payload["mode"] == "acquire":
-                self.acquisitions.append([item["tool_name"] for item in payload["tool_requests"]])
+                self.acquisitions.append(payload["tool_requests"])
                 return {
                     "tool_calls": [
                         {"name": item["tool_name"], "id": item["tool_name"]}
@@ -223,13 +227,14 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
     )
     assert result["control"]["status"] == "complete"
     assert result["control"]["round"] == 2
-    assert verifier.acquisitions == [
-        ["pathway_enrichment", "mutation_enrichment", "cnv_characterization",
-         "multimodal_consistency_check", "confound_test", "known_label_echo_test"],
-        ["pathway_enrichment", "mutation_enrichment", "cnv_characterization",
-         "multimodal_consistency_check", "confound_test", "known_label_echo_test",
-         "clinical_characterization"],
+    assert [item["tool_name"] for item in verifier.acquisitions[0]] == [
+        "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
+        "multimodal_consistency_check", "confound_test", "known_label_echo_test",
     ]
+    assert verifier.acquisitions[1][-1] == {
+        "tool_name": "clinical_characterization",
+        "target_ids": ["C1"],
+    }
     assert len(result["history"]) == 2
 
 
@@ -422,3 +427,119 @@ def test_usage_tracker_only_records_usage():
         "completion_tokens": 5,
         "total_tokens": 8,
     }
+
+
+def test_runtime_tool_failure_stops_before_router_and_is_not_scientific_drop():
+    registry = fake_registry()
+
+    def broken_tool(*args, **kwargs):
+        return {
+            "tool_name": "pathway_enrichment",
+            "status": "failure",
+            "results": {"decision_metrics": {}, "missing_reason": ""},
+            "errors": ["I/O failure"],
+        }
+
+    registry["pathway_enrichment"]["function"] = broken_tool
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                return {"tool_calls": [
+                    {"name": item["tool_name"], "id": item["tool_name"]}
+                    for item in payload["tool_requests"]
+                ]}
+            raise AssertionError("runtime failure must not reach audit")
+
+    class Router:
+        calls = 0
+
+        def invoke(self, payload):
+            self.calls += 1
+            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+
+    router = Router()
+    runtime = {
+        "data_root": "/tmp", "artifact_root": "/tmp", "config_dir": "configs",
+        "patient_states_by_id": {}, "tool_registry": registry,
+        "verifier_model": Verifier(), "router_model": router, "reviser_model": object(),
+    }
+    state = make_state(("C1", ["P1"]))
+    state["control"]["max_failures"] = 1
+    result = build_review_graph().invoke(state, context=runtime)
+    assert result["control"]["status"] == "review_unavailable"
+    assert router.calls == 0
+
+
+def test_leaf_metric_refs_are_stable_and_specific():
+    result = compact_tool_result({
+        "status": "success",
+        "results": {"decision_metrics": {"C1": {"q_value": 0.01, "effect": {"delta": 2}}}},
+    }, "pathway_enrichment")
+    assert result["metric_refs"] == [
+        "tool_results.pathway_enrichment.metrics.C1.effect.delta",
+        "tool_results.pathway_enrichment.metrics.C1.q_value",
+    ]
+
+
+def test_tool_status_separates_scientific_unavailability_from_runtime_failure():
+    assert compact_tool_result({
+        "status": "failure",
+        "results": {"missing_reason": "no RNA table"},
+        "errors": [],
+    }, "pathway_enrichment")["status"] == "scientific_unavailable"
+    assert compact_tool_result({
+        "status": "failure",
+        "results": {"missing_reason": ""},
+        "errors": ["I/O failure"],
+    }, "pathway_enrichment")["status"] == "runtime_failure"
+
+
+def test_verifier_can_cite_one_leaf_metric_ref():
+    state = make_state(("C1", ["P1"]))
+    compact = compact_tool_result({
+        "status": "success",
+        "results": {"decision_metrics": {"C1": {"q_value": 0.01}}},
+    }, "pathway_enrichment")
+    state["round_evidence"] = [{
+        **compact,
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": ["C1"],
+        "partition_signature": "p",
+    }]
+    state["control"]["pending_tools"] = [{
+        "tool_name": "pathway_enrichment",
+        "target_ids": ["C1"],
+    }]
+    validate_reports(EvidenceReportBatch.model_validate({"reports": [{
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": ["C1"],
+        "observations": [{
+            "metric": "q_value",
+            "finding": "significant",
+            "metric_refs": ["tool_results.pathway_enrichment.metrics.C1.q_value"],
+        }],
+        "tool_refs": ["pathway_enrichment"],
+        "metric_refs": [],
+    }]}), state, fake_registry())
+
+
+def test_graph_has_prepare_round_python_node_and_no_init_agent_node():
+    graph = build_review_graph()
+    assert "prepare_round" in graph.get_graph().nodes
+    assert "init_agent" not in graph.get_graph().nodes
+
+
+def test_router_payload_uses_reports_not_raw_structural_metrics():
+    state = make_state(("C1", ["P1"]))
+    captured = {}
+
+    class Router:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+
+    router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})
+    assert "raw_structural_metrics" not in captured
