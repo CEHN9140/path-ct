@@ -131,7 +131,7 @@ def run(
     import yaml
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    snf_config = yaml.safe_load(snf_config_path.read_text(encoding="utf-8")) or {}
+    snf_config = (yaml.safe_load(snf_config_path.read_text(encoding="utf-8")) or {}).get("snf", {})
     cases = load_cases(inventory_path)
     nonsynonymous = set(config["nonsynonymous_classes"])
     mutations = {
@@ -251,7 +251,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Audit empty WXS mutation profiles.")
     parser.add_argument("--inventory", type=Path, default=Path("data/tcga_kirc_data.json"))
     parser.add_argument("--config", type=Path, default=Path("configs/wxs.yaml"))
-    parser.add_argument("--snf-config", type=Path, default=Path("configs/snf.yaml"))
+    parser.add_argument("--snf-config", type=Path, default=Path("configs/candidate_proposer.yaml"))
     parser.add_argument("--existing-output-root", type=Path, default=Path("output_kirc"))
     parser.add_argument(
         "--experiment-root",

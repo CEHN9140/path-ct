@@ -16,7 +16,7 @@ from agents.common import (
     load_selected_wsi_record,
     load_tool_snapshot,
 )
-from utils.llm_utils import load_yaml_file
+from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 from utils.omics_utils import build_cohort_signature, collect_case_file_paths
 from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.tool_utils import (
@@ -634,7 +634,7 @@ def build_evidence_states(
     affinity_dir = Path(output_root) / "candidate_subtype"
     affinity_manifest_path = affinity_dir / "affinity_cache.json"
     config_path = Path(config_dir).expanduser() if config_dir else Path("configs")
-    snf_config = load_yaml_file(config_path / "snf.yaml")
+    snf_config = load_candidate_proposer_config(config_path)["snf"]
     ct_radiomics_config = load_yaml_file(config_path / "ct_radiomics.yaml")
     correction_config = dict(
         ct_radiomics_config.get("confound_correction", {}) or {}

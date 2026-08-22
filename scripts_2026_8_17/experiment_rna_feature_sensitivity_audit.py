@@ -63,7 +63,7 @@ def run(
     from snf.compute import affinity_matrix
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    snf_config = yaml.safe_load(snf_config_path.read_text(encoding="utf-8")) or {}
+    snf_config = (yaml.safe_load(snf_config_path.read_text(encoding="utf-8")) or {}).get("snf", {})
     cases = load_cases(inventory_path)
     rows = []
     series_by_case = {}
@@ -218,7 +218,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Audit RNA duplicate genes and top-MAD sensitivity.")
     parser.add_argument("--inventory", type=Path, default=Path("data/tcga_kirc_data.json"))
     parser.add_argument("--config", type=Path, default=Path("configs/rna.yaml"))
-    parser.add_argument("--snf-config", type=Path, default=Path("configs/snf.yaml"))
+    parser.add_argument("--snf-config", type=Path, default=Path("configs/candidate_proposer.yaml"))
     parser.add_argument(
         "--experiment-root",
         type=Path,

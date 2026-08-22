@@ -10,9 +10,9 @@ def build_wsi_affinity(
     import numpy as np
     from scipy.spatial.distance import cdist
     from snf.compute import affinity_matrix
-    from utils.llm_utils import load_yaml_file
+    from utils.llm_utils import load_candidate_proposer_config
 
-    config = load_yaml_file(Path(config_dir or "configs") / "snf.yaml")
+    config = load_candidate_proposer_config(config_dir).get("snf", {})
     states = [dict(state) for state in patient_states if state.get("qc") == "success"]
     case_ids = [str(state.get("case_id", "")) for state in states]
     vectors = []

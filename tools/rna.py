@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from utils.io import ensure_dir, write_json
-from utils.llm_utils import load_yaml_file
+from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 from utils.omics_utils import (
     build_cohort_signature,
     collect_case_file_paths,
@@ -24,7 +24,7 @@ def build_rna_affinity(
     from scipy.spatial.distance import cdist
     from snf.compute import affinity_matrix
 
-    config = load_yaml_file(Path(config_dir or "configs") / "snf.yaml")
+    config = load_candidate_proposer_config(config_dir).get("snf", {})
     states = [dict(state) for state in patient_states if state.get("qc") == "success"]
     case_ids = [str(state.get("case_id", "")) for state in states]
     rows = []

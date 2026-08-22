@@ -5,9 +5,6 @@ llm:
   temperature: 0
   timeout: 120
   max_new_tokens: 4096
-  router_max_tokens: 256
-  verifier_max_tokens: 2048
-  reviser_max_tokens: 256
   structured_output: json_object
   json_retries: 1
 
@@ -16,26 +13,34 @@ prompt_dir: agents/subtype_review/prompts
 budget:
   max_rounds: 10
   max_failures: 3
-  min_split_size: 10
-  max_split_children: 2
-  max_split_depth: 1
-  max_structural_changes: 2
-  max_structural_reviews: 3
-  max_llm_calls: 12
-  router_contract_attempts: 2
 
 cross_modal:
   accept_min_supporting_modalities: 2
   split_min_supporting_modalities: 2
   split_require_molecular_or_biology: true
   merge_min_supporting_modalities: 2
+  permanova_permutations: 199
+  effect_epsilon: 0.001
 
 confounder:
   alpha: 0.05
   categorical_strong_v: 0.50
   numeric_large_cliffs_delta: 0.474
+  sparse_permutations: 999
 
 known_label_echo:
   near_identity_ami: 0.80
   near_identity_ari: 0.80
   near_identity_mapping_accuracy: 0.90
+
+revision_candidates:
+  bootstrap_iterations: 199
+  split_null_permutations: 199
+  max_split_plans_per_set: 3
+
+cnv:
+  alteration_threshold: 0.2
+
+rna:
+  min_pathway_overlap: 15
+  pathway_gene_sets_path: "/data/qijun/path-ct/tools/msigdb/h.all.v2026.1.Hs.symbols.gmt"

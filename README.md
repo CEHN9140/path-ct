@@ -78,8 +78,7 @@ python main.py \
 
 - 例如 `--config-dir /data/qijun/path-ct/configs`
 - `tools/prov-gigapath` 会解析为 `/data/qijun/path-ct/tools/prov-gigapath`
-- `snf.yaml` 控制 SNF 融合的邻居数、迭代次数、`mu`、`alpha`，以及 CT 特征过滤阈值；各模态距离度量由代码固定为 CT 欧氏、WSI 余弦、RNA Spearman、WXS Jaccard。
-- `candidate_clustering.yaml` 控制候选簇生成的重复次数、最大聚类数，以及 spectral、hierarchical、PAM 参数。
+- `candidate_proposer.yaml` 统一控制候选 K 选择、候选簇生成和 SNF 融合；各模态距离度量由代码固定为 CT 欧氏、WSI 余弦、RNA Spearman、WXS Jaccard。
 
 ## 输出
 

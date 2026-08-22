@@ -15,7 +15,7 @@ from utils.candidate_clustering_outputs import (
     save_candidate_clustering_outputs,
 )
 from utils.cluster_store import save_candidate_clusters
-from utils.llm_utils import load_yaml_file, resolve_api_key
+from utils.llm_utils import load_candidate_proposer_config, load_yaml_file, resolve_api_key
 from utils.patient_store import save_patient_states
 
 
@@ -169,14 +169,7 @@ def select_k_with_llm(
     if not eligible:
         raise RuntimeError("No candidate K satisfies min_cluster_size.")
 
-    config_path = Path(config_dir) / "candidate_k_selector.yaml"
-    if not config_path.exists():
-        config_path = (
-            Path(__file__).resolve().parent.parent
-            / "configs"
-            / "candidate_k_selector.yaml"
-        )
-    selector_config = load_yaml_file(str(config_path))
+    selector_config = load_candidate_proposer_config(config_dir)["k_selector"]
     llm_config = dict(selector_config["llm"])
 
     prompt_path = Path(selector_config["prompt_path"])
@@ -389,7 +382,7 @@ def build_feature_store_payload(
         return {"eligible_patient_ids": [], "z_snf": empty, "modality_affinities": {}, "feature_engineering_audit": {}}
     from utils.llm_utils import load_yaml_file
 
-    snf_config = load_yaml_file(Path(config_dir or "configs") / "snf.yaml")
+    snf_config = load_candidate_proposer_config(config_dir).get("snf", {})
     paths = dict(eligible[0].get("omics_evidence", {}).get("modality_affinity_paths", {}))
     required = {"ct", "wsi", "rna", "genomic"}
     if not required.issubset(paths):
@@ -532,13 +525,13 @@ def candidate_proposer(
             config_path = (
                 Path(config_dir).expanduser() if config_dir else Path("configs")
             )
-            cluster_config = load_yaml_file(config_path / "candidate_clustering.yaml")
+            cluster_config = load_candidate_proposer_config(config_path).get("clustering", {})
             repeat_count = int(cluster_config["repeat_count"])
             max_clusters = int(cluster_config["max_clusters"])
             if repeat_count < 1:
-                raise ValueError("candidate_clustering.repeat_count must be >= 1")
+                raise ValueError("candidate_proposer.clustering.repeat_count must be >= 1")
             if max_clusters < 2:
-                raise ValueError("candidate_clustering.max_clusters must be >= 2")
+                raise ValueError("candidate_proposer.clustering.max_clusters must be >= 2")
             max_cluster_value = min(max_clusters, n_cases)
             algorithms_config = dict(cluster_config["algorithms"])
             consensus_linkage = str(cluster_config["consensus_linkage"])
@@ -726,7 +719,7 @@ def candidate_proposer(
             if consensus_records:
                 if selection_method != "llm_consensus_review":
                     raise ValueError(
-                        "candidate_clustering.selection_method must be "
+                        "candidate_proposer.clustering.selection_method must be "
                         "'llm_consensus_review'."
                     )
 

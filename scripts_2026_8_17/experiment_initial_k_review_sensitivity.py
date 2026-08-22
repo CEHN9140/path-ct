@@ -200,7 +200,6 @@ def run_one(
         "router_self_review": True,
         "verifier_self_review": True,
         "max_rounds": state["control"]["max_rounds"],
-        "max_llm_calls": None,
         "llm_usage": usage,
         "terminal_status": summary["terminal_status"],
         "initial_cluster_sizes": summary["initial_cluster_sizes"],

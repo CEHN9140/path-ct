@@ -18,23 +18,14 @@ from utils.llm_utils import (
 )
 
 
-class LLMCallBudgetExceeded(RuntimeError):
-    pass
-
-
 class LLMUsageTracker:
-    def __init__(self, max_llm_calls: int | None = None):
-        self.max_llm_calls = max_llm_calls
+    def __init__(self):
         self.api_calls = 0
         self.prompt_tokens: int | None = None
         self.completion_tokens: int | None = None
         self.total_tokens: int | None = None
 
     def before_request(self) -> None:
-        if self.max_llm_calls is not None and self.api_calls >= self.max_llm_calls:
-            raise LLMCallBudgetExceeded(
-                f"LLM call budget exhausted: {self.max_llm_calls} calls"
-            )
         self.api_calls += 1
 
     def record_response(self, response: Any) -> None:
@@ -362,7 +353,6 @@ def build_structured_model(config: dict[str, Any], schema: type, prompt: str, us
 
 def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
-    cfg["max_new_tokens"] = int(cfg.get("verifier_max_tokens", cfg.get("max_new_tokens", 2048)))
     prompt = load_prompt(prompt_dir(config, config_dir), "verifier.md")
     tools = build_validation_tools()
     if str(cfg.get("structured_output", "json_object")) == "json_prompt":
@@ -374,7 +364,7 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
-        max_tokens=int(cfg.get("verifier_max_tokens", cfg.get("max_new_tokens", 2048))),
+        max_tokens=int(cfg.get("max_new_tokens", 2048)),
         extra_body={"thinking": {"type": "disabled"}},
     )
     return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2), usage_tracker)
@@ -382,7 +372,6 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
 
 def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
     cfg = dict(config["llm"])
-    cfg["max_new_tokens"] = int(cfg.get("reviser_max_tokens", cfg.get("max_new_tokens", 2048)))
     return build_structured_model(
         cfg,
         ReviserOutput,
@@ -399,7 +388,6 @@ def build_default_router(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    cfg["max_new_tokens"] = int(cfg.get("router_max_tokens", cfg.get("max_new_tokens", 2048)))
     model = build_structured_model(
         cfg,
         RouterSelection,

@@ -138,9 +138,8 @@ def build_genomic_discovery_artifacts(
     config_dir: str,
 ) -> dict[str, str]:
     config = load_wxs_config(config_dir)
-    snf_path = Path(config_dir) / "snf.yaml"
-    import yaml
-    snf = yaml.safe_load(snf_path.read_text(encoding="utf-8")) if snf_path.is_file() else {}
+    from utils.llm_utils import load_candidate_proposer_config
+    snf = load_candidate_proposer_config(config_dir).get("snf", {})
     patients = [str(case["Case_ID"]) for case in cohort_cases]
     out = ensure_dir(Path(output_root) / "wxs")
     discovery = out / "wxs_discovery_features.csv"

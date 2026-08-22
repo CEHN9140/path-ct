@@ -496,7 +496,6 @@ def main() -> None:
         *sorted((ROOT / "agents" / "subtype_review").rglob("*.py")),
         *sorted((ROOT / "agents" / "subtype_review").rglob("*.md")),
         ROOT / "configs" / "subtype_review.yaml",
-        ROOT / "configs" / "subtype_review_tools.yaml",
         *[
             ROOT / "tools" / name
             for name in (

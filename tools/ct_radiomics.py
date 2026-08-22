@@ -47,11 +47,11 @@ def build_ct_affinity(
     from scipy.spatial.distance import cdist
     from snf.compute import affinity_matrix
     from tools.confound_test import confounder_values
-    from utils.llm_utils import load_yaml_file
+    from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 
     config_path = Path(config_dir or "configs")
     ct_config = load_yaml_file(config_path / "ct_radiomics.yaml")
-    snf_config = load_yaml_file(config_path / "snf.yaml")
+    snf_config = load_candidate_proposer_config(config_path)["snf"]
     ccc_threshold = float(ct_config["ccc_threshold"])
     widths = [float(value) for value in ct_config["ccc_comparison_bin_widths"]]
     labels = [str(int(value)) if value.is_integer() else str(value).replace(".", "_") for value in widths]

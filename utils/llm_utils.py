@@ -13,6 +13,10 @@ def load_yaml_file(path: str | Path) -> dict[str, Any]:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
 
+def load_candidate_proposer_config(config_dir: str | Path = "configs") -> dict[str, Any]:
+    return load_yaml_file(Path(config_dir) / "candidate_proposer.yaml")
+
+
 def resolve_api_key(config: dict[str, Any]) -> str:
     variable = str(config.get("api_key_env", "") or "").strip()
     if not variable:

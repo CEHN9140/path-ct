@@ -10,7 +10,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
-from agents.subtype_review.llm import LLMCallBudgetExceeded, parse_json_content, parse_router_selection
+from agents.subtype_review.llm import parse_json_content, parse_router_selection
 from agents.subtype_review.llm_summary import summarize_audit, summarize_evidence
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
@@ -74,23 +74,19 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "next": "audit",
             "error": None,
             "blocked_actions": [],
-            "deferred_structural_intents": [],
-            "structural_changes_used": 0,
-            "structural_reviews_used": 0,
+            "diagnostics": {
+                "structural_reviews_performed": 0,
+                "structural_changes_applied": 0,
+            },
             "visited_partitions": [partition_signature(sets)],
             "trace": [],
-            "max_rounds": 60,
+            "max_rounds": 10,
             "max_failures": 3,
-            "max_split_depth": 1,
-            "max_structural_changes": 2,
-            "max_structural_reviews": 3,
-            "router_contract_attempts": 2,
             "policy": {
                 "accept_min_supporting_modalities": 2,
                 "split_min_supporting_modalities": 2,
                 "merge_min_supporting_modalities": 2,
                 "split_require_molecular_or_biology": True,
-                "min_split_size": 10,
             },
         },
     }
@@ -192,17 +188,16 @@ def mark_success(state: dict[str, Any]) -> None:
     state["control"] = control
 
 
+def mark_active_sets_unresolved(state: dict[str, Any], reason: str) -> None:
+    for item in state.get("sets", []) or []:
+        if item.get("status") == "active":
+            item["status"] = "unresolved"
+            item["unresolved_reason"] = reason
+
+
 def invoke_with_recovery(model: Any, payload: dict[str, Any], state: dict[str, Any], node: str) -> Any:
     try:
         return model.invoke(payload)
-    except LLMCallBudgetExceeded as exc:
-        control = dict(state.get("control", {}) or {})
-        control["status"] = "unresolved_due_to_budget"
-        control["error"] = str(exc)
-        control["next"] = "end"
-        state["control"] = control
-        append_trace(state, {"node": node, "event": "llm_budget_exhausted", "error": str(exc)})
-        return None
     except Exception as exc:
         mark_failure(state, node, exc)
         return None
@@ -788,7 +783,8 @@ def verifier_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any)
     control["next"] = "router"
     if complete_audit(state):
         control["status"] = "complete"
-    elif int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 12) or 12):
+    elif int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 10)):
+        mark_active_sets_unresolved(state, "max_rounds_exhausted")
         control["status"] = "unresolved_due_to_budget"
     state["control"] = control
     return state
@@ -958,16 +954,7 @@ def invalidates_set(finding: Mapping[str, Any], target: str) -> bool:
     )
 
 
-def has_deferred_structural_intent(state: Mapping[str, Any], target: str) -> bool:
-    return any(
-        target in {str(value) for value in row.get("target_ids", []) or []}
-        for row in dict(state.get("control", {}) or {}).get("deferred_structural_intents", []) or []
-    )
-
-
 def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
-    if has_deferred_structural_intent(state, target):
-        return False, "Accept is blocked by deferred structural refinement"
     sets = current_sets(state)
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
     if not any(
@@ -1061,9 +1048,8 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
     for item in state["sets"]:
         status = str(item.get("status", ""))
         target = set_id(item)
-        if status == "provisionally_accepted" and (
-            has_deferred_structural_intent(state, target)
-            or any(blocks_set_acceptance(finding, target) for finding in findings)
+        if status == "provisionally_accepted" and any(
+            blocks_set_acceptance(finding, target) for finding in findings
         ):
             item["status"] = "active"
             item.pop("drop_reason", None)
@@ -1163,9 +1149,7 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
         target = set_id(item)
         accept_blocker = any(blocks_set_acceptance(finding, target) for finding in findings)
         drop_evidence = any(invalidates_set(finding, target) for finding in findings)
-        if item.get("status") == "provisionally_accepted" and (
-            accept_blocker or has_deferred_structural_intent(state, target)
-        ):
+        if item.get("status") == "provisionally_accepted" and accept_blocker:
             return False
         if (
             item.get("status") == "provisionally_dropped"
@@ -1289,10 +1273,7 @@ def initial_revision_intents(state: dict[str, Any]) -> list[dict[str, Any]]:
     if any(request["scope"] in {"set_identity", "partition"} for request in required_evidence_requests(state)):
         return []
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
-    control = dict(state.get("control", {}) or {})
-    policy = dict(dict(state.get("control", {}) or {}).get("policy", {}) or {})
     blocked = set(dict(state.get("control", {}) or {}).get("blocked_actions", []) or [])
-    min_split_size = int(policy.get("min_split_size", 10) or 10)
     invalid = {
         set_id(item) for item in sets
         if any(invalidates_set(row, set_id(item)) for row in findings)
@@ -1319,42 +1300,17 @@ def initial_revision_intents(state: dict[str, Any]) -> list[dict[str, Any]]:
         ).items()
         if modalities and len(pair.split("+")) == 2
     }
-    control["deferred_structural_intents"] = list(
-        control.get("deferred_structural_intents", []) or []
-    )
-    deferred = control["deferred_structural_intents"]
-    max_depth = int(control.get("max_split_depth", 1))
-    changes_used = int(control.get("structural_changes_used", 0))
-    reviews_used = int(control.get("structural_reviews_used", 0))
-    max_changes = int(control.get("max_structural_changes", 2))
-    max_reviews = int(control.get("max_structural_reviews", 3))
-
-    def defer(action: str, targets: list[str], reason: str) -> None:
-        record = {"action": action, "target_ids": targets, "reason": reason}
-        if record not in deferred:
-            deferred.append(record)
-
     split_intents = []
     for item in sets:
         target = set_id(item)
         if str(item.get("status", "active")) != "active" or target in invalid:
             continue
-        if target not in split_signals or len(item.get("member_ids", []) or []) < 2 * min_split_size:
+        if target not in split_signals:
             continue
         key = f"split:{target}"
         if key in blocked:
             continue
-        reason = None
-        if int(item.get("split_depth", 0) or 0) >= max_depth:
-            reason = "max_split_depth_reached"
-        elif changes_used >= max_changes:
-            reason = "max_structural_changes_reached"
-        elif reviews_used >= max_reviews:
-            reason = "max_structural_reviews_reached"
-        if reason:
-            defer("split", [target], reason)
-        else:
-            split_intents.append({"action": "split", "target_ids": [target]})
+        split_intents.append({"action": "split", "target_ids": [target]})
 
     intents = split_intents
     merge_ids = {set_id(item) for item in sets if set_id(item) not in invalid}
@@ -1362,22 +1318,7 @@ def initial_revision_intents(state: dict[str, Any]) -> list[dict[str, Any]]:
         key = f"merge:{'+'.join(targets)}"
         if not set(targets).issubset(merge_ids) or key in blocked:
             continue
-        if changes_used >= max_changes:
-            defer("merge", list(targets), "max_structural_changes_reached")
-        elif reviews_used >= max_reviews:
-            defer("merge", list(targets), "max_structural_reviews_reached")
-        else:
-            intents.append({"action": "merge", "target_ids": list(targets)})
-    control["deferred_structural_intents"] = deferred
-    deferred_targets = {
-        str(target)
-        for row in deferred
-        for target in row.get("target_ids", []) or []
-    }
-    for item in state.get("sets", []) or []:
-        if item.get("status") == "provisionally_accepted" and set_id(item) in deferred_targets:
-            item["status"] = "active"
-    state["control"] = control
+        intents.append({"action": "merge", "target_ids": list(targets)})
     return intents
 
 
@@ -1526,7 +1467,8 @@ def validate_router_selection(
 
 def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -> dict[str, Any]:
     control = dict(state.get("control", {}) or {})
-    if int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 12) or 12):
+    if int(control.get("round", 0) or 0) >= int(control.get("max_rounds", 10)):
+        mark_active_sets_unresolved(state, "max_rounds_exhausted")
         control["status"] = "unresolved_due_to_budget"
         control["error"] = None
         control["next"] = "end"
@@ -1584,7 +1526,7 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
         control["structural_split_sets"] = sorted({
             str(row.get("source_set_id", ""))
             for row in metrics.get("split_candidates", []) or []
-            if int(row.get("child_count", 0) or 0) == 2
+            if int(row.get("child_count", 0) or 0) >= 2
             and float(dict(row.get("selection_adjusted_null", {}) or {}).get("q_value", 1) or 1) <= 0.05
             and float(dict(row.get("selection_adjusted_null", {}) or {}).get("separation_gain_over_null", 0) or 0) > 0
         })
@@ -1643,19 +1585,10 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             ).model_dump()
         )
     if not requestable and not legal_action_candidates:
-        deferred_targets = {
-            str(target)
-            for row in dict(state.get("control", {}) or {}).get("deferred_structural_intents", []) or []
-            for target in row.get("target_ids", []) or []
-        }
         for item in current_sets(state):
             if str(item.get("status", "active")) == "active":
                 item["status"] = "unresolved"
-                item["unresolved_reason"] = (
-                    "deferred_secondary_refinement"
-                    if set_id(item) in deferred_targets
-                    else "insufficient_validation_after_exhaustion"
-                )
+                item["unresolved_reason"] = "insufficient_validation_after_exhaustion"
         control["status"] = "unresolved"
         control["error"] = None
         control["next"] = "end"
@@ -1696,12 +1629,10 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     }
     action = None
     legal_action_map = {row["action_id"]: row["action"] for row in legal_actions}
-    attempts = int(control.get("router_contract_attempts", 2) or 2)
     selected_actions = []
-    for attempt in range(attempts):
-        if len(legal_action_candidates) == 1:
-            selected_actions = [RouterAction(**legal_action_candidates[0])]
-            break
+    if len(legal_action_candidates) == 1:
+        selected_actions = [RouterAction(**legal_action_candidates[0])]
+    else:
         result = invoke_with_recovery(model, payload, state, "router")
         if result is None:
             return state
@@ -1710,37 +1641,15 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
             selected_actions = validate_router_selection(selection, legal_action_map, state)
             for item in selected_actions:
                 item.reason = selection.reason
-            break
         except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            rejected_action = to_jsonable(result)
             append_trace(state, {
                 "node": "router",
                 "event": "contract_rejection",
-                "attempt": attempt + 1,
-                "rejected_action": rejected_action,
-                "error": error,
+                "rejected_action": to_jsonable(result),
+                "error": f"{type(exc).__name__}: {exc}",
             })
-            if attempt == attempts - 1:
-                control = dict(state.get("control", {}) or {})
-                control["status"] = "unresolved"
-                control["error"] = None
-                control["next"] = "end"
-                control["router_contract_error"] = error
-                state["control"] = control
-                append_trace(state, {
-                    "node": "router",
-                    "event": "router_contract_exhausted",
-                    "error": error,
-                    "legal_actions": legal_actions,
-                })
-                return state
-            payload["validation_error"] = {
-                "error": error,
-                "rejected_action": rejected_action,
-                "legal_actions": legal_actions,
-                "instruction": "Return one or more compatible action_ids exactly as provided.",
-            }
+            mark_failure(state, "router", exc)
+            return state
     if not selected_actions:
         return state
     control = dict(state.get("control", {}) or {})
@@ -1768,7 +1677,11 @@ def router_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) -
     elif structural:
         control["next"] = "revise"
         if not revision:
-            control["structural_reviews_used"] = int(control.get("structural_reviews_used", 0) or 0) + 1
+            diagnostics = dict(control.get("diagnostics", {}) or {})
+            diagnostics["structural_reviews_performed"] = int(
+                diagnostics.get("structural_reviews_performed", 0) or 0
+            ) + 1
+            control["diagnostics"] = diagnostics
     else:
         control["next"] = "router"
         if all(
@@ -1861,7 +1774,6 @@ def reset_after_structural_change(state: dict[str, Any], signature: str) -> None
     state["messages"] = []
     control = dict(state.get("control", {}) or {})
     control.pop("structural_split_sets", None)
-    control.pop("deferred_structural_intents", None)
     control["visited_partitions"] = list(control.get("visited_partitions", []) or []) + [signature]
     control["blocked_actions"] = []
     control["next"] = "audit"
@@ -1984,7 +1896,11 @@ def reviser_node(state: dict[str, Any], runtime: Mapping[str, Any], model: Any) 
     else:
         apply_merge(state, plan)
     control = dict(state.get("control", {}) or {})
-    control["structural_changes_used"] = int(control.get("structural_changes_used", 0) or 0) + 1
+    diagnostics = dict(control.get("diagnostics", {}) or {})
+    diagnostics["structural_changes_applied"] = int(
+        diagnostics.get("structural_changes_applied", 0) or 0
+    ) + 1
+    control["diagnostics"] = diagnostics
     state["control"] = control
     reset_after_structural_change(state, next_signature)
     mark_success(state)
@@ -2094,16 +2010,7 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "raw_control_status": raw_status,
         "rounds_used": control.get("round", 0),
         "llm_usage": to_jsonable(control.get("llm_usage", {})),
-        "structural_search": {
-            "reviews_used": control.get("structural_reviews_used", 0),
-            "changes_used": control.get("structural_changes_used", 0),
-            "deferred_intents": to_jsonable(control.get("deferred_structural_intents", [])),
-            "limits": {
-                "max_split_depth": control.get("max_split_depth"),
-                "max_structural_changes": control.get("max_structural_changes"),
-                "max_structural_reviews": control.get("max_structural_reviews"),
-            },
-        },
+        "structural_search": to_jsonable(control.get("diagnostics", {})),
         "partition_sets": to_jsonable(sets),
         "accepted_subtype_sets": to_jsonable(accepted_sets),
         "unresolved_sets": to_jsonable([

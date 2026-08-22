@@ -21,13 +21,8 @@ def subtype_review_config(config_dir: str) -> dict[str, Any]:
     return load_yaml_file(Path(config_dir).expanduser() / "subtype_review.yaml")
 
 
-def subtype_review_tools_config(config_dir: str) -> dict[str, Any]:
-    return load_yaml_file(Path(config_dir).expanduser() / "subtype_review_tools.yaml")
-
-
 def tool_parameters(config_dir: str, tool_key: str) -> dict[str, Any]:
-    tools_config = subtype_review_tools_config(config_dir)
-    return dict(tools_config[tool_key])
+    return dict(subtype_review_config(config_dir)[tool_key])
 
 
 def tool_result(

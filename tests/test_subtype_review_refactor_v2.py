@@ -393,8 +393,8 @@ def test_revision_candidates_are_filtered_to_exact_intent(monkeypatch):
         "status": "success",
         "results": {"metrics": {
             "split_candidates": [
-                {"plan_id": "s1", "source_set_id": "C1", "child_count": 2, "groups": [["P1"], ["P2"]], "selection_adjusted_null": {"q_value": 0.01, "separation_gain_over_null": 0.2}},
-                {"plan_id": "s2", "source_set_id": "C2", "child_count": 2, "groups": [["P3"], ["P4"]], "selection_adjusted_null": {"q_value": 0.01, "separation_gain_over_null": 0.2}},
+                {"plan_id": "s1", "source_set_id": "C1", "child_count": 3, "groups": [["P1"], ["P2"], ["P3"]], "selection_adjusted_null": {"q_value": 0.01, "separation_gain_over_null": 0.2}},
+                {"plan_id": "s2", "source_set_id": "C2", "child_count": 2, "groups": [["P4"], ["P5"]], "selection_adjusted_null": {"q_value": 0.01, "separation_gain_over_null": 0.2}},
             ],
             "merge_candidates": [
                 {"plan_id": "m12", "set_ids": ["C2", "C1"]},
@@ -403,20 +403,20 @@ def test_revision_candidates_are_filtered_to_exact_intent(monkeypatch):
         }},
     })
     sets = [
-        {"set_id": "C1", "member_ids": ["P1", "P2"]},
-        {"set_id": "C2", "member_ids": ["P3", "P4"]},
-        {"set_id": "C3", "member_ids": ["P5", "P6"]},
+        {"set_id": "C1", "member_ids": ["P1", "P2", "P3"]},
+        {"set_id": "C2", "member_ids": ["P4", "P5"]},
+        {"set_id": "C3", "member_ids": ["P6", "P7"]},
     ]
 
     split = generate_revision_candidates("split", ["C1"], {}, {}, "output", all_cluster_states=sets)
     merge = generate_revision_candidates("merge", ["C2", "C1"], {}, {}, "output", all_cluster_states=sets)
 
     assert [row["proposal_id"] for row in split] == ["s1"]
-    assert split[0]["parent_members"] == ["P1", "P2"]
+    assert split[0]["parent_members"] == ["P1", "P2", "P3"]
     assert split[0]["partition_signature"]
     assert [row["proposal_id"] for row in merge] == ["m12"]
     assert merge[0]["set_ids"] == ["C1", "C2"]
-    assert merge[0]["memberships"] == [["P1", "P2"], ["P3", "P4"]]
+    assert merge[0]["memberships"] == [["P1", "P2", "P3"], ["P4", "P5"]]
 
 
 def test_initial_revision_intents_skip_acceptable_sets():
@@ -1728,7 +1728,18 @@ def test_verifier_uses_python_threshold_for_set_identity_supporting_status():
 
 def test_default_review_budget_allows_mandatory_evidence_rounds():
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
-    assert state["control"]["max_rounds"] == 60
+    assert state["control"]["max_rounds"] == 10
+
+
+def test_max_rounds_marks_active_sets_unresolved():
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["control"]["max_rounds"] = 0
+
+    router_node(state, {}, StaticModel({"action_ids": ["unused"], "reason": ""}))
+
+    assert state["control"]["status"] == "unresolved_due_to_budget"
+    assert state["sets"][0]["status"] == "unresolved"
+    assert state["sets"][0]["unresolved_reason"] == "max_rounds_exhausted"
 
 
 def test_router_executes_single_pending_evidence_action_without_llm_call():
@@ -1773,7 +1784,7 @@ def test_router_executes_single_legal_scientific_action_without_llm_call():
     assert state["action"] is None
 
 
-def test_router_retries_when_llm_does_not_select_a_legal_action_id():
+def test_router_contract_failure_uses_shared_failure_control():
     state = initial_review_state([
         {"cluster_id": target, "member_ids": [f"{target}P{i}" for i in range(20)]}
         for target in ("C1", "C2")
@@ -1804,12 +1815,12 @@ def test_router_retries_when_llm_does_not_select_a_legal_action_id():
 
     router_node(state, {}, model)
 
-    assert model.calls == 2
-    assert model.payloads[1]["validation_error"]["legal_actions"] == model.payloads[0]["legal_actions"]
+    assert model.calls == 1
     assert all("action_id" in row for row in model.payloads[0]["legal_actions"])
-    assert state["control"]["status"] == "unresolved"
-    assert state["control"]["error"] is None
-    assert state["control"]["trace"][-1]["event"] == "router_contract_exhausted"
+    assert state["control"]["status"] == "reviewing"
+    assert state["control"]["failures"] == 1
+    assert state["control"]["error"]
+    assert any(row.get("event") == "contract_rejection" for row in state["control"]["trace"])
 
 
 def test_router_action_id_selects_the_python_owned_action():
@@ -2442,7 +2453,7 @@ def test_router_selection_requires_unique_nonempty_action_ids():
         RouterSelection(action_ids=["A1", "A1"], reason="duplicate")
 
 
-def test_positive_structural_signal_allows_split_but_depth_defers_it():
+def test_positive_structural_signal_allows_split_at_any_depth():
     state = initial_review_state([{
         "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
     }])
@@ -2460,36 +2471,10 @@ def test_positive_structural_signal_allows_split_but_depth_defers_it():
     assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
 
     state["sets"][0]["split_depth"] = 1
-    state["control"]["max_split_depth"] = 1
-    assert initial_revision_intents(state) == []
-    assert state["control"]["deferred_structural_intents"] == [{
-        "action": "split", "target_ids": ["C1"], "reason": "max_split_depth_reached",
-    }]
+    assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
 
 
-def test_deferred_structural_signal_blocks_accept_and_ends_unresolved():
-    state = initial_review_state([{
-        "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
-    }])
-    add_identity_controls(state)
-    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
-    state["evidence"]["results"].append(evidence_row(
-        state, "cross_modal_consistency", "set_identity", ["C1"], {},
-        "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, ref,
-    ))
-    state["audit"]["findings"].append({
-        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
-        "scope": "set_identity", "status": "supporting", "metric_refs": [ref],
-    })
-    state["control"].update({"structural_split_sets": ["C1"], "max_split_depth": 0})
-    with pytest.raises(ValueError, match="deferred structural"):
-        validate_router_action(RouterAction(action="accept", target_ids=["C1"]), state)
-    router_node(state, {}, StaticModel({"action_ids": ["unused"], "reason": ""}))
-    assert state["sets"][0]["status"] == "unresolved"
-    assert state["sets"][0]["unresolved_reason"] == "deferred_secondary_refinement"
-
-
-def test_structural_limits_defer_positive_intents():
+def test_structural_diagnostics_do_not_block_positive_intents():
     state = initial_review_state([{
         "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
     }])
@@ -2505,14 +2490,15 @@ def test_structural_limits_defer_positive_intents():
     })
     state["control"].update({
         "structural_split_sets": ["C1"],
-        "structural_changes_used": 2,
-        "max_structural_changes": 2,
+        "diagnostics": {
+            "structural_reviews_performed": 99,
+            "structural_changes_applied": 99,
+        },
     })
-    assert initial_revision_intents(state) == []
-    assert state["control"]["deferred_structural_intents"][0]["reason"] == "max_structural_changes_reached"
+    assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
 
 
-def test_merge_preserves_maximum_split_depth():
+def test_merge_preserves_split_depth_lineage():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1"], "split_depth": 1},
         {"cluster_id": "C2", "member_ids": ["P2"], "split_depth": 0},
@@ -2520,6 +2506,21 @@ def test_merge_preserves_maximum_split_depth():
     apply_merge(state, {"set_ids": ["C1", "C2"]})
     merged = next(item for item in state["sets"] if item["status"] == "active")
     assert merged["split_depth"] == 1
+
+
+def test_apply_split_supports_three_children():
+    state = initial_review_state([{
+        "cluster_id": "C1",
+        "member_ids": [f"P{i}" for i in range(6)],
+    }])
+    apply_split(state, {
+        "source_set_id": "C1",
+        "groups": [["P0", "P1"], ["P2", "P3"], ["P4", "P5"]],
+    })
+
+    children = [item for item in state["sets"] if item["status"] == "active"]
+    assert len(children) == 3
+    assert sorted(len(item["member_ids"]) for item in children) == [2, 2, 2]
 
 
 def test_router_batches_independent_terminal_actions():
@@ -2578,7 +2579,7 @@ def test_terminal_and_structural_actions_cannot_share_a_batch():
         validate_router_selection(RouterSelection(action_ids=["A0", "A1"]), actions, {})
 
 
-def test_deferred_merge_reactivates_an_accepted_endpoint():
+def test_merge_signal_keeps_an_accepted_endpoint_eligible():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
         {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
@@ -2594,33 +2595,30 @@ def test_deferred_merge_reactivates_an_accepted_endpoint():
         "multimodal_consistency_check", {"merge_candidate_pairs_by_modality": {"C1+C2": ["ct", "wsi"]}}, ref,
     ))
     state["sets"][0]["status"] = "provisionally_accepted"
-    state["control"]["structural_reviews_used"] = state["control"]["max_structural_reviews"]
-
-    assert initial_revision_intents(state) == []
-    assert state["sets"][0]["status"] == "active"
-    assert state["control"]["deferred_structural_intents"] == [{
-        "action": "merge", "target_ids": ["C1", "C2"], "reason": "max_structural_reviews_reached",
-    }]
+    assert initial_revision_intents(state) == [{"action": "merge", "target_ids": ["C1", "C2"]}]
+    assert state["sets"][0]["status"] == "provisionally_accepted"
 
 
 def test_summary_reports_structural_search_diagnostics(tmp_path):
     state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1"]}])
     state["control"].update({
-        "structural_reviews_used": 2,
-        "structural_changes_used": 1,
-        "deferred_structural_intents": [{"action": "split", "target_ids": ["C1"], "reason": "max_split_depth_reached"}],
+        "diagnostics": {
+            "structural_reviews_performed": 2,
+            "structural_changes_applied": 1,
+        },
     })
     summary = save_review_outputs(state, str(tmp_path), direct=True)
-    assert summary["structural_search"]["reviews_used"] == 2
-    assert summary["structural_search"]["changes_used"] == 1
-    assert summary["structural_search"]["deferred_intents"]
+    assert summary["structural_search"] == {
+        "structural_reviews_performed": 2,
+        "structural_changes_applied": 1,
+    }
 
 
-def test_structural_change_counter_survives_partition_reset():
+def test_structural_change_diagnostic_survives_partition_reset():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
     ])
     apply_split(state, {"source_set_id": "C1", "groups": [["P1"], ["P2"]]})
-    state["control"]["structural_changes_used"] = 1
+    state["control"]["diagnostics"]["structural_changes_applied"] = 1
     reset_after_structural_change(state, partition_signature(state["sets"]))
-    assert state["control"]["structural_changes_used"] == 1
+    assert state["control"]["diagnostics"]["structural_changes_applied"] == 1

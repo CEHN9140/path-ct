@@ -97,10 +97,10 @@ def build_legacy_feature_payload(
     """Compatibility path for unit fixtures without evidence-stage artifacts."""
     from scipy.spatial.distance import cdist
     from snf.compute import affinity_matrix
-    from utils.llm_utils import load_yaml_file
+    from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 
     config_path = config_dir or "configs"
-    snf_config = load_yaml_file(f"{config_path}/snf.yaml")
+    snf_config = load_candidate_proposer_config(config_path)["snf"]
     ct_config = load_yaml_file(f"{config_path}/ct_radiomics.yaml")
     states = [dict(state) for state in patient_states if state.get("qc") == "success"]
     patient_ids = [str(state.get("case_id", "")) for state in states]

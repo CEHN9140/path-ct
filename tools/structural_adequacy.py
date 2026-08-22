@@ -17,7 +17,6 @@ from tools.multimodal_consistency_check import (
     round_value,
     separation_score,
 )
-from utils.llm_utils import load_yaml_file
 
 
 MODALITIES = ("ct", "wsi", "rna", "genomic", "fused")
@@ -72,15 +71,12 @@ def local_split_plans(
     memberships: Mapping[str, list[str]],
     affinities: Mapping[str, np.ndarray],
     case_ids: list[str],
-    *,
-    min_size: int,
-    max_children: int,
 ) -> list[dict[str, Any]]:
     index_by_case = {case_id: index for index, case_id in enumerate(case_ids)}
     candidates = {}
     for set_id, members in sorted(memberships.items()):
         positions = np.asarray([index_by_case[case_id] for case_id in members])
-        maximum = min(max_children, len(members) // min_size)
+        maximum = len(members) // 2
         for child_count in range(2, maximum + 1):
             similarity = normalize_affinity(
                 affinities["fused"][np.ix_(positions, positions)]
@@ -102,7 +98,7 @@ def local_split_plans(
                     for label in np.unique(labels)
                 )
             )
-            if min(map(len, groups), default=0) < min_size:
+            if min(map(len, groups), default=0) < 2:
                 continue
             candidates[(set_id, groups)] = {
                 "source_set_id": set_id,
@@ -387,16 +383,8 @@ def generate_structure_proposal_metrics(
     affinities["fused"] = np.load(candidate_dir / "fused_similarity.npy")[
         np.ix_(positions, positions)
     ]
-    review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
-    budget = dict(review_config["budget"])
     parameters = tool_parameters(config_dir, "revision_candidates")
-    split_plans = local_split_plans(
-        memberships,
-        affinities,
-        case_ids,
-        min_size=int(budget["min_split_size"]),
-        max_children=int(budget["max_split_children"]),
-    )
+    split_plans = local_split_plans(memberships, affinities, case_ids)
     split_permutations = int(parameters["split_null_permutations"])
     split_evidence = [
         split_plan_evidence(
@@ -540,7 +528,7 @@ def generate_revision_candidates(
             item["proposal_id"] = str(item.get("plan_id", ""))
             item["parent_members"] = memberships.get(targets[0], [])
             item["eligible_for_review"] = (
-                int(item.get("child_count", 0) or 0) == 2
+                int(item.get("child_count", 0) or 0) >= 2
                 and float(dict(item.get("selection_adjusted_null", {}) or {}).get("q_value", 1) or 1) <= 0.05
                 and float(dict(item.get("selection_adjusted_null", {}) or {}).get("separation_gain_over_null", 0) or 0) > 0
             )
