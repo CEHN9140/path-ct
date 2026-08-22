@@ -80,7 +80,8 @@ def mark_failure(state: dict[str, Any], node: str, exc: Exception) -> None:
     control = dict(state.get("control", {}) or {})
     control["failures"] = int(control.get("failures", 0)) + 1
     control["error"] = f"{type(exc).__name__}: {exc}"
-    control["next"] = node
+    if node != "verifier":
+        control["next"] = node
     if control["failures"] >= int(control.get("max_failures", 3)):
         control["status"] = "review_unavailable"
         control["next"] = "end"
@@ -180,6 +181,16 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         raise ValueError("Round contains an unregistered scientific tool")
     if any(request["tool_name"] not in tools for request in extra_requests):
         raise ValueError("Round contains an unregistered scientific tool")
+    merged_requests = {}
+    for request in extra_requests:
+        name = request["tool_name"]
+        targets = merged_requests.setdefault(name, set())
+        if tools[name]["scope"] == "set_identity":
+            targets.update(request["target_ids"])
+    extra_requests = [
+        {"tool_name": name, "target_ids": sorted(targets)}
+        for name, targets in merged_requests.items()
+    ]
     state["round_evidence"] = []
     state["messages"] = []
     state["router_plan"] = None
@@ -211,10 +222,15 @@ def tool_key(row: Mapping[str, Any]) -> str:
 
 def successful_tool_keys(state: Mapping[str, Any]) -> set[str]:
     keys = set()
-    for entry in state.get("history", []) or []:
-        for row in entry.get("round_evidence", []) or []:
-            if row.get("status") == "success":
-                keys.add(tool_key(row))
+    rows = list(state.get("round_evidence", []) or [])
+    rows.extend(
+        row
+        for entry in state.get("history", []) or []
+        for row in entry.get("round_evidence", []) or []
+    )
+    for row in rows:
+        if row.get("status") == "success":
+            keys.add(tool_key(row))
     return keys
 
 

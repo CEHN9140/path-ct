@@ -8,14 +8,18 @@ import pytest
 from agents.subtype_review.graph import (
     build_review_graph,
     initial_review_state,
+    partition_signature,
+    prepare_round_node,
     reviser_node,
     router_node,
     save_review_outputs,
+    successful_tool_keys,
     validate_reports,
+    validate_tool_request,
     validate_router_plan,
 )
 from agents.subtype_review.llm import LLMUsageTracker
-from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, RouterPlan
+from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, RouterPlan, ToolRequest
 from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
 from tools.structural_adequacy import execute_split_membership, structure_diagnostics
 
@@ -236,6 +240,91 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
         "target_ids": ["C1"],
     }
     assert len(result["history"]) == 2
+
+
+def test_successful_extra_tool_in_current_round_cannot_be_requested_again():
+    state = make_state(("C1", ["P1"]))
+    state["round_evidence"] = [{
+        "tool_name": "clinical_characterization",
+        "status": "success",
+        "target_ids": ["C1"],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+    }]
+    request = {
+        "tool_name": "clinical_characterization",
+        "target_ids": ["C1"],
+    }
+    assert successful_tool_keys(state)
+    with pytest.raises(ValueError, match="already succeeded"):
+        validate_tool_request(ToolRequest.model_validate(request), state, fake_registry(), {"C1"})
+
+
+def test_same_set_level_extra_tool_requests_are_merged_before_verifier_call():
+    state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
+    state["control"]["max_rounds"] = 1
+
+    class Router:
+        def invoke(self, payload):
+            return {"actions": [
+                {
+                    "action": "need_more_evidence",
+                    "target_ids": ["C1"],
+                    "tool_requests": [{
+                        "tool_name": "clinical_characterization",
+                        "target_ids": ["C1"],
+                    }],
+                },
+                {
+                    "action": "need_more_evidence",
+                    "target_ids": ["C2"],
+                    "tool_requests": [{
+                        "tool_name": "clinical_characterization",
+                        "target_ids": ["C2"],
+                    }],
+                },
+            ]}
+
+    router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})
+    prepare_round_node(state, {"tool_registry": fake_registry()})
+    clinical = [
+        request for request in state["control"]["pending_tools"]
+        if request["tool_name"] == "clinical_characterization"
+    ]
+    assert clinical == [{
+        "tool_name": "clinical_characterization",
+        "target_ids": ["C1", "C2"],
+    }]
+
+
+def test_verifier_failure_retries_the_same_stage():
+    class Verifier:
+        def __init__(self):
+            self.acquire_calls = 0
+
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                self.acquire_calls += 1
+                if self.acquire_calls == 1:
+                    raise RuntimeError("temporary verifier failure")
+                return {"tool_calls": [
+                    {"name": item["tool_name"], "id": item["tool_name"]}
+                    for item in payload["tool_requests"]
+                ]}
+            return reports_for_requests(payload["tool_requests"])
+
+    class Router:
+        def invoke(self, payload):
+            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+
+    verifier = Verifier()
+    runtime = {
+        "data_root": "/tmp", "artifact_root": "/tmp", "config_dir": "configs",
+        "patient_states_by_id": {}, "tool_registry": fake_registry(),
+        "verifier_model": verifier, "router_model": Router(), "reviser_model": object(),
+    }
+    result = build_review_graph().invoke(make_state(("C1", ["P1"])), context=runtime)
+    assert verifier.acquire_calls == 2
+    assert result["control"]["status"] == "complete"
 
 
 def test_round_ten_accept_drop_decision_completes_without_round_eleven():
