@@ -168,16 +168,6 @@ def scoped_candidate_sets(
         for state in list(all_cluster_states or [cluster_state])
         if str(state.get("set_id") or state.get("cluster_id") or "")
     }
-    if scope == "split_proposal":
-        proposal = dict(proposal or {})
-        proposal_id = str(proposal.get("plan_id", "split") or "split")
-        return {
-            f"{proposal_id}:child_{index}": {str(case_id) for case_id in group}
-            for index, group in enumerate(list(proposal.get("groups", []) or []), 1)
-        }
-    if scope == "merge_proposal":
-        ids = [str(item) for item in list(dict(proposal or {}).get("set_ids", []) or [])]
-        return {set_id: current[set_id] for set_id in ids if set_id in current}
     return current
 
 

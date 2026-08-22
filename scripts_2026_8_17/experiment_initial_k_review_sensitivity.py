@@ -129,12 +129,8 @@ def summarize_run(
         len(item.get("member_ids", []) or []) for item in initial_sets
     )
     final_sizes = sorted(len(item.get("member_ids", []) or []) for item in final_sets)
-    accepted = [
-        item for item in final_sets if item.get("status") == "provisionally_accepted"
-    ]
-    dropped = [
-        item for item in final_sets if item.get("status") == "provisionally_dropped"
-    ]
+    accepted = [item for item in final_sets if item.get("status") == "accept"]
+    dropped = [item for item in final_sets if item.get("status") == "drop"]
     return {
         "initial_k": initial_k,
         "initial_cluster_sizes": initial_sizes,
@@ -184,21 +180,14 @@ def run_one(
         artifact_root=str(run_root),
     )
     save_review_outputs(state, str(run_root), direct=True)
-    usage = {
-        "api_calls": None,
-        "prompt_tokens": None,
-        "completion_tokens": None,
-        "total_tokens": None,
-    }
-    summary = summarize_run(initial_k, initial_sets, state)
+    usage = dict(state.get("control", {}).get("llm_usage", {}) or {})
+    summary = summarize_run(initial_k, initial_sets, state, usage)
     metadata = {
         "experiment": "initial_k_review_sensitivity",
         "run": 1,
         "initial_k": initial_k,
         "initial_partition_source": str(source_path),
         "patient_count": sum(len(item["member_ids"]) for item in initial_sets),
-        "router_self_review": True,
-        "verifier_self_review": True,
         "max_rounds": state["control"]["max_rounds"],
         "llm_usage": usage,
         "terminal_status": summary["terminal_status"],

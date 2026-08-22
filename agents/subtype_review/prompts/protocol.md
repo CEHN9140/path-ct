@@ -1,20 +1,20 @@
-# Candidate subtype review protocol v2
+# Subtype review protocol
 
-The review uses four scientific dimensions only:
+The review has three Agents: Verifier, Router, and Reviser. Python is the deterministic runtime; it manages state, evidence signatures, tool binding, contract validation, and membership execution.
 
-* `biological_support`
-* `cross_modal_consistency`
-* `confounder_exclusion`
-* `known_label_echo`
+The four scientific dimensions are平级:
 
-Revision intents and exact candidates are generated deterministically by Python. They are not a fifth scientific dimension and never replace proposal-specific evidence. Evidence is scoped to `set_identity`, `split_proposal`, `merge_proposal`, or `partition`. Python derives mandatory requests and exact signatures; proposal evidence must include `proposal_id`. Findings may cite metrics only from that exact dimension, scope, signature, and proposal.
+- `biological_support`
+- `cross_modal_consistency`
+- `confounder_exclusion`
+- `known_label_echo`
 
-The first Router Split or Merge starts candidate generation only; it does not change membership. Python then exposes candidate-specific evidence requests. Python finishes all requestable evidence for every eligible candidate before declaring a revision ready. If at least one exact candidate is then fully supported, Router emits the same Split or Merge action and Reviser selects only its `plan_id`. Python validates, applies, and records provenance. Split intent has one target, Merge intent has two canonical targets, and neither carries `proposal_id`.
+There is no base-evidence tier. Router requests only the evidence needed by the current decision. Raw tool output is cached by dimension, scope, current partition, and target membership. A structural change invalidates current evidence but preserves it in history.
 
-`p > 0.05`, `q > 0.05`, or an inconclusive biology result is not positive evidence for Merge or Drop. Accept requires supporting cross-modal identity, available set-level biological, confounder, and partition-level known-label evidence, no corresponding conflict, and no unresolved supported structural correction. Concordant identity requires at least two supporting original modalities. Complementary identity requires one supporting modality, one distinct moderate modality, and supporting biology. Modality-dominant identity is not sufficient for Accept. Biology may be supporting, mixed, or inconclusive, but conflicting set-level biology vetoes Accept.
+Verifier first acquires every requested tool in one turn, then writes detailed Evidence Reports. Reports contain observations, statistical interpretation, medical interpretation, limitations, and metric references. Verifier never selects an action.
 
-After base evidence is complete, Python independently exposes all legal Accept, Drop, Split, Merge, and evidence-request actions. A positive within-set structural signal blocks Accept and Drop only for its exact target; it does not impose a global action order. Mixed confounder association is retained as a caveat, not an Accept veto. Split requires a nondegenerate executable partition and positive within-set heterogeneity evidence; child sizes remain proposal evidence rather than a fixed Python cutoff. Merge requires a positive weak-boundary pair signal, not merely two non-Accept endpoints.
+Router gives each current set at most one action per round. `need_more_evidence` must be the only selected action in that round. Accept requires sufficient independent evidence, no strong technical explanation, no known-label near-identity, and no unresolved structural signal. Split requires positive internal heterogeneity. Merge requires positive weak-boundary evidence from multiple independent modalities. Drop is allowed for explicit technical invalidation or for closed relevant evidence that still fails the Accept rule.
 
-An exact Split candidate requires support for its child membership in at least two original modalities, molecular/biology support, and no technical or known-label veto. Imaging-only Split requests biology evidence. Merge requires positive weak-boundary evidence in at least two modalities and no biological distinction veto; a provisionally accepted endpoint remains eligible for this review. Python separates partition-level confounder association, singleton set-level association, and technical invalidation. Drop is permitted only for exact technical invalidation. If authorized Split/Merge review is exhausted without acceptance or technical invalidation, Python marks the set unresolved and records the unresolved reason. Drop and unresolved never remove patients.
+Reviser runs only after Router selects Split or Merge. It reads raw structural metrics, returns one plan, and never writes patient membership. Python executes a fixed spectral strategy, verifies complete membership coverage, and creates a new partition. Superseded parents are retained as history and are not counted as Drop.
 
-When all decision-relevant evidence is exhausted but no action is justified, retain the partition and mark the review unresolved rather than forcing Drop.
+The current partition terminates only when every current set is Accept or Drop. Tool/API/data failures produce run-level `review_unavailable`. If the round budget ends before the evidence and actions close, the run is `review_incomplete_due_to_round_budget`; it is not a scientific negative result.

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agents.subtype_review.schemas import (
+    EvidenceReportBatch,
     ReviserOutput,
-    RouterSelection,
-    VerifierOutput,
+    RouterOutput,
 )
 from agents.subtype_review.tools import build_validation_tools
 from utils.llm_utils import (
@@ -31,8 +31,7 @@ class LLMUsageTracker:
     def record_response(self, response: Any) -> None:
         if isinstance(response, dict):
             usage = response.get("usage") or response.get("usage_metadata")
-            metadata = response.get("response_metadata") or {}
-            usage = usage or metadata.get("token_usage")
+            usage = usage or (response.get("response_metadata") or {}).get("token_usage")
         else:
             usage = (
                 getattr(response, "usage", None)
@@ -41,13 +40,13 @@ class LLMUsageTracker:
             )
         if not usage:
             return
-        get_value = usage.get if isinstance(usage, dict) else lambda key: getattr(usage, key, None)
-        values = {
-            "prompt_tokens": get_value("prompt_tokens") or get_value("input_tokens"),
-            "completion_tokens": get_value("completion_tokens") or get_value("output_tokens"),
-            "total_tokens": get_value("total_tokens"),
-        }
-        for key, value in values.items():
+        get = usage.get if isinstance(usage, dict) else lambda key: getattr(usage, key, None)
+        for key, names in {
+            "prompt_tokens": ("prompt_tokens", "input_tokens"),
+            "completion_tokens": ("completion_tokens", "output_tokens"),
+            "total_tokens": ("total_tokens",),
+        }.items():
+            value = next((get(name) for name in names if get(name) is not None), None)
             if value is not None:
                 setattr(self, key, int(getattr(self, key) or 0) + int(value))
 
@@ -64,13 +63,13 @@ def load_prompt(prompt_dir: str | Path, name: str) -> str:
     return (Path(prompt_dir) / name).read_text(encoding="utf-8")
 
 
-def prompt_dir(config: dict[str, Any], config_dir: str | Path) -> Path:
-    path = Path(config.get("prompt_dir", "agents/subtype_review/prompts"))
+def prompt_dir(config: Mapping[str, Any], config_dir: str | Path) -> Path:
+    path = Path(str(config.get("prompt_dir", "agents/subtype_review/prompts")))
     return path if path.is_absolute() else Path(config_dir).resolve().parent / path
 
 
 def parse_json_content(content: Any) -> dict[str, Any]:
-    if isinstance(content, dict):
+    if isinstance(content, Mapping):
         return dict(content)
     parsed = extract_json_object(str(content or ""))
     if not isinstance(parsed, dict) or parsed.get("_parse_error"):
@@ -78,35 +77,31 @@ def parse_json_content(content: Any) -> dict[str, Any]:
     return parsed
 
 
-def validate_verifier_payload(payload: dict[str, Any]) -> None:
-    VerifierOutput.model_validate(payload)
-
-
 def normalize_message(message: Any) -> dict[str, Any]:
-    if isinstance(message, dict):
+    if isinstance(message, Mapping):
         return dict(message)
     message_type = str(getattr(message, "type", "assistant"))
-    role = {"human": "user", "ai": "assistant"}.get(message_type, message_type)
-    normalized = {"role": role, "content": getattr(message, "content", "")}
-    tool_call_id = getattr(message, "tool_call_id", None)
-    if tool_call_id:
-        normalized["tool_call_id"] = str(tool_call_id)
-    tool_calls = getattr(message, "tool_calls", None)
-    if tool_calls:
-        normalized["tool_calls"] = [dict(call) for call in tool_calls]
-    return normalized
+    result = {
+        "role": {"human": "user", "ai": "assistant"}.get(message_type, message_type),
+        "content": getattr(message, "content", ""),
+    }
+    if getattr(message, "tool_call_id", None):
+        result["tool_call_id"] = str(message.tool_call_id)
+    if getattr(message, "tool_calls", None):
+        result["tool_calls"] = [dict(call) for call in message.tool_calls]
+    return result
 
 
 def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return [normalize_message(message) for message in list(payload.get("message_history", []) or [])]
+    return [normalize_message(message) for message in payload.get("message_history", []) or []]
 
 
 class JsonStructuredModel:
     def __init__(self, llm_config: dict[str, Any], schema: type, system_prompt: str, usage_tracker: LLMUsageTracker | None = None):
         self.config = dict(llm_config)
         self.schema = schema
+        self.prompt = f"{system_prompt.rstrip()}\n\nReturn exactly one valid JSON object."
         self.usage_tracker = usage_tracker
-        self.system_prompt = f"{system_prompt.rstrip()}\n\nReturn exactly one valid JSON object."
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         from openai import OpenAI
@@ -117,164 +112,131 @@ class JsonStructuredModel:
             timeout=float(self.config.get("timeout", 120)),
         )
         messages = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": self.prompt},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ]
-        attempts = int(self.config.get("json_retries", 2) or 2) + 1
+        attempts = int(self.config.get("json_retries", 1) or 1) + 1
         last_error = ""
         for _ in range(attempts):
             content = None
-            if self.usage_tracker is not None:
+            if self.usage_tracker:
                 self.usage_tracker.before_request()
             try:
                 response = client.chat.completions.create(
                     model=str(self.config["model_name"]),
                     messages=messages,
-                    temperature=float(self.config.get("temperature", 0.1)),
-                    max_tokens=int(self.config.get("max_new_tokens", 2048)),
+                    temperature=float(self.config.get("temperature", 0.0)),
+                    max_tokens=int(self.config.get("max_new_tokens", 4096)),
                     response_format={"type": "json_object"},
                     extra_body={"thinking": {"type": "disabled"}},
                 )
-                if self.usage_tracker is not None:
+                if self.usage_tracker:
                     self.usage_tracker.record_response(response)
                 content = response.choices[0].message.content
-                parsed = parse_json_content(content)
-                return dict(self.schema.model_validate(parsed).model_dump())
+                return dict(self.schema.model_validate(parse_json_content(content)).model_dump())
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if content is not None:
                     messages.extend([
                         {"role": "assistant", "content": str(content)},
-                        {
-                            "role": "user",
-                            "content": (
-                                "The previous JSON failed schema validation: "
-                                f"{last_error[:2000]}. Return one corrected JSON object "
-                                "using only the requested schema values."
-                            ),
-                        },
+                        {"role": "user", "content": f"Return corrected JSON only. Error: {last_error[:2000]}"},
                     ])
         raise RuntimeError(last_error or "structured LLM call failed")
 
 
 class LocalStructuredModel:
     def __init__(self, config: dict[str, Any], schema: type, system_prompt: str, usage_tracker: LLMUsageTracker | None = None):
-        client_config = {**config, "api_key": resolve_api_key(config)}
-        self.client = LocalLLMClient(client_config)
+        self.client = LocalLLMClient({**config, "api_key": resolve_api_key(config)})
         self.schema = schema
-        self.system_prompt = system_prompt
+        self.prompt = system_prompt
         self.usage_tracker = usage_tracker
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not local_llm_server_available(self.client.base_url):
             raise RuntimeError(f"Local LLM server is unavailable: {self.client.base_url}")
-        if self.usage_tracker is not None:
+        if self.usage_tracker:
             self.usage_tracker.before_request()
-        response = self.client.chat(
-            [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ]
-        )
-        if self.usage_tracker is not None:
+        response = self.client.chat([
+            {"role": "system", "content": self.prompt},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ])
+        if self.usage_tracker:
             self.usage_tracker.record_response(response)
         return dict(self.schema.model_validate(parse_json_content(response.get("content"))).model_dump())
 
 
-class ProtocolSelfReviewModel:
-    def __init__(self, draft_model: Any, review_model: Any):
-        self.draft_model = draft_model
-        self.review_model = review_model
-
-    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-        proposal = self.draft_model.invoke(payload)
-        return self.review_model.invoke({
-            **payload,
-            "mode": "protocol_self_review",
-            "proposed_action": proposal,
-        })
-
-
 class VerifierChatModel:
-    def __init__(self, model: Any, system_prompt: str, tools: list[Any], correction_attempts: int = 2, usage_tracker: LLMUsageTracker | None = None):
+    def __init__(self, model: Any, system_prompt: str, tools: list[Any], retries: int = 1, usage_tracker: LLMUsageTracker | None = None):
         self.model = model
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
-        self.correction_attempts = correction_attempts
+        self.retries = retries
         self.usage_tracker = usage_tracker
 
-    def invoke_model(self, model: Any, messages: Any) -> Any:
-        if self.usage_tracker is not None:
+    def invoke_model(self, model: Any, messages: list[Any]) -> Any:
+        if self.usage_tracker:
             self.usage_tracker.before_request()
         response = model.invoke(messages)
-        if self.usage_tracker is not None:
+        if self.usage_tracker:
             self.usage_tracker.record_response(response)
         return response
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = dict(payload)
+        mode = str(request.get("mode", "audit"))
         history = message_history(request)
         request.pop("message_history", None)
-        mode = str(payload.get("mode", "audit"))
         if mode == "acquire":
-            request_payload = dict(payload.get("request", {}) or {})
-            dimensions = list(dict.fromkeys(
-                str(item.get("dimension", ""))
-                for item in request_payload.get("requests", []) or []
-            )) or [str(request_payload.get("dimension", ""))]
-            tools = [self.tools[dimension] for dimension in dimensions]
-            model = self.model.bind_tools(tools, tool_choice="required")
+            dimensions = [str(row["dimension"]) for row in request["requests"]]
+            model = self.model.bind_tools(
+                [self.tools[name] for name in dict.fromkeys(dimensions)],
+                tool_choice="required",
+            )
         else:
             model = self.model.bind(response_format={"type": "json_object"})
-        messages = [{"role": "system", "content": self.system_prompt}, *history, {
-            "role": "user", "content": json.dumps(request, ensure_ascii=False),
-        }]
-        response = self.invoke_model(model, messages)
+        response = self.invoke_model(model, [
+            {"role": "system", "content": self.system_prompt},
+            *history,
+            {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
+        ])
         if mode == "acquire":
             return response
         try:
-            validate_verifier_payload(parse_json_content(getattr(response, "content", response)))
+            EvidenceReportBatch.model_validate(parse_json_content(getattr(response, "content", response)))
             return response
         except Exception as exc:
-            reviewed = response
-            validation_error = exc
-        for _ in range(self.correction_attempts):
-            try:
-                proposed_audit = parse_json_content(getattr(reviewed, "content", reviewed))
-            except Exception:
-                proposed_audit = getattr(reviewed, "content", reviewed)
-            reviewed = self.invoke_model(model, [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": json.dumps({
-                    **request,
-                    "mode": "audit_correction",
-                    "proposed_audit": proposed_audit,
-                    "validation_error": f"{type(validation_error).__name__}: {validation_error}",
-                    "instruction": "Return the corrected complete VerifierOutput JSON.",
-                }, ensure_ascii=False)},
-            ])
-            try:
-                validate_verifier_payload(parse_json_content(getattr(reviewed, "content", reviewed)))
-                return reviewed
-            except Exception as next_exc:
-                validation_error = next_exc
-        raise RuntimeError("Verifier audit failed schema correction")
+            last = response
+            for _ in range(self.retries):
+                last = self.invoke_model(model, [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": json.dumps({
+                        **request,
+                        "proposed_report": parse_json_content(getattr(last, "content", last)),
+                        "validation_error": f"{type(exc).__name__}: {exc}",
+                        "instruction": "Return corrected EvidenceReportBatch JSON only.",
+                    }, ensure_ascii=False)},
+                ])
+                try:
+                    EvidenceReportBatch.model_validate(parse_json_content(getattr(last, "content", last)))
+                    return last
+                except Exception as next_exc:
+                    exc = next_exc
+            raise RuntimeError("Verifier report failed schema validation")
 
 
 class LocalVerifierModel:
     def __init__(self, config: dict[str, Any], system_prompt: str, tools: list[Any], usage_tracker: LLMUsageTracker | None = None):
-        client_config = {**config, "api_key": resolve_api_key(config)}
-        self.client = LocalLLMClient(client_config)
+        self.client = LocalLLMClient({**config, "api_key": resolve_api_key(config)})
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
-        self.correction_attempts = int(config.get("json_retries", 2) or 2)
+        self.retries = int(config.get("json_retries", 1) or 1)
         self.usage_tracker = usage_tracker
 
-    def chat(self, messages: list[dict[str, str]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        if self.usage_tracker is not None:
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if self.usage_tracker:
             self.usage_tracker.before_request()
         response = self.client.chat(messages, tools=tools)
-        if self.usage_tracker is not None:
+        if self.usage_tracker:
             self.usage_tracker.record_response(response)
         return response
 
@@ -282,67 +244,47 @@ class LocalVerifierModel:
         if not local_llm_server_available(self.client.base_url):
             raise RuntimeError(f"Local LLM server is unavailable: {self.client.base_url}")
         mode = str(payload.get("mode", "audit"))
-        request_tools = []
+        request = dict(payload)
+        tools = None
         if mode == "acquire":
-            request_payload = dict(payload.get("request", {}) or {})
-            dimensions = list(dict.fromkeys(
-                str(item.get("dimension", ""))
-                for item in request_payload.get("requests", []) or []
-            )) or [str(request_payload.get("dimension", ""))]
-            for dimension in dimensions:
-                tool = self.tools[dimension]
-                schema = tool.args_schema.model_json_schema() if getattr(tool, "args_schema", None) else {"type": "object"}
-                request_tools.append({
+            tools = []
+            for name in dict.fromkeys(str(row["dimension"]) for row in request["requests"]):
+                tool = self.tools[name]
+                tools.append({
                     "type": "function",
                     "function": {
-                        "name": dimension,
+                        "name": name,
                         "description": str(getattr(tool, "description", "") or ""),
-                        "parameters": schema,
+                        "parameters": getattr(tool, "args_schema", None).model_json_schema() if getattr(tool, "args_schema", None) else {"type": "object"},
                     },
                 })
-        request = dict(payload)
-        history = message_history(request)
-        request.pop("message_history", None)
-        messages = [{"role": "system", "content": self.system_prompt}, *history, {
-            "role": "user", "content": json.dumps(request, ensure_ascii=False),
-        }]
-        response = self.chat(
-            messages,
-            tools=request_tools or None,
-        )
-        if response.get("tool_calls"):
+        response = self.chat([
+            {"role": "system", "content": self.system_prompt},
+            *message_history(request),
+            {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
+        ], tools=tools)
+        if mode == "acquire" or response.get("tool_calls"):
             return response
-        audit = parse_json_content(response.get("content"))
-        if mode == "acquire":
-            return audit
         try:
-            validate_verifier_payload(audit)
-            return audit
+            EvidenceReportBatch.model_validate(parse_json_content(response.get("content")))
+            return response
         except Exception as exc:
-            reviewed = response
-            validation_error = exc
-        for _ in range(self.correction_attempts):
-            try:
-                proposed_audit = parse_json_content(reviewed.get("content"))
-            except Exception:
-                proposed_audit = reviewed.get("content")
-            reviewed = self.chat([
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": json.dumps({
-                    **request,
-                    "mode": "audit_correction",
-                    "proposed_audit": proposed_audit,
-                    "validation_error": f"{type(validation_error).__name__}: {validation_error}",
-                    "instruction": "Return the corrected complete VerifierOutput JSON.",
-                }, ensure_ascii=False)},
-            ])
-            try:
-                audit = parse_json_content(reviewed.get("content"))
-                validate_verifier_payload(audit)
-                return audit
-            except Exception as next_exc:
-                validation_error = next_exc
-        raise RuntimeError("Verifier audit failed schema correction")
+            for _ in range(self.retries):
+                response = self.chat([
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": json.dumps({
+                        **request,
+                        "proposed_report": response.get("content"),
+                        "validation_error": f"{type(exc).__name__}: {exc}",
+                        "instruction": "Return corrected EvidenceReportBatch JSON only.",
+                    }, ensure_ascii=False)},
+                ])
+                try:
+                    EvidenceReportBatch.model_validate(parse_json_content(response.get("content")))
+                    return response
+                except Exception as next_exc:
+                    exc = next_exc
+            raise RuntimeError("Verifier report failed schema validation")
 
 
 def build_structured_model(config: dict[str, Any], schema: type, prompt: str, usage_tracker: LLMUsageTracker | None = None) -> Any:
@@ -364,10 +306,20 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
-        max_tokens=int(cfg.get("max_new_tokens", 2048)),
+        max_tokens=int(cfg.get("max_new_tokens", 4096)),
         extra_body={"thinking": {"type": "disabled"}},
     )
-    return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 2) or 2), usage_tracker)
+    return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 1) or 1), usage_tracker)
+
+
+def build_default_router(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
+    cfg = dict(config["llm"])
+    return build_structured_model(
+        cfg,
+        RouterOutput,
+        load_prompt(prompt_dir(config, config_dir), "router.md"),
+        usage_tracker,
+    )
 
 
 def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usage_tracker: LLMUsageTracker | None = None) -> Any:
@@ -380,24 +332,13 @@ def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usa
     )
 
 
-def build_default_router(
-    config: dict[str, Any],
-    config_dir: str | Path,
-    *,
-    self_review: bool = False,
-    usage_tracker: LLMUsageTracker | None = None,
-) -> Any:
-    cfg = dict(config["llm"])
-    model = build_structured_model(
-        cfg,
-        RouterSelection,
-        load_prompt(prompt_dir(config, config_dir), "router.md"),
-        usage_tracker,
-    )
-    return ProtocolSelfReviewModel(model, model) if self_review else model
-
-
-def parse_router_selection(value: Any) -> RouterSelection:
+def parse_router_output(value: Any) -> RouterOutput:
     if hasattr(value, "model_dump"):
-        return RouterSelection.model_validate(value.model_dump())
-    return RouterSelection.model_validate(parse_json_content(value))
+        return RouterOutput.model_validate(value.model_dump())
+    return RouterOutput.model_validate(parse_json_content(value))
+
+
+def parse_reviser_output(value: Any) -> ReviserOutput:
+    if hasattr(value, "model_dump"):
+        return ReviserOutput.model_validate(value.model_dump())
+    return ReviserOutput.model_validate(parse_json_content(value))

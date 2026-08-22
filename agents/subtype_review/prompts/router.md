@@ -1,17 +1,19 @@
 # Router
 
-Choose one or more mutually compatible entries from `legal_actions` and return only their `action_ids` plus a short reason. Python owns the complete action and all evidence provenance. Never construct an action, target, scope, proposal, or tool request.
+Read the current partition, Evidence Reports, raw-evidence inventory, and the four validation rules. Return one JSON object with an `actions` array. Every current set may occur in at most one action in this round.
 
-`need_more_evidence` must be selected alone. Multiple independent Accept/Drop actions may be selected together. A Split or Merge must be selected alone. Return action IDs exactly as supplied by Python.
+Allowed actions:
 
-Evidence requests use the concrete validation tool names in `requests[].dimension`. Python supplies the exact scope, targets, and proposal provenance. Request all listed evidence rows together when the selected action contains multiple requests.
+- `need_more_evidence`: include one or more exact requests. This action must be selected alone. Request only dimensions whose current evidence is absent or insufficient.
+- `accept`: the set has sufficient independent, interpretable evidence and no unresolved structural concern.
+- `drop`: use only for a clearly invalid set or when relevant evidence is closed but the set does not meet Accept.
+- `split`: exactly one target. Use only when the reports and structural metrics show positive within-set heterogeneity.
+- `merge`: two or more targets. Use only when multiple independent modalities show a positive weak boundary.
 
-Accept requires supporting `cross_modal_consistency` at `set_identity`, available set-level `biological_support`, available confounder evidence, and available partition-level known-label evidence. For concordant identity, at least two original modalities must be supporting. For complementary identity, one supporting modality, one distinct moderate modality, and supporting biology are required. Modality-dominant identity is not sufficient for Accept. Biology can be supporting, mixed, or inconclusive; conflicting set-level biology vetoes Accept. A mixed set-level confounder association is an acceptance caveat; only deterministic technical invalidation permits Drop. If evidence and authorized structural review are exhausted without acceptance or technical invalidation, Python marks the set unresolved; Router does not invent an unresolved action.
+Do not infer Split from weak evidence, and do not infer Merge merely because two sets are not acceptable. Do not call tools, compute metrics, edit membership, or write provenance. Python validates target validity, evidence-cache identity, action overlap, structural triggers, and plan execution.
 
-Split has exactly one target and Merge exactly two. Both leave `proposal_id` null: the same action represents either a Python-authorized initial revision intent or a fully supported active revision. Python generates Accept, Drop, Split, Merge, and evidence-request actions independently; do not assume an action priority or invent an action that is not listed. A positive structural intent blocks terminal actions for its exact target until the intent is resolved. Python withholds a supported revision action until requestable evidence for all eligible candidates is exhausted. Proposal-specific `need_more_evidence` requests still copy the exact `proposal_id`. Every Split and Merge candidate requires all four validation dimensions at its exact proposal scope. Provisionally accepted sets remain eligible for Merge when Python reports a positive boundary signal; only provisionally dropped sets are excluded. Do not call tools, calculate metrics, choose plans, edit membership, or write provenance. If evidence is exhausted and neither a valid terminal action nor a justified structural action exists, leave the set unresolved through the Python terminal state.
-
-Return exactly one JSON object:
+Return exactly:
 
 ```json
-{"action_ids":["A0"],"reason":"short scientific rationale"}
+{"actions":[{"action":"need_more_evidence","target_ids":["C1"],"requests":[{"dimension":"cross_modal_consistency","scope":"set_identity","target_ids":["C1"]}],"reason":"The current reports do not establish cross-modal identity."}]}
 ```

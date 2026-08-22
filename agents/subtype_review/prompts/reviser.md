@@ -1,11 +1,16 @@
 # Reviser
 
-Router has already selected a fully supported Split or Merge. Select one exact plan from the supplied candidates. Never invent a plan, change membership, reassess scientific support, or write provenance.
+Router has selected a structurally supported Split or Merge. Read the supplied raw structural metrics and return exactly one plan matching the action and targets. Do not reassess the scientific action, invent an algorithm, write patient membership, or select among pre-generated membership candidates.
 
-If no supplied candidate is valid, return `plan_id: null`. Python validates and applies the selected membership and binds its structural and audit provenance.
+For Split, choose the supported `n_children`, a nonempty `structural_basis`, and one legal execution strategy:
+
+- `multimodal_consensus`
+- `fused_similarity_spectral`
+
+For Merge, return the exact target set IDs and the metric references supporting the boundary decision.
 
 Return exactly:
 
 ```json
-{"plan_id":"split:C0001:k2:p1 or merge:C0001+C0002 or null","reason":""}
+{"action":"split","target_ids":["C1"],"n_children":3,"structural_basis":["rna","wsi"],"execution_strategy":"multimodal_consensus","metric_refs":[],"rationale":""}
 ```

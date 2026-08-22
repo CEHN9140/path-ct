@@ -45,21 +45,6 @@ def run_subtype_review(
     state = initial_review_state(candidate_clusters)
     state["control"]["max_rounds"] = int(budget.get("max_rounds", 10) or 10)
     state["control"]["max_failures"] = int(budget.get("max_failures", 3) or 3)
-    cross_modal = dict(review_config.get("cross_modal", {}) or {})
-    state["control"]["policy"] = {
-        "accept_min_supporting_modalities": int(
-            cross_modal.get("accept_min_supporting_modalities", 2) or 2
-        ),
-        "split_min_supporting_modalities": int(
-            cross_modal.get("split_min_supporting_modalities", 2) or 2
-        ),
-        "merge_min_supporting_modalities": int(
-            cross_modal.get("merge_min_supporting_modalities", 2) or 2
-        ),
-        "split_require_molecular_or_biology": bool(
-            cross_modal.get("split_require_molecular_or_biology", True)
-        ),
-    }
     final_state = graph.invoke(state, context=runtime)
     final_state["control"]["llm_usage"] = usage_tracker.snapshot()
     return final_state

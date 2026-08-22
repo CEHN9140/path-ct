@@ -355,6 +355,12 @@ def multimodal_consistency_check(
         permanova_permutations=int(parameters.get("permanova_permutations", 199)),
         effect_epsilon=float(parameters.get("effect_epsilon", DEFAULT_EFFECT_EPSILON)),
     )
+    if scope == "set_identity":
+        from tools.structural_adequacy import structure_diagnostics
+
+        metrics["decision_metrics"].update(
+            structure_diagnostics(affinities, case_ids, memberships)
+        )
     return tool_result(
         tool_name="multimodal_consistency_check",
         status="success",

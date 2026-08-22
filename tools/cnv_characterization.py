@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -62,10 +61,7 @@ def cnv_characterization(
     )
     rows = []
     all_ids = sorted({case_id for members in groups.values() for case_id in members})
-    if scope == "merge_proposal":
-        comparisons = list(combinations(sorted(groups), 2))
-    else:
-        comparisons = [(group_id, "rest") for group_id in sorted(groups)]
+    comparisons = [(group_id, "rest") for group_id in sorted(groups)]
     for feature in feature_names:
         for left, right in comparisons:
             left_ids = sorted(groups[left])

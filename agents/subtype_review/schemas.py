@@ -10,93 +10,27 @@ EVIDENCE_DIMENSIONS = (
     "confounder_exclusion",
     "known_label_echo",
 )
-EVIDENCE_SCOPES = (
-    "set_identity",
-    "split_proposal",
-    "merge_proposal",
-    "partition",
-)
-FINDING_STATUSES = (
-    "supporting",
-    "conflicting",
-    "mixed",
-    "inconclusive",
-    "unavailable",
-)
-class AuditFinding(BaseModel):
-    target_ids: list[str] = Field(default_factory=list)
-    dimension: str
-    scope: str
-    proposal_id: str | None = None
-    subject_signature: str = ""
-    status: str
-    summary: str = ""
+EVIDENCE_SCOPES = ("set_identity", "partition", "split", "merge")
+
+
+class EvidenceObservation(BaseModel):
+    metric: str
+    finding: str
     metric_refs: list[str] = Field(default_factory=list)
 
-    @model_validator(mode="before")
-    @classmethod
-    def require_metric_refs_field(cls, value: Any) -> Any:
-        if isinstance(value, dict) and "metric_refs" not in value:
-            raise ValueError("metric_refs is required for every finding")
-        return value
 
-    @field_validator("dimension")
-    @classmethod
-    def valid_dimension(cls, value: str) -> str:
-        if value not in EVIDENCE_DIMENSIONS:
-            raise ValueError(f"unknown evidence dimension: {value}")
-        return value
-
-    @field_validator("scope")
-    @classmethod
-    def valid_scope(cls, value: str) -> str:
-        if value not in EVIDENCE_SCOPES:
-            raise ValueError(f"unknown evidence scope: {value}")
-        return value
-
-    @field_validator("status")
-    @classmethod
-    def valid_status(cls, value: str) -> str:
-        if value not in FINDING_STATUSES:
-            raise ValueError(f"unknown audit status: {value}")
-        return value
-
-
-class EvidenceGap(BaseModel):
-    target_ids: list[str] = Field(default_factory=list)
-    dimension: str
-    scope: str
-    proposal_id: str | None = None
-    subject_signature: str = ""
-    reason: str = Field(default="", max_length=120)
-
-    @field_validator("dimension")
-    @classmethod
-    def valid_dimension(cls, value: str) -> str:
-        if value not in EVIDENCE_DIMENSIONS:
-            raise ValueError(f"unknown evidence dimension: {value}")
-        return value
-
-    @field_validator("scope")
-    @classmethod
-    def valid_scope(cls, value: str) -> str:
-        if value not in EVIDENCE_SCOPES:
-            raise ValueError(f"unknown evidence scope: {value}")
-        return value
-
-
-class VerifierOutput(BaseModel):
-    findings: list[AuditFinding] = Field(default_factory=list)
-    gaps: list[EvidenceGap] = Field(default_factory=list)
-
-
-class EvidenceRequest(BaseModel):
+class EvidenceReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dimension: str
     scope: str
     target_ids: list[str] = Field(default_factory=list)
-    proposal_id: str | None = None
+    observations: list[EvidenceObservation] = Field(default_factory=list)
+    statistical_interpretation: str = ""
+    medical_interpretation: str = ""
+    limitations: list[str] = Field(default_factory=list)
+    metric_refs: list[str] = Field(default_factory=list)
+    subject_signature: str = ""
 
     @field_validator("dimension")
     @classmethod
@@ -114,13 +48,48 @@ class EvidenceRequest(BaseModel):
 
     @field_validator("target_ids")
     @classmethod
-    def normalize_target_ids(cls, value: list[str]) -> list[str]:
+    def normalize_targets(cls, value: list[str]) -> list[str]:
+        return sorted({str(item) for item in value if str(item)})
+
+
+class EvidenceReportBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reports: list[EvidenceReport] = Field(default_factory=list)
+
+
+class EvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: str
+    scope: str
+    target_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("dimension")
+    @classmethod
+    def valid_dimension(cls, value: str) -> str:
+        if value not in EVIDENCE_DIMENSIONS:
+            raise ValueError(f"unknown evidence dimension: {value}")
+        return value
+
+    @field_validator("scope")
+    @classmethod
+    def valid_scope(cls, value: str) -> str:
+        if value not in EVIDENCE_SCOPES:
+            raise ValueError(f"unknown evidence scope: {value}")
+        return value
+
+    @field_validator("target_ids")
+    @classmethod
+    def normalize_targets(cls, value: list[str]) -> list[str]:
         return sorted({str(item) for item in value if str(item)})
 
     @model_validator(mode="after")
-    def require_proposal_for_structural_scope(self) -> "EvidenceRequest":
-        if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
-            raise ValueError("proposal evidence requests require proposal_id")
+    def validate_scope_targets(self) -> "EvidenceRequest":
+        if self.scope == "partition" and self.target_ids:
+            raise ValueError("partition evidence must use empty target_ids")
+        if self.scope != "partition" and not self.target_ids:
+            raise ValueError(f"{self.scope} evidence requires target_ids")
         return self
 
 
@@ -129,98 +98,94 @@ class RouterAction(BaseModel):
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(default_factory=list)
-    dimension: str | None = None
-    scope: str | None = None
-    proposal_id: str | None = None
     requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
-    @field_validator("dimension")
+    @field_validator("target_ids")
     @classmethod
-    def valid_dimension(cls, value: str | None) -> str | None:
-        if value is not None and value not in EVIDENCE_DIMENSIONS:
-            raise ValueError(f"unknown evidence dimension: {value}")
-        return value
-
-    @field_validator("scope")
-    @classmethod
-    def valid_scope(cls, value: str | None) -> str | None:
-        if value is not None and value not in EVIDENCE_SCOPES:
-            raise ValueError(f"unknown evidence scope: {value}")
-        return value
+    def normalize_targets(cls, value: list[str]) -> list[str]:
+        return sorted({str(item) for item in value if str(item)})
 
     @model_validator(mode="after")
-    def valid_action_shape(self) -> "RouterAction":
-        self.target_ids = sorted({str(item) for item in self.target_ids if str(item)})
+    def validate_shape(self) -> "RouterAction":
         if self.action == "need_more_evidence":
-            if self.requests:
-                if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.target_ids:
-                    raise ValueError("bundled evidence requests cannot duplicate request fields")
-                if any(request.dimension not in EVIDENCE_DIMENSIONS for request in self.requests):
-                    raise ValueError("unknown evidence dimension")
-                if any(request.scope not in EVIDENCE_SCOPES for request in self.requests):
-                    raise ValueError("unknown evidence scope")
-            else:
-                if self.dimension is None or self.scope is None:
-                    raise ValueError("need_more_evidence requires dimension and scope")
-                if self.scope in {"split_proposal", "merge_proposal"} and not self.proposal_id:
-                    raise ValueError("proposal evidence requests require proposal_id")
-        elif self.action == "split":
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
-                raise ValueError("split must clear evidence fields and proposal_id")
-            if len(self.target_ids) != 1:
-                raise ValueError("split requires one target_id")
-        elif self.action == "merge":
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
-                raise ValueError("merge must clear evidence fields and proposal_id")
-            if len(self.target_ids) != 2:
-                raise ValueError("merge requires two target_ids")
-        else:
-            if self.dimension is not None or self.scope is not None or self.proposal_id is not None or self.requests:
-                raise ValueError("scientific actions must clear evidence fields")
-            if len(self.target_ids) != 1:
-                raise ValueError("scientific actions require one target_id")
+            if not self.requests:
+                raise ValueError("need_more_evidence requires requests")
+            request_targets = sorted({target for row in self.requests for target in row.target_ids})
+            if self.target_ids != request_targets:
+                raise ValueError("evidence action targets must match request targets")
+            return self
+        if self.requests:
+            raise ValueError("scientific actions cannot contain evidence requests")
+        if self.action in {"accept", "drop", "split"} and len(self.target_ids) != 1:
+            raise ValueError(f"{self.action} requires one target_id")
+        if self.action == "merge" and len(self.target_ids) < 2:
+            raise ValueError("merge requires at least two target_ids")
         return self
 
 
-class RouterSelection(BaseModel):
+class RouterOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action_ids: list[str] = Field(min_length=1)
-    reason: str = Field(default="", max_length=120)
+    actions: list[RouterAction] = Field(min_length=1)
 
-    @field_validator("action_ids")
+
+class SplitPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["split"]
+    target_ids: list[str] = Field(min_length=1, max_length=1)
+    n_children: int = Field(ge=2)
+    structural_basis: list[str] = Field(min_length=1)
+    execution_strategy: Literal["multimodal_consensus", "fused_similarity_spectral"]
+    metric_refs: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class MergePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["merge"]
+    target_ids: list[str] = Field(min_length=2)
+    metric_refs: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+    @field_validator("target_ids")
     @classmethod
-    def valid_action_ids(cls, value: list[str]) -> list[str]:
-        value = [str(item).strip() for item in value]
-        if any(not item for item in value) or len(value) != len(set(value)):
-            raise ValueError("action_ids must be nonempty and unique")
-        return value
+    def normalize_targets(cls, value: list[str]) -> list[str]:
+        return sorted({str(item) for item in value if str(item)})
 
 
 class ReviserOutput(BaseModel):
+    """Transport schema; graph validates action-specific fields before execution."""
+
     model_config = ConfigDict(extra="forbid")
 
-    plan_id: str | None = None
-    reason: str = Field(default="", max_length=120)
+    action: Literal["split", "merge"]
+    target_ids: list[str] = Field(min_length=1)
+    n_children: int | None = Field(default=None, ge=2)
+    structural_basis: list[str] = Field(default_factory=list)
+    execution_strategy: str | None = None
+    metric_refs: list[str] = Field(default_factory=list)
+    rationale: str = ""
 
 
-class RevisionContext(TypedDict, total=False):
-    action: str
-    target_ids: list[str]
-    partition_signature: str
-    status: str
-    candidates: list[dict[str, Any]]
+class ReviewContext(TypedDict, total=False):
+    patient_states_by_id: dict[str, dict[str, Any]]
+    output_root: str
+    data_root: str
+    review_output_root: str
+    config_dir: str
 
 
 class ReviewState(TypedDict, total=False):
     sets: list[dict[str, Any]]
     evidence: dict[str, Any]
-    audit: dict[str, Any]
-    action: dict[str, Any] | None
+    reports: list[dict[str, Any]]
     messages: list[Any]
+    action: dict[str, Any] | None
+    revision: dict[str, Any] | None
     control: dict[str, Any]
-    revision: RevisionContext | None
 
 
 def set_id(item: dict[str, Any]) -> str:
@@ -228,4 +193,10 @@ def set_id(item: dict[str, Any]) -> str:
 
 
 def active_sets(sets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [item for item in sets if str(item.get("status", "active")) != "retired"]
+    return [
+        item for item in sets
+        if str(item.get("status", "active")) not in {
+            "superseded_by_split",
+            "superseded_by_merge",
+        }
+    ]

@@ -133,31 +133,10 @@ def known_label_echo_test(
     clinical = clinical_table(patient_states_by_id)
     cluster_labels = cluster_labels_by_case(all_cluster_states, cluster_state)
     structure_comparison = {}
-    current_labels = cluster_labels_by_case(all_cluster_states, cluster_state)
-    proposed_labels = dict(current_labels)
-    if scope == "split_proposal" and proposal:
-        source = str(proposal.get("source_set_id", ""))
-        for index, group in enumerate(proposal.get("groups", []) or [], 1):
-            for case_id in group:
-                proposed_labels[str(case_id)] = f"{source}_S{index}"
-    elif scope == "merge_proposal" and proposal:
-        merged = "_M_".join(sorted(str(item) for item in proposal.get("set_ids", []) or []))
-        for set_id in proposal.get("set_ids", []) or []:
-            for case_id, label in current_labels.items():
-                if label == str(set_id):
-                    proposed_labels[case_id] = merged
     for label_name, clinical_field in KNOWN_LABEL_FIELDS.items():
-        current = compare_label_structures(label_name, clinical_field, current_labels, clinical)
-        if scope in {"split_proposal", "merge_proposal"}:
-            proposed = compare_label_structures(label_name, clinical_field, proposed_labels, clinical)
-            structure_comparison[label_name] = {
-                "current": current,
-                "proposed": proposed,
-                "delta_ami": None if current["adjusted_mutual_information"] is None or proposed["adjusted_mutual_information"] is None else round(proposed["adjusted_mutual_information"] - current["adjusted_mutual_information"], 6),
-                "delta_ari": None if current["adjusted_rand_index"] is None or proposed["adjusted_rand_index"] is None else round(proposed["adjusted_rand_index"] - current["adjusted_rand_index"], 6),
-            }
-        else:
-            structure_comparison[label_name] = current
+        structure_comparison[label_name] = compare_label_structures(
+            label_name, clinical_field, cluster_labels, clinical
+        )
     thresholds = {
         "ami": 0.80,
         "ari": 0.80,
@@ -173,15 +152,11 @@ def known_label_echo_test(
             }
         )
     for comparison in structure_comparison.values():
-        rows = [comparison]
-        if "current" in comparison:
-            rows = [comparison["current"], comparison["proposed"]]
-        for row in rows:
-            row["near_identity"] = bool(
-                (row.get("adjusted_mutual_information") or 0) >= thresholds["ami"]
-                or (row.get("adjusted_rand_index") or 0) >= thresholds["ari"]
-            ) and (row.get("optimal_mapping_accuracy") or 0) >= thresholds["optimal_mapping_accuracy"]
-            row["near_identity_thresholds"] = thresholds
+        comparison["near_identity"] = bool(
+            (comparison.get("adjusted_mutual_information") or 0) >= thresholds["ami"]
+            or (comparison.get("adjusted_rand_index") or 0) >= thresholds["ari"]
+        ) and (comparison.get("optimal_mapping_accuracy") or 0) >= thresholds["optimal_mapping_accuracy"]
+        comparison["near_identity_thresholds"] = thresholds
     metrics = {
         "known_label_structure_comparison": structure_comparison,
         "analysis_scope": (
