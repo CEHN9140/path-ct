@@ -125,7 +125,6 @@ def known_label_echo_test(
     all_cluster_states=None,
     scope="partition",
     target_ids=None,
-    proposal=None,
     artifact_root=None,
 ):
     artifact_root = artifact_root or output_root

@@ -27,7 +27,6 @@ def cnv_characterization(
     all_cluster_states=None,
     scope="set_identity",
     target_ids=None,
-    proposal=None,
     artifact_root=None,
 ):
     artifact_root = artifact_root or output_root
@@ -43,7 +42,7 @@ def cnv_characterization(
             metrics={"cnv_characterization": []},
             missing_reason="missing_cnv_feature_table",
         )
-    groups = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
+    groups = scoped_candidate_sets(scope, cluster_state, all_cluster_states)
     if len(groups) < 2:
         return tool_result(
             tool_name="cnv_characterization",

@@ -42,7 +42,6 @@ def validation_result(
     *,
     scope: str = "set_identity",
     target_ids: list[str] | None = None,
-    proposal: Mapping[str, Any] | None = None,
     artifact_root: str | None = None,
 ) -> dict[str, Any]:
     artifact_root = artifact_root or output_root
@@ -57,7 +56,6 @@ def validation_result(
                 all_cluster_states=all_cluster_states,
                 scope=scope,
                 target_ids=list(target_ids or []),
-                proposal=dict(proposal or {}),
                 artifact_root=artifact_root,
             )
         except Exception as exc:

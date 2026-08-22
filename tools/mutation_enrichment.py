@@ -152,7 +152,6 @@ def mutation_enrichment(
     all_cluster_states=None,
     scope="set_identity",
     target_ids=None,
-    proposal=None,
     artifact_root=None,
 ):
     artifact_root = artifact_root or output_root
@@ -179,7 +178,7 @@ def mutation_enrichment(
             "missing_wxs_feature_tables",
             artifact_root,
         )
-    candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal)
+    candidate_sets = scoped_candidate_sets(scope, cluster_state, all_cluster_states)
     if not candidate_sets:
         return empty_result(cluster_id, output_root, "missing_candidate_sets", artifact_root)
     rows = enrichment_rows(feature_names, table, candidate_sets)

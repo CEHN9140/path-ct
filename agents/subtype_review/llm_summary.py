@@ -4,11 +4,12 @@ from typing import Any, Mapping
 
 
 def summarize_evidence(evidence: Mapping[str, Any] | list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rows = evidence if isinstance(evidence, list) else evidence.get("raw", evidence.get("results", []))
+    rows = evidence if isinstance(evidence, list) else evidence.get("round_evidence", evidence.get("results", []))
     return [
         {
             "dimension": str(item.get("dimension", "")),
             "scope": str(item.get("scope", "")),
+            "analysis": str(item.get("analysis", "")),
             "target_ids": list(item.get("target_ids", []) or []),
             "subject_signature": str(item.get("subject_signature", "")),
             "status": str(item.get("status", "")),

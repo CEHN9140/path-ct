@@ -161,7 +161,6 @@ def scoped_candidate_sets(
     scope: str,
     cluster_state: Mapping[str, Any],
     all_cluster_states: list[Mapping[str, Any]] | None,
-    proposal: Mapping[str, Any] | None = None,
 ) -> dict[str, set[str]]:
     current = {
         str(state.get("set_id") or state.get("cluster_id") or ""): member_case_ids(state)

@@ -889,14 +889,13 @@ def confound_test(
     all_cluster_states=None,
     scope="set_identity",
     target_ids=None,
-    proposal=None,
     artifact_root=None,
 ):
     artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "unknown_cluster"))
     memberships = {
         key: sorted(value)
-        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal).items()
+        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states).items()
     }
     if not memberships:
         return tool_result(

@@ -318,14 +318,13 @@ def multimodal_consistency_check(
     all_cluster_states=None,
     scope="set_identity",
     target_ids=None,
-    proposal=None,
     artifact_root=None,
 ):
     artifact_root = artifact_root or output_root
     cluster_id = str(cluster_state.get("cluster_id", "GLOBAL"))
     memberships = {
         key: sorted(value)
-        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states, proposal).items()
+        for key, value in scoped_candidate_sets(scope, cluster_state, all_cluster_states).items()
     }
     candidate_dir = Path(output_root) / "candidate_subtype"
     patient_order = json.loads(

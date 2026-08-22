@@ -1,19 +1,21 @@
 # Router
 
-Read the current partition, Evidence Reports, raw-evidence inventory, and the four validation rules. Return one JSON object with an `actions` array. Every current set may occur in at most one action in this round.
+Read the current partition and this round's complete Evidence Reports. Return one JSON object with an `actions` array.
+
+Every current set must occur exactly once across all action targets. Merge may contain multiple targets, but no target may occur in another action. If any action is `need_more_evidence`, all other actions are tentative; Python will execute only the requests and revalidate the whole partition in a new round.
 
 Allowed actions:
 
-- `need_more_evidence`: include one or more exact requests. This action must be selected alone. Request only dimensions whose current evidence is absent or insufficient.
-- `accept`: the set has sufficient independent, interpretable evidence and no unresolved structural concern.
-- `drop`: use only for a clearly invalid set or when relevant evidence is closed but the set does not meet Accept.
-- `split`: exactly one target. Use only when the reports and structural metrics show positive within-set heterogeneity.
-- `merge`: two or more targets. Use only when multiple independent modalities show a positive weak boundary.
+- `need_more_evidence`: request only a new analysis that can distinguish scientific actions. Do not repeat a successful request with the same partition, targets, dimension, scope, and analysis.
+- `accept`: reliable cross-modal or complementary support, biology, no sufficient technical explanation, no known-label echo, and no positive structural signal.
+- `drop`: explicit exclusion or complete relevant evidence that still fails Accept.
+- `split`: only positive internal heterogeneity supported by structural diagnostics.
+- `merge`: only positive weak-boundary evidence from multiple independent modalities.
 
-Do not infer Split from weak evidence, and do not infer Merge merely because two sets are not acceptable. Do not call tools, compute metrics, edit membership, or write provenance. Python validates target validity, evidence-cache identity, action overlap, structural triggers, and plan execution.
+Do not treat inability to Accept as evidence for Split or Merge. Do not call tools, compute metrics, edit membership, or write provenance.
 
-Return exactly:
+Return exactly one valid JSON object:
 
 ```json
-{"actions":[{"action":"need_more_evidence","target_ids":["C1"],"requests":[{"dimension":"cross_modal_consistency","scope":"set_identity","target_ids":["C1"]}],"reason":"The current reports do not establish cross-modal identity."}]}
+{"actions":[{"action":"drop","target_ids":["C1"],"reason":"The complete evidence does not support acceptance."}]}
 ```

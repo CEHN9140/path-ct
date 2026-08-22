@@ -43,7 +43,7 @@ DEFAULT_EXPERIMENT_ROOT = (
 def accepted_assignments(final_sets: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     assignments = {}
     for item in final_sets:
-        if item.get("status") != "provisionally_accepted":
+        if item.get("status") != "accept":
             continue
         set_id = str(item.get("set_id", item.get("cluster_id", "")) or "")
         if not set_id:
@@ -59,14 +59,9 @@ def accepted_assignments(final_sets: Sequence[Mapping[str, Any]]) -> dict[str, s
 def scientifically_terminal(summary: Mapping[str, Any]) -> bool:
     raw_status = str(summary.get("raw_control_status", ""))
     review_status = str(summary.get("status", ""))
-    contract_failed = any(
-        row.get("event") == "router_contract_exhausted"
-        for row in summary.get("decision_trace", []) or []
-    )
     return (
-        raw_status in {"complete", "unresolved"}
-        and review_status.startswith("review_complete")
-        and not contract_failed
+        raw_status == "complete"
+        and review_status == "review_complete"
     )
 
 
@@ -438,10 +433,7 @@ def analyze(
         ).items())),
         "patient_count": len(patient_ids),
         "accepted_only": True,
-        "scientific_denominator": (
-            "review_status starts with review_complete, raw_control_status is "
-            "complete or scientific unresolved, and no router_contract_exhausted"
-        ),
+        "scientific_denominator": "raw_control_status=complete and status=review_complete",
         "primary_core_definition": {
             "acceptance_frequency": primary_threshold,
             "minimum_pairwise_coacceptance": primary_threshold,

@@ -4,13 +4,14 @@ from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+
 EVIDENCE_DIMENSIONS = (
     "biological_support",
     "cross_modal_consistency",
     "confounder_exclusion",
     "known_label_echo",
 )
-EVIDENCE_SCOPES = ("set_identity", "partition", "split", "merge")
+EVIDENCE_SCOPES = ("set_identity", "partition")
 
 
 class EvidenceObservation(BaseModel):
@@ -24,6 +25,7 @@ class EvidenceReport(BaseModel):
 
     dimension: str
     scope: str
+    analysis: str
     target_ids: list[str] = Field(default_factory=list)
     observations: list[EvidenceObservation] = Field(default_factory=list)
     statistical_interpretation: str = ""
@@ -46,6 +48,13 @@ class EvidenceReport(BaseModel):
             raise ValueError(f"unknown evidence scope: {value}")
         return value
 
+    @field_validator("analysis")
+    @classmethod
+    def valid_analysis(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("analysis must not be empty")
+        return value.strip()
+
     @field_validator("target_ids")
     @classmethod
     def normalize_targets(cls, value: list[str]) -> list[str]:
@@ -63,6 +72,7 @@ class EvidenceRequest(BaseModel):
 
     dimension: str
     scope: str
+    analysis: str
     target_ids: list[str] = Field(default_factory=list)
 
     @field_validator("dimension")
@@ -79,6 +89,13 @@ class EvidenceRequest(BaseModel):
             raise ValueError(f"unknown evidence scope: {value}")
         return value
 
+    @field_validator("analysis")
+    @classmethod
+    def valid_analysis(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("analysis must not be empty")
+        return value.strip()
+
     @field_validator("target_ids")
     @classmethod
     def normalize_targets(cls, value: list[str]) -> list[str]:
@@ -88,8 +105,8 @@ class EvidenceRequest(BaseModel):
     def validate_scope_targets(self) -> "EvidenceRequest":
         if self.scope == "partition" and self.target_ids:
             raise ValueError("partition evidence must use empty target_ids")
-        if self.scope != "partition" and not self.target_ids:
-            raise ValueError(f"{self.scope} evidence requires target_ids")
+        if self.scope == "set_identity" and not self.target_ids:
+            raise ValueError("set_identity evidence requires target_ids")
         return self
 
 
@@ -97,7 +114,7 @@ class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
-    target_ids: list[str] = Field(default_factory=list)
+    target_ids: list[str] = Field(min_length=1)
     requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
@@ -111,9 +128,11 @@ class RouterAction(BaseModel):
         if self.action == "need_more_evidence":
             if not self.requests:
                 raise ValueError("need_more_evidence requires requests")
-            request_targets = sorted({target for row in self.requests for target in row.target_ids})
-            if self.target_ids != request_targets:
-                raise ValueError("evidence action targets must match request targets")
+            requested_sets = {
+                target for request in self.requests for target in request.target_ids
+            }
+            if not requested_sets.issubset(self.target_ids):
+                raise ValueError("evidence request targets must belong to the action targets")
             return self
         if self.requests:
             raise ValueError("scientific actions cannot contain evidence requests")
@@ -130,42 +149,16 @@ class RouterOutput(BaseModel):
     actions: list[RouterAction] = Field(min_length=1)
 
 
-class SplitPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: Literal["split"]
-    target_ids: list[str] = Field(min_length=1, max_length=1)
-    n_children: int = Field(ge=2)
-    structural_basis: list[str] = Field(min_length=1)
-    execution_strategy: Literal["multimodal_consensus", "fused_similarity_spectral"]
-    metric_refs: list[str] = Field(default_factory=list)
-    rationale: str = ""
-
-
-class MergePlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: Literal["merge"]
-    target_ids: list[str] = Field(min_length=2)
-    metric_refs: list[str] = Field(default_factory=list)
-    rationale: str = ""
-
-    @field_validator("target_ids")
-    @classmethod
-    def normalize_targets(cls, value: list[str]) -> list[str]:
-        return sorted({str(item) for item in value if str(item)})
-
-
 class ReviserOutput(BaseModel):
-    """Transport schema; graph validates action-specific fields before execution."""
-
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["split", "merge"]
     target_ids: list[str] = Field(min_length=1)
     n_children: int | None = Field(default=None, ge=2)
     structural_basis: list[str] = Field(default_factory=list)
-    execution_strategy: str | None = None
+    execution_strategy: Literal[
+        "multimodal_consensus", "fused_similarity_spectral"
+    ] | None = None
     metric_refs: list[str] = Field(default_factory=list)
     rationale: str = ""
 
@@ -180,10 +173,10 @@ class ReviewContext(TypedDict, total=False):
 
 class ReviewState(TypedDict, total=False):
     sets: list[dict[str, Any]]
-    evidence: dict[str, Any]
+    round_evidence: list[dict[str, Any]]
+    evidence_history: list[dict[str, Any]]
     reports: list[dict[str, Any]]
     messages: list[Any]
-    action: dict[str, Any] | None
     revision: dict[str, Any] | None
     control: dict[str, Any]
 
@@ -195,8 +188,6 @@ def set_id(item: dict[str, Any]) -> str:
 def active_sets(sets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         item for item in sets
-        if str(item.get("status", "active")) not in {
-            "superseded_by_split",
-            "superseded_by_merge",
-        }
+        if str(item.get("status", "active"))
+        not in {"superseded_by_split", "superseded_by_merge"}
     ]

@@ -126,7 +126,6 @@ class JsonStructuredModel:
                     model=str(self.config["model_name"]),
                     messages=messages,
                     temperature=float(self.config.get("temperature", 0.0)),
-                    max_tokens=int(self.config.get("max_new_tokens", 4096)),
                     response_format={"type": "json_object"},
                     extra_body={"thinking": {"type": "disabled"}},
                 )
@@ -306,7 +305,7 @@ def build_default_verifier(config: dict[str, Any], config_dir: str | Path, *, us
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
-        max_tokens=int(cfg.get("max_new_tokens", 4096)),
+        timeout=float(cfg.get("timeout", 120)),
         extra_body={"thinking": {"type": "disabled"}},
     )
     return VerifierChatModel(model, prompt, tools, int(cfg.get("json_retries", 1) or 1), usage_tracker)

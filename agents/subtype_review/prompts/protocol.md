@@ -1,20 +1,20 @@
 # Subtype review protocol
 
-The review has three Agents: Verifier, Router, and Reviser. Python is the deterministic runtime; it manages state, evidence signatures, tool binding, contract validation, and membership execution.
+The workflow has exactly three Agents: Verifier, Router, and Reviser. Python is the deterministic runtime and is not an Agent.
 
-The four scientific dimensions are平级:
+The four validation dimensions are parallel:
 
 - `biological_support`
 - `cross_modal_consistency`
 - `confounder_exclusion`
 - `known_label_echo`
 
-There is no base-evidence tier. Router requests only the evidence needed by the current decision. Raw tool output is cached by dimension, scope, current partition, and target membership. A structural change invalidates current evidence but preserves it in history.
+At the start of every Router round, Python recomputes the current partition's validation metrics. Verifier calls the requested `@tool`s and writes detailed Evidence Reports. The current round evidence is not reused to skip computation; previous evidence is retained only in provenance history.
 
-Verifier first acquires every requested tool in one turn, then writes detailed Evidence Reports. Reports contain observations, statistical interpretation, medical interpretation, limitations, and metric references. Verifier never selects an action.
+Router output must cover every current set exactly once. `need_more_evidence` has priority: if present, every other action is tentative and only all new requests execute. The completed supplement is followed by a fresh full-partition validation and a new Router round.
 
-Router gives each current set at most one action per round. `need_more_evidence` must be the only selected action in that round. Accept requires sufficient independent evidence, no strong technical explanation, no known-label near-identity, and no unresolved structural signal. Split requires positive internal heterogeneity. Merge requires positive weak-boundary evidence from multiple independent modalities. Drop is allowed for explicit technical invalidation or for closed relevant evidence that still fails the Accept rule.
+Accept requires reliable cross-modal or complementary support, reasonable biology, no sufficient technical explanation, no simple known-label echo, and no positive internal heterogeneity or positive weak boundary. Split requires positive internal heterogeneity. Merge requires positive weak boundary from multiple independent modalities. Drop is either explicit exclusion or insufficient evidence after relevant evidence is complete and no structural action is supported.
 
-Reviser runs only after Router selects Split or Merge. It reads raw structural metrics, returns one plan, and never writes patient membership. Python executes a fixed spectral strategy, verifies complete membership coverage, and creates a new partition. Superseded parents are retained as history and are not counted as Drop.
+Router success increments `round` exactly once. Verifier, tools, Reviser, and Python membership execution never increment it. `max_rounds=10` limits successful Router decisions; the tenth decision executes, but no eleventh Router call is allowed. A pending supplement or new partition at that point produces run-level `review_incomplete_due_to_round_budget`.
 
-The current partition terminates only when every current set is Accept or Drop. Tool/API/data failures produce run-level `review_unavailable`. If the round budget ends before the evidence and actions close, the run is `review_incomplete_due_to_round_budget`; it is not a scientific negative result.
+Split and Merge parents are retained as `superseded_by_split` or `superseded_by_merge` history objects. New current sets are fully revalidated and may be revised again. Normal completion requires every current set to be exactly `accept` or `drop`.

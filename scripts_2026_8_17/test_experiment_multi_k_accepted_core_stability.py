@@ -10,30 +10,15 @@ from scripts_2026_8_17 import experiment_multi_k_accepted_core_stability as expe
 
 def test_accepted_assignments_exclude_dropped_sets():
     sets = [
-        {"set_id": "A", "status": "provisionally_accepted", "member_ids": ["p1", "p2"]},
-        {"set_id": "D", "status": "provisionally_dropped", "member_ids": ["p3"]},
+        {"set_id": "A", "status": "accept", "member_ids": ["p1", "p2"]},
+        {"set_id": "D", "status": "drop", "member_ids": ["p3"]},
     ]
     assert experiment.accepted_assignments(sets) == {"p1": "A", "p2": "A"}
 
 
-def test_scientifically_terminal_excludes_non_scientific_termination():
-    base = {"status": "review_complete_with_unresolved_sets"}
-    assert experiment.scientifically_terminal(
-        {**base, "raw_control_status": "complete"}
-    )
-    assert experiment.scientifically_terminal(
-        {**base, "raw_control_status": "unresolved"}
-    )
-    assert not experiment.scientifically_terminal(
-        {**base, "raw_control_status": "unresolved_due_to_budget"}
-    )
-    assert not experiment.scientifically_terminal(
-        {
-            **base,
-            "raw_control_status": "unresolved",
-            "decision_trace": [{"event": "router_contract_exhausted"}],
-        }
-    )
+def test_scientifically_terminal_requires_normal_completion():
+    assert experiment.scientifically_terminal({"status": "review_complete", "raw_control_status": "complete"})
+    assert not experiment.scientifically_terminal({"status": "review_incomplete_due_to_round_budget", "raw_control_status": "review_incomplete_due_to_round_budget"})
 
 
 def test_compare_runs_uses_shared_accepted_patients():
@@ -122,41 +107,36 @@ def test_core_recurrence_reports_run_and_k_coverage():
     assert result["k_coverage_majority"] == 1
 
 
-def test_analyze_accepts_scientific_unresolved_but_excludes_contract_failure(tmp_path):
+def test_analyze_excludes_incomplete_and_unavailable_runs(tmp_path):
     complete = tmp_path / "run1" / "K2"
-    scientific_unresolved = tmp_path / "run1" / "K3"
+    incomplete = tmp_path / "run1" / "K3"
     contract_failure = tmp_path / "run1" / "K4"
     complete.mkdir(parents=True)
-    scientific_unresolved.mkdir(parents=True)
+    incomplete.mkdir(parents=True)
     contract_failure.mkdir(parents=True)
     (complete / "run_metadata.json").write_text("{}")
-    (scientific_unresolved / "run_metadata.json").write_text("{}")
+    (incomplete / "run_metadata.json").write_text("{}")
     (contract_failure / "run_metadata.json").write_text("{}")
     (complete / "final_review_summary.json").write_text(json.dumps({
-        "status": "review_complete_all_accepted", "raw_control_status": "complete",
-        "partition_sets": [{"set_id": "A", "status": "provisionally_accepted", "member_ids": ["p1", "p2"]}],
+        "status": "review_complete", "raw_control_status": "complete",
+        "partition_sets": [{"set_id": "A", "status": "accept", "member_ids": ["p1", "p2"]}],
     }))
-    (scientific_unresolved / "final_review_summary.json").write_text(json.dumps({
-        "status": "review_complete_with_unresolved_sets",
-        "raw_control_status": "unresolved",
-        "partition_sets": [
-            {"set_id": "A", "status": "provisionally_accepted", "member_ids": ["p1"]},
-            {"set_id": "U", "status": "unresolved", "member_ids": ["p2"]},
-        ],
-        "decision_trace": [{"event": "scientific_evidence_exhausted"}],
+    (incomplete / "final_review_summary.json").write_text(json.dumps({
+        "status": "review_incomplete_due_to_round_budget",
+        "raw_control_status": "review_incomplete_due_to_round_budget",
+        "partition_sets": [{"set_id": "A", "status": "active", "member_ids": ["p1", "p2"]}],
     }))
     (contract_failure / "final_review_summary.json").write_text(json.dumps({
-        "status": "review_complete_with_unresolved_sets",
-        "raw_control_status": "unresolved",
+        "status": "review_unavailable",
+        "raw_control_status": "review_unavailable",
         "partition_sets": [],
-        "decision_trace": [{"event": "router_contract_exhausted"}],
     }))
 
     summary = experiment.analyze(tmp_path, ["p1", "p2"], [2, 3, 4], [1], 2)
 
     assert summary["analysis_status"] == "partial"
-    assert summary["valid_run_count"] == 2
-    assert summary["invalid_run_count"] == 1
+    assert summary["valid_run_count"] == 1
+    assert summary["invalid_run_count"] == 2
     with (tmp_path / "patient_acceptance_frequency.csv").open() as handle:
         rows = list(csv.DictReader(handle))
-    assert [float(row["acceptance_frequency"]) for row in rows] == [1.0, 0.5]
+    assert [float(row["acceptance_frequency"]) for row in rows] == [1.0, 1.0]
