@@ -227,10 +227,10 @@ class VerifierChatModel:
         mode = str(payload.get("mode", "audit"))
         if mode == "acquire":
             request_payload = dict(payload.get("request", {}) or {})
-            dimensions = [
+            dimensions = list(dict.fromkeys(
                 str(item.get("dimension", ""))
                 for item in request_payload.get("requests", []) or []
-            ] or [str(request_payload.get("dimension", ""))]
+            )) or [str(request_payload.get("dimension", ""))]
             tools = [self.tools[dimension] for dimension in dimensions]
             model = self.model.bind_tools(tools, tool_choice="required")
         else:
@@ -294,10 +294,10 @@ class LocalVerifierModel:
         request_tools = []
         if mode == "acquire":
             request_payload = dict(payload.get("request", {}) or {})
-            dimensions = [
+            dimensions = list(dict.fromkeys(
                 str(item.get("dimension", ""))
                 for item in request_payload.get("requests", []) or []
-            ] or [str(request_payload.get("dimension", ""))]
+            )) or [str(request_payload.get("dimension", ""))]
             for dimension in dimensions:
                 tool = self.tools[dimension]
                 schema = tool.args_schema.model_json_schema() if getattr(tool, "args_schema", None) else {"type": "object"}

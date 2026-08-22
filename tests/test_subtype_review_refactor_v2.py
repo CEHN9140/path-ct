@@ -9,6 +9,7 @@ import agents.subtype_review.tools as review_tools
 from agents.subtype_review.tools import build_validation_tools
 from agents.subtype_review.graph import (
     abandon_revision,
+    apply_merge,
     apply_split,
     build_review_graph,
     complete_audit,
@@ -28,6 +29,7 @@ from agents.subtype_review.graph import (
     supported_revision_candidates,
     subject_signature,
     validate_router_action,
+    validate_router_selection,
     validate_verifier_audit,
     verifier_node,
 )
@@ -81,8 +83,8 @@ def test_router_transport_schema_defers_action_contract_to_router_node():
     with pytest.raises(ValueError, match="scientific actions require one target_id"):
         RouterAction(action="accept", target_ids=["C1", "C2"])
 
-    assert RouterSelection(action_id="A1", reason="best").model_dump() == {
-        "action_id": "A1", "reason": "best"
+    assert RouterSelection(action_ids=["A1"], reason="best").model_dump() == {
+        "action_ids": ["A1"], "reason": "best"
     }
 
 
@@ -169,7 +171,7 @@ def test_router_executes_sole_legal_action_without_llm_call():
     router_node(state, {}, model)
 
     assert state["control"]["status"] == "complete"
-    assert state["action"]["action"] == "accept"
+    assert state["action"] is None
     assert model.calls == 0
 
 
@@ -303,7 +305,7 @@ def test_router_exposes_accept_and_positive_split_as_equal_legal_actions(monkeyp
         "target_ids": ["C2"], "dimension": "biological_support",
         "scope": "set_identity", "status": "supporting", "metric_refs": [biology_ref],
     })
-    model = StaticModel({"action_id": "A0", "reason": "accept"})
+    model = StaticModel({"action_ids": ["A0"], "reason": "accept"})
 
     router_node(state, {"data_root": "output", "config_dir": "configs"}, model)
 
@@ -370,7 +372,7 @@ def test_exhausted_insufficient_support_becomes_unresolved():
 
     with pytest.raises(ValueError, match="technical invalidation"):
         validate_router_action(RouterAction(action="drop", target_ids=["C1"]), state)
-    router_node(state, {}, StaticModel({"action_id": "unused", "reason": ""}))
+    router_node(state, {}, StaticModel({"action_ids": ["unused"], "reason": ""}))
     assert state["sets"][0]["status"] == "unresolved"
     assert state["sets"][0]["unresolved_reason"] == "insufficient_validation_after_exhaustion"
 
@@ -502,7 +504,7 @@ def test_only_conflicting_biology_triggers_initial_structural_review():
         biology["status"] = status
         assert initial_revision_intents(state) == []
     biology["status"] = "conflicting"
-    assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
+    assert initial_revision_intents(state) == []
 
 
 def test_structural_intent_blocks_are_exact():
@@ -1233,6 +1235,9 @@ def test_python_generates_tiered_mandatory_evidence_requests():
         ("confounder_exclusion", "set_identity", None),
         ("known_label_echo", "partition", None),
         ("cross_modal_consistency", "split_proposal", "p1"),
+        ("confounder_exclusion", "split_proposal", "p1"),
+        ("known_label_echo", "split_proposal", "p1"),
+        ("biological_support", "split_proposal", "p1"),
     }
 
     ref = "tool_results.multimodal_consistency_check.metrics.split_supporting_modalities"
@@ -1250,9 +1255,15 @@ def test_python_generates_tiered_mandatory_evidence_requests():
         (row["dimension"], row["scope"], row.get("proposal_id"))
         for row in required_evidence_requests(state)
     }
-    assert ("confounder_exclusion", "split_proposal", "p1") in follow_up
-    assert ("known_label_echo", "split_proposal", "p1") in follow_up
-    assert ("biological_support", "split_proposal", "p1") in follow_up
+    assert follow_up == {
+        ("biological_support", "set_identity", None),
+        ("cross_modal_consistency", "set_identity", None),
+        ("confounder_exclusion", "set_identity", None),
+        ("known_label_echo", "partition", None),
+        ("confounder_exclusion", "split_proposal", "p1"),
+        ("known_label_echo", "split_proposal", "p1"),
+        ("biological_support", "split_proposal", "p1"),
+    }
 
 
 def test_verifier_cannot_borrow_metric_ref_from_another_proposal():
@@ -1298,7 +1309,7 @@ def test_verifier_cannot_borrow_metric_ref_from_another_proposal():
         "metric_refs": [ref],
     }], "gaps": []})
 
-    with pytest.raises(ValueError, match="exact evidence"):
+    with pytest.raises(ValueError, match="corresponding Finding"):
         validate_verifier_audit(audit, state)
 
 
@@ -1759,7 +1770,7 @@ def test_router_executes_single_legal_scientific_action_without_llm_call():
     router_node(state, {}, model)
 
     assert model.calls == 0
-    assert state["action"]["action"] == "accept"
+    assert state["action"] is None
 
 
 def test_router_retries_when_llm_does_not_select_a_legal_action_id():
@@ -1788,12 +1799,12 @@ def test_router_retries_when_llm_does_not_select_a_legal_action_id():
         "scope": "set_identity", "status": "supporting",
         "metric_refs": ["tool_results.confound_test.metrics.strong_technical_conflict"],
     })
-    invalid = {"action_id": "invented", "reason": "not in Python choices"}
+    invalid = {"action_ids": ["invented"], "reason": "not in Python choices"}
     model = StaticModel(invalid)
 
     router_node(state, {}, model)
 
-    assert model.calls == 3
+    assert model.calls == 2
     assert model.payloads[1]["validation_error"]["legal_actions"] == model.payloads[0]["legal_actions"]
     assert all("action_id" in row for row in model.payloads[0]["legal_actions"])
     assert state["control"]["status"] == "unresolved"
@@ -1826,13 +1837,12 @@ def test_router_action_id_selects_the_python_owned_action():
         "scope": "set_identity", "status": "supporting",
         "metric_refs": ["tool_results.confound_test.metrics.strong_technical_conflict"],
     })
-    model = StaticModel({"action_id": "A1", "reason": "select C2"})
+    model = StaticModel({"action_ids": ["A1"], "reason": "select C2"})
 
     router_node(state, {}, model)
 
     assert model.calls == 1
-    assert state["action"]["action"] == "accept"
-    assert state["action"]["target_ids"] == ["C2"]
+    assert state["action"] is None
     assert state["sets"][1]["status"] == "provisionally_accepted"
 
 
@@ -1961,6 +1971,7 @@ def test_revision_waits_for_all_candidate_evidence_before_becoming_ready():
         "dimension": "cross_modal_consistency", "scope": "split_proposal",
         "status": "inconclusive", "metric_refs": [split_ref],
     })
+    add_proposal_checks(state, candidates[1], "split_proposal", ["C1"])
     ready_model = StaticModel({"action": "split", "target_ids": ["C1"]})
 
     router_node(state, {}, ready_model)
@@ -2005,7 +2016,7 @@ def test_evidence_exhaustion_marks_an_unsupported_set_unresolved_without_calling
         "metric_refs": [cross_ref],
     })
     add_identity_controls(state)
-    model = StaticModel({"action_id": "unused", "reason": ""})
+    model = StaticModel({"action_ids": ["unused"], "reason": ""})
     router_node(state, {}, model)
     assert state["sets"][0]["status"] == "unresolved"
     assert state["sets"][0]["unresolved_reason"] == "insufficient_validation_after_exhaustion"
@@ -2226,6 +2237,7 @@ def test_unsupported_revision_blocks_exact_intent_and_clears_proposal_audit():
         {"target_ids": ["C1"], "proposal_id": "p1", "dimension": "cross_modal_consistency", "scope": "split_proposal", "status": "inconclusive", "metric_refs": [split_ref]},
     ])
     add_identity_controls(state)
+    add_proposal_checks(state, proposal, "split_proposal", ["C1"])
     model = StaticModel({"action": "split", "target_ids": ["C1"]})
 
     router_node(state, {}, model)
@@ -2421,3 +2433,147 @@ def test_effect_helpers_are_material_not_p_value_only():
     table = np.asarray([[8, 2], [1, 9]])
     assert bias_corrected_cramers_v(table) > 0
     assert cliffs_delta([1, 2, 3], [8, 9, 10]) < 0
+
+
+def test_router_selection_requires_unique_nonempty_action_ids():
+    with pytest.raises(ValueError):
+        RouterSelection(action_ids=[], reason="empty")
+    with pytest.raises(ValueError):
+        RouterSelection(action_ids=["A1", "A1"], reason="duplicate")
+
+
+def test_positive_structural_signal_allows_split_but_depth_defers_it():
+    state = initial_review_state([{
+        "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
+    }])
+    add_identity_controls(state)
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1"], {},
+        "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [ref],
+    })
+    state["control"]["structural_split_sets"] = ["C1"]
+    assert initial_revision_intents(state) == [{"action": "split", "target_ids": ["C1"]}]
+
+    state["sets"][0]["split_depth"] = 1
+    state["control"]["max_split_depth"] = 1
+    assert initial_revision_intents(state) == []
+    assert state["control"]["deferred_structural_intents"] == [{
+        "action": "split", "target_ids": ["C1"], "reason": "max_split_depth_reached",
+    }]
+
+
+def test_deferred_structural_signal_blocks_accept_and_ends_unresolved():
+    state = initial_review_state([{
+        "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
+    }])
+    add_identity_controls(state)
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1"], {},
+        "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [ref],
+    })
+    state["control"].update({"structural_split_sets": ["C1"], "max_split_depth": 0})
+    with pytest.raises(ValueError, match="deferred structural"):
+        validate_router_action(RouterAction(action="accept", target_ids=["C1"]), state)
+    router_node(state, {}, StaticModel({"action_ids": ["unused"], "reason": ""}))
+    assert state["sets"][0]["status"] == "unresolved"
+    assert state["sets"][0]["unresolved_reason"] == "deferred_secondary_refinement"
+
+
+def test_structural_limits_defer_positive_intents():
+    state = initial_review_state([{
+        "cluster_id": "C1", "member_ids": [f"P{i}" for i in range(20)],
+    }])
+    add_identity_controls(state)
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1"], {},
+        "multimodal_consistency_check", {"identity_supporting_modalities_by_set": {"C1": ["ct", "rna"]}}, ref,
+    ))
+    state["audit"]["findings"].append({
+        "target_ids": ["C1"], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [ref],
+    })
+    state["control"].update({
+        "structural_split_sets": ["C1"],
+        "structural_changes_used": 2,
+        "max_structural_changes": 2,
+    })
+    assert initial_revision_intents(state) == []
+    assert state["control"]["deferred_structural_intents"][0]["reason"] == "max_structural_changes_reached"
+
+
+def test_merge_preserves_maximum_split_depth():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1"], "split_depth": 1},
+        {"cluster_id": "C2", "member_ids": ["P2"], "split_depth": 0},
+    ])
+    apply_merge(state, {"set_ids": ["C1", "C2"]})
+    merged = next(item for item in state["sets"] if item["status"] == "active")
+    assert merged["split_depth"] == 1
+
+
+def test_router_batches_independent_terminal_actions():
+    state = initial_review_state([
+        {"cluster_id": target, "member_ids": [f"{target}P{i}" for i in range(20)]}
+        for target in ("C1", "C2", "C3")
+    ])
+    ref = "tool_results.multimodal_consistency_check.metrics.identity_supporting_modalities_by_set"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1", "C2", "C3"], {},
+        "multimodal_consistency_check",
+        {"identity_supporting_modalities_by_set": {
+            target: ["ct", "rna"] for target in ("C1", "C2", "C3")
+        }}, ref,
+    ))
+    state["audit"]["findings"].extend([{
+        "target_ids": [target], "dimension": "cross_modal_consistency",
+        "scope": "set_identity", "status": "supporting", "metric_refs": [ref],
+    } for target in ("C1", "C2", "C3")])
+    add_identity_controls(state)
+    for target in ("C2", "C3"):
+        state["audit"]["findings"].append({
+            "target_ids": [target], "dimension": "confounder_exclusion",
+            "scope": "set_identity", "status": "supporting", "metric_refs": ["confound"],
+        })
+    model = StaticModel({"action_ids": ["A0", "A1", "A2"], "reason": "accept all"})
+    router_node(state, {}, model)
+    assert state["control"]["round"] == 1
+    assert {item["status"] for item in state["sets"]} == {"provisionally_accepted"}
+
+
+def test_router_selection_rejects_conflicting_batch_actions():
+    actions = {
+        "A0": RouterAction(action="split", target_ids=["C1"]),
+        "A1": RouterAction(action="merge", target_ids=["C2", "C3"]),
+    }
+    with pytest.raises(ValueError, match="at most one structural"):
+        validate_router_selection(RouterSelection(action_ids=["A0", "A1"]), actions, {})
+
+
+def test_router_selection_requires_evidence_to_be_exclusive():
+    actions = {
+        "A0": RouterAction(action="need_more_evidence", dimension="biological_support", scope="set_identity", target_ids=["C1"]),
+        "A1": RouterAction(action="accept", target_ids=["C2"]),
+    }
+    with pytest.raises(ValueError, match="must be selected alone"):
+        validate_router_selection(RouterSelection(action_ids=["A0", "A1"]), actions, {})
+
+
+def test_structural_change_counter_survives_partition_reset():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+    ])
+    apply_split(state, {"source_set_id": "C1", "groups": [["P1"], ["P2"]]})
+    state["control"]["structural_changes_used"] = 1
+    reset_after_structural_change(state, partition_signature(state["sets"]))
+    assert state["control"]["structural_changes_used"] == 1

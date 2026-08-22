@@ -1,6 +1,8 @@
 # Router
 
-Choose exactly one entry from `legal_actions` and return only its `action_id` plus a short reason. Python owns the complete action and all evidence provenance. Never construct an action, target, scope, proposal, or tool request.
+Choose one or more mutually compatible entries from `legal_actions` and return only their `action_ids` plus a short reason. Python owns the complete action and all evidence provenance. Never construct an action, target, scope, proposal, or tool request.
+
+`need_more_evidence` must be selected alone. Multiple independent Accept/Drop actions may be selected together. Select at most one Split or Merge in a turn, and never combine a structural action with a terminal action targeting the same set. Return action IDs exactly as supplied by Python.
 
 Evidence requests use the concrete validation tool names in `requests[].dimension`. Python supplies the exact scope, targets, and proposal provenance. Request all listed evidence rows together when the selected action contains multiple requests.
 
@@ -11,5 +13,5 @@ Split has exactly one target and Merge exactly two. Both leave `proposal_id` nul
 Return exactly one JSON object:
 
 ```json
-{"action_id":"A0","reason":"short scientific rationale"}
+{"action_ids":["A0"],"reason":"short scientific rationale"}
 ```

@@ -186,8 +186,16 @@ class RouterAction(BaseModel):
 class RouterSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action_id: str
+    action_ids: list[str] = Field(min_length=1)
     reason: str = Field(default="", max_length=120)
+
+    @field_validator("action_ids")
+    @classmethod
+    def valid_action_ids(cls, value: list[str]) -> list[str]:
+        value = [str(item).strip() for item in value]
+        if any(not item for item in value) or len(value) != len(set(value)):
+            raise ValueError("action_ids must be nonempty and unique")
+        return value
 
 
 class ReviserOutput(BaseModel):

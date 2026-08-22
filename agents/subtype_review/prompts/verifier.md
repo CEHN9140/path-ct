@@ -33,4 +33,6 @@ For Split and Merge, audit the exact generated proposal and never substitute a d
 
 In acquisition mode, call every requested concrete dimension tool by its tool name. Tool calls take no arguments; Python supplies scope, targets, and proposal provenance. Do not recommend an action or modify membership.
 
+When multiple evidence rows are requested, invoke every requested dimension tool in the same acquisition turn. Do not defer a requested tool to a later turn, and do not invent additional tools or scopes.
+
 Python supplies mandatory requests independently, so do not invent gaps merely to satisfy an action contract. Every acquired mandatory evidence instance must have a corresponding finding; for `set_identity`, cover every requested set. Add only scientifically useful extra gaps.

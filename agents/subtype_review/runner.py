@@ -22,7 +22,10 @@ def run_subtype_review(
     artifact_root: str | None = None,
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
-    usage_tracker = LLMUsageTracker(max_llm_calls=None)
+    budget = dict(review_config.get("budget", {}) or {})
+    usage_tracker = LLMUsageTracker(
+        max_llm_calls=int(budget.get("max_llm_calls", 12) or 12)
+    )
     runtime = {
         "patient_states_by_id": {
             str(key): dict(value) for key, value in patient_states_by_id.items()
@@ -42,9 +45,15 @@ def run_subtype_review(
         runtime=runtime,
     )
     state = initial_review_state(candidate_clusters)
-    budget = dict(review_config.get("budget", {}) or {})
     state["control"]["max_rounds"] = int(budget.get("max_rounds", 12) or 12)
     state["control"]["max_failures"] = int(budget.get("max_failures", 3) or 3)
+    for key, default in {
+        "max_split_depth": 1,
+        "max_structural_changes": 2,
+        "max_structural_reviews": 3,
+        "router_contract_attempts": 2,
+    }.items():
+        state["control"][key] = int(budget.get(key, default) or default)
     cross_modal = dict(review_config.get("cross_modal", {}) or {})
     state["control"]["policy"] = {
         "accept_min_supporting_modalities": int(
@@ -59,6 +68,7 @@ def run_subtype_review(
         "split_require_molecular_or_biology": bool(
             cross_modal.get("split_require_molecular_or_biology", True)
         ),
+        "min_split_size": int(budget.get("min_split_size", 10) or 10),
     }
     final_state = graph.invoke(
         state,
