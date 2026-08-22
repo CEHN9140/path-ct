@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from tools.cnv_characterization import cnv_characterization
 from tools.confound_test import confound_test
@@ -8,17 +9,120 @@ from tools.known_label_echo_test import known_label_echo_test
 from tools.multimodal_consistency_check import multimodal_consistency_check
 from tools.mutation_enrichment import mutation_enrichment
 from tools.pathway_enrichment import pathway_enrichment
+from tools.subtype_review_common import clinical_table, tool_result
 from utils.tool_utils import to_jsonable
 
 
-def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
+def clinical_characterization(
+    cluster_state: Mapping[str, Any],
+    patient_states_by_id: Mapping[str, Mapping[str, Any]],
+    output_root: str,
+    config_dir: str = "",
+    all_cluster_states: list[dict[str, Any]] | None = None,
+    scope: str = "set_identity",
+    target_ids: list[str] | None = None,
+    artifact_root: str | None = None,
+) -> dict[str, Any]:
+    groups = {
+        str(item.get("set_id") or item.get("cluster_id")): list(item.get("member_ids", []))
+        for item in list(all_cluster_states or [cluster_state])
+    }
+    clinical = clinical_table(patient_states_by_id)
+    rows = {}
+    for group_id, members in groups.items():
+        records = [clinical.get(case_id, {}) for case_id in members]
+        rows[group_id] = {
+            "member_n": len(members),
+            "stage_values": sorted({str(record.get("stage", "")) for record in records if record.get("stage")}),
+            "grade_values": sorted({str(record.get("grade", "")) for record in records if record.get("grade")}),
+        }
+    return tool_result(
+        tool_name="clinical_characterization",
+        status="success",
+        cluster_id=str(cluster_state.get("cluster_id", "GLOBAL")),
+        output_root=artifact_root or output_root,
+        summary="Clinical stage and grade descriptors were summarized for the current partition.",
+        metrics={"clinical_by_set": rows},
+        decision_metrics={"clinical_by_set": rows},
+    )
+
+
+TOOL_REGISTRY: dict[str, dict[str, Any]] = {
+    "pathway_enrichment": {
+        "tool_name": "pathway_enrichment",
+        "dimension": "biological_support",
+        "default_every_round": True,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "RNA pathway enrichment for every current set.",
+        "function": pathway_enrichment,
+    },
+    "mutation_enrichment": {
+        "tool_name": "mutation_enrichment",
+        "dimension": "biological_support",
+        "default_every_round": True,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "WXS mutation enrichment for every current set.",
+        "function": mutation_enrichment,
+    },
+    "cnv_characterization": {
+        "tool_name": "cnv_characterization",
+        "dimension": "biological_support",
+        "default_every_round": True,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "CNV characterization for every current set.",
+        "function": cnv_characterization,
+    },
+    "multimodal_consistency_check": {
+        "tool_name": "multimodal_consistency_check",
+        "dimension": "cross_modal_consistency",
+        "default_every_round": True,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "CT, WSI, RNA and genomic affinity diagnostics for the current partition.",
+        "function": multimodal_consistency_check,
+    },
+    "confound_test": {
+        "tool_name": "confound_test",
+        "dimension": "confounder_exclusion",
+        "default_every_round": True,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "Technical confounder diagnostics for every current set.",
+        "function": confound_test,
+    },
+    "known_label_echo_test": {
+        "tool_name": "known_label_echo_test",
+        "dimension": "known_label_echo",
+        "default_every_round": True,
+        "scope": "partition",
+        "targeting": "partition",
+        "description": "Whole-partition comparison with known stage and grade labels.",
+        "function": known_label_echo_test,
+    },
+    "clinical_characterization": {
+        "tool_name": "clinical_characterization",
+        "dimension": "biological_support",
+        "default_every_round": False,
+        "scope": "set_identity",
+        "targeting": "all_sets",
+        "description": "Optional clinical descriptors for the current sets.",
+        "function": clinical_characterization,
+    },
+}
+
+DEFAULT_REVIEW_TOOLS = tuple(
+    name for name, metadata in TOOL_REGISTRY.items() if metadata["default_every_round"]
+)
+EXTRA_REVIEW_TOOLS = tuple(
+    name for name, metadata in TOOL_REGISTRY.items() if not metadata["default_every_round"]
+)
+def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
     payload = dict(raw or {})
     results = dict(payload.get("results", {}) or {})
-    metrics = results.get("decision_metrics")
-    if metrics is None:
-        metrics = results.get("metrics", {})
-    metrics = to_jsonable(metrics or {})
-    tool_name = str(payload.get("tool_name", "") or "")
+    metrics = to_jsonable(results.get("decision_metrics", results.get("metrics", {})) or {})
     return {
         "tool_name": tool_name,
         "status": "success" if str(payload.get("status", "")).lower() == "success" else "failure",
@@ -31,110 +135,14 @@ def compact_tool_result(raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def validation_result(
-    dimension: str,
-    functions: list[tuple[str, Callable[..., Any]]],
-    cluster_state: Mapping[str, Any],
-    patient_states_by_id: Mapping[str, Mapping[str, Any]],
-    output_root: str,
-    config_dir: str,
-    all_cluster_states: list[dict[str, Any]],
-    *,
-    scope: str = "set_identity",
-    target_ids: list[str] | None = None,
-    artifact_root: str | None = None,
-) -> dict[str, Any]:
-    artifact_root = artifact_root or output_root
-    results = []
-    for name, function in functions:
-        try:
-            raw = function(
-                dict(cluster_state),
-                {str(key): dict(value) for key, value in patient_states_by_id.items()},
-                output_root,
-                config_dir=config_dir,
-                all_cluster_states=all_cluster_states,
-                scope=scope,
-                target_ids=list(target_ids or []),
-                artifact_root=artifact_root,
-            )
-        except Exception as exc:
-            raw = {
-                "tool_name": name,
-                "status": "failure",
-                "results": {"metrics": {}, "warnings": [], "missing_reason": ""},
-                "errors": [f"{type(exc).__name__}: {exc}"],
-            }
-        results.append(compact_tool_result(raw))
-    return {
-        "dimension": dimension,
-        "status": "success" if all(item["status"] == "success" for item in results) else "failure",
-        "results": results,
-    }
-
-
-def biological_support(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return validation_result(
-        "biological_support",
-        [
-            ("pathway_enrichment", pathway_enrichment),
-            ("mutation_enrichment", mutation_enrichment),
-            ("cnv_characterization", cnv_characterization),
-        ],
-        *args,
-        **kwargs,
-    )
-
-
-def cross_modal_consistency(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return validation_result(
-        "cross_modal_consistency",
-        [("multimodal_consistency_check", multimodal_consistency_check)],
-        *args,
-        **kwargs,
-    )
-
-
-def confounder_exclusion(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return validation_result(
-        "confounder_exclusion",
-        [("confound_test", confound_test)],
-        *args,
-        **kwargs,
-    )
-
-
-def known_label_echo(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return validation_result(
-        "known_label_echo",
-        [("known_label_echo_test", known_label_echo_test)],
-        *args,
-        **kwargs,
-    )
-
-
-VALIDATION_FUNCTIONS = {
-    "biological_support": biological_support,
-    "cross_modal_consistency": cross_modal_consistency,
-    "confounder_exclusion": confounder_exclusion,
-    "known_label_echo": known_label_echo,
-}
-
-
-def build_validation_tools() -> list[Any]:
+def build_validation_tools(registry: Mapping[str, Mapping[str, Any]] | None = None) -> list[Any]:
     from langchain_core.tools import tool
 
-    descriptions = {
-        "biological_support": "Compute RNA, WXS and CNV biological evidence for the requested scope.",
-        "cross_modal_consistency": "Compute CT, WSI, RNA and genomic consistency for the requested scope.",
-        "confounder_exclusion": "Compute CT acquisition-confounder evidence for the requested scope.",
-        "known_label_echo": "Compute whole-partition stage and grade echo evidence.",
-    }
+    registry = registry or TOOL_REGISTRY
+    result = []
+    for name, metadata in registry.items():
+        def request_tool(tool_name: str = name) -> str:
+            return f"Python will execute {tool_name} for the current partition."
 
-    def request_validation() -> str:
-        return "Use the pending evidence request supplied by Python."
-
-    return [
-        tool(name, description=description)(request_validation)
-        for name, description in descriptions.items()
-    ]
+        result.append(tool(name, description=str(metadata["description"]))(request_tool))
+    return result

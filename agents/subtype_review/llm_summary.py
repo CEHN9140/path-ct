@@ -1,48 +1,37 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 
-def summarize_evidence(evidence: Mapping[str, Any] | list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rows = evidence if isinstance(evidence, list) else evidence.get("round_evidence", evidence.get("results", []))
+def summarize_evidence(evidence: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
-            "dimension": str(item.get("dimension", "")),
-            "scope": str(item.get("scope", "")),
-            "analysis": str(item.get("analysis", "")),
-            "target_ids": list(item.get("target_ids", []) or []),
-            "subject_signature": str(item.get("subject_signature", "")),
-            "status": str(item.get("status", "")),
-            "tool_results": [
-                {
-                    "tool_name": str(child.get("tool_name", "")),
-                    "status": str(child.get("status", "")),
-                    "metric_refs": list(child.get("metric_refs", []) or []),
-                    "warnings": list(child.get("warnings", []) or []),
-                }
-                for child in item.get("results", []) or []
-            ],
+            "tool_name": row.get("tool_name", ""),
+            "dimension": row.get("dimension", ""),
+            "scope": row.get("scope", ""),
+            "target_ids": list(row.get("target_ids", []) or []),
+            "status": row.get("status", ""),
+            "metric_refs": list(row.get("metric_refs", []) or []),
+            "metrics": row.get("metrics", {}),
+            "warnings": list(row.get("warnings", []) or []),
+            "errors": list(row.get("errors", []) or []),
         }
-        for item in rows
+        for row in evidence
     ]
 
 
 def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
-            "dimension": str(row.get("dimension", "")),
-            "scope": str(row.get("scope", "")),
+            "dimension": row.get("dimension", ""),
+            "scope": row.get("scope", ""),
             "target_ids": list(row.get("target_ids", []) or []),
-            "observations": [
-                {
-                    "metric": str(item.get("metric", "")),
-                    "finding": str(item.get("finding", ""))[:600],
-                }
-                for item in row.get("observations", []) or []
-            ],
-            "statistical_interpretation": str(row.get("statistical_interpretation", ""))[:1000],
-            "medical_interpretation": str(row.get("medical_interpretation", ""))[:1000],
+            "observations": list(row.get("observations", []) or []),
+            "statistical_interpretation": row.get("statistical_interpretation", ""),
+            "medical_interpretation": row.get("medical_interpretation", ""),
             "limitations": list(row.get("limitations", []) or []),
+            "tool_refs": list(row.get("tool_refs", []) or []),
             "metric_refs": list(row.get("metric_refs", []) or []),
         }
         for row in reports

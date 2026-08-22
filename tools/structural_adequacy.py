@@ -30,20 +30,26 @@ def modality_metrics(matrix: np.ndarray, k: int) -> dict[str, Any]:
     between = float(values[~same].mean()) if np.any(~same) else 0.0
     distance = 1.0 - matrix
     silhouette = float(silhouette_score(distance, labels, metric="precomputed"))
-    stability = []
-    for seed in range(1, 6):
+    subsampling_scores = []
+    sample_size = max(k + 1, int(round(len(labels) * 0.8)))
+    for seed in range(5):
+        rng = np.random.default_rng(seed)
+        sample = np.sort(rng.choice(len(labels), size=min(sample_size, len(labels)), replace=False))
+        if len(sample) <= k:
+            subsampling_scores.append(1.0)
+            continue
         repeat = SpectralClustering(
             n_clusters=k,
             affinity="precomputed",
             assign_labels="cluster_qr",
-            random_state=seed,
-        ).fit_predict(matrix)
-        stability.append(adjusted_rand_score(labels, repeat))
+            random_state=0,
+        ).fit_predict(matrix[np.ix_(sample, sample)])
+        subsampling_scores.append(adjusted_rand_score(labels[sample], repeat))
     eigenvalues = np.linalg.eigvalsh(matrix)[::-1]
     return {
         "separation": round_value(separation_score(within, between)),
         "silhouette": round_value(silhouette),
-        "stability": round_value(float(np.mean(stability))),
+        "subsampling_stability": round_value(float(np.mean(subsampling_scores))),
         "eigengap": round_value(float(eigenvalues[k - 1] - eigenvalues[k])),
         "within_affinity": round_value(within),
         "between_affinity": round_value(between),
@@ -80,8 +86,8 @@ def structure_diagnostics(
                 and modality_rows[modality]["separation"] > 0
                 and modality_rows[modality]["silhouette"] is not None
                 and modality_rows[modality]["silhouette"] > 0
-                and modality_rows[modality]["stability"] is not None
-                and modality_rows[modality]["stability"] >= 0.6
+                and modality_rows[modality]["subsampling_stability"] is not None
+                and modality_rows[modality]["subsampling_stability"] >= 0.6
             ]
             rows.append({
                 "k": k,

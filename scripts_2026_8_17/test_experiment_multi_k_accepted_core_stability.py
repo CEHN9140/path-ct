@@ -9,10 +9,7 @@ from scripts_2026_8_17 import experiment_multi_k_accepted_core_stability as expe
 
 
 def test_accepted_assignments_exclude_dropped_sets():
-    sets = [
-        {"set_id": "A", "status": "accept", "member_ids": ["p1", "p2"]},
-        {"set_id": "D", "status": "drop", "member_ids": ["p3"]},
-    ]
+    sets = [{"set_id": "A", "member_ids": ["p1", "p2"]}]
     assert experiment.accepted_assignments(sets) == {"p1": "A", "p2": "A"}
 
 
@@ -119,12 +116,12 @@ def test_analyze_excludes_incomplete_and_unavailable_runs(tmp_path):
     (contract_failure / "run_metadata.json").write_text("{}")
     (complete / "final_review_summary.json").write_text(json.dumps({
         "status": "review_complete", "raw_control_status": "complete",
-        "partition_sets": [{"set_id": "A", "status": "accept", "member_ids": ["p1", "p2"]}],
+        "accepted_subtype_sets": [{"set_id": "A", "member_ids": ["p1", "p2"]}],
     }))
     (incomplete / "final_review_summary.json").write_text(json.dumps({
         "status": "review_incomplete_due_to_round_budget",
         "raw_control_status": "review_incomplete_due_to_round_budget",
-        "partition_sets": [{"set_id": "A", "status": "active", "member_ids": ["p1", "p2"]}],
+        "accepted_subtype_sets": [],
     }))
     (contract_failure / "final_review_summary.json").write_text(json.dumps({
         "status": "review_unavailable",

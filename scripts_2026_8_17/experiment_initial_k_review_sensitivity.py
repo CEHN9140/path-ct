@@ -62,7 +62,6 @@ def labels_to_candidate_sets(
                 "cluster_id": f"C{index:04d}",
                 "member_ids": members,
                 "source_views": ["snf"],
-                "status": "under_review",
                 "generator": {
                     "algorithm": "consensus_hierarchical",
                     "n_clusters": initial_k,
@@ -129,8 +128,13 @@ def summarize_run(
         len(item.get("member_ids", []) or []) for item in initial_sets
     )
     final_sizes = sorted(len(item.get("member_ids", []) or []) for item in final_sets)
-    accepted = [item for item in final_sets if item.get("status") == "accept"]
-    dropped = [item for item in final_sets if item.get("status") == "drop"]
+    actions = {
+        target: action.get("action", "")
+        for action in dict(state.get("router_plan", {}) or {}).get("actions", []) or []
+        for target in action.get("target_ids", [])
+    }
+    accepted = [item for item in final_sets if actions.get(item.get("set_id")) == "accept"]
+    dropped = [item for item in final_sets if actions.get(item.get("set_id")) == "drop"]
     return {
         "initial_k": initial_k,
         "initial_cluster_sizes": initial_sizes,

@@ -6,8 +6,8 @@ from typing import Any, Mapping
 
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
-    ReviserOutput,
-    RouterOutput,
+    RevisionPlan,
+    RouterPlan,
 )
 from agents.subtype_review.tools import build_validation_tools
 from utils.llm_utils import (
@@ -93,7 +93,13 @@ def normalize_message(message: Any) -> dict[str, Any]:
 
 
 def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return [normalize_message(message) for message in payload.get("message_history", []) or []]
+    return [
+        normalize_message(message)
+        for message in [
+            *(payload.get("message_history", []) or []),
+            *(payload.get("tool_messages", []) or []),
+        ]
+    ]
 
 
 class JsonStructuredModel:
@@ -186,9 +192,9 @@ class VerifierChatModel:
         history = message_history(request)
         request.pop("message_history", None)
         if mode == "acquire":
-            dimensions = [str(row["dimension"]) for row in request["requests"]]
+            tool_names = [str(row["tool_name"]) for row in request["tool_requests"]]
             model = self.model.bind_tools(
-                [self.tools[name] for name in dict.fromkeys(dimensions)],
+                [self.tools[name] for name in dict.fromkeys(tool_names)],
                 tool_choice="required",
             )
         else:
@@ -247,7 +253,7 @@ class LocalVerifierModel:
         tools = None
         if mode == "acquire":
             tools = []
-            for name in dict.fromkeys(str(row["dimension"]) for row in request["requests"]):
+            for name in dict.fromkeys(str(row["tool_name"]) for row in request["tool_requests"]):
                 tool = self.tools[name]
                 tools.append({
                     "type": "function",
@@ -315,7 +321,7 @@ def build_default_router(config: dict[str, Any], config_dir: str | Path, *, usag
     cfg = dict(config["llm"])
     return build_structured_model(
         cfg,
-        RouterOutput,
+        RouterPlan,
         load_prompt(prompt_dir(config, config_dir), "router.md"),
         usage_tracker,
     )
@@ -325,19 +331,19 @@ def build_default_reviser(config: dict[str, Any], config_dir: str | Path, *, usa
     cfg = dict(config["llm"])
     return build_structured_model(
         cfg,
-        ReviserOutput,
+        RevisionPlan,
         load_prompt(prompt_dir(config, config_dir), "reviser.md"),
         usage_tracker,
     )
 
 
-def parse_router_output(value: Any) -> RouterOutput:
+def parse_router_plan(value: Any) -> RouterPlan:
     if hasattr(value, "model_dump"):
-        return RouterOutput.model_validate(value.model_dump())
-    return RouterOutput.model_validate(parse_json_content(value))
+        return RouterPlan.model_validate(value.model_dump())
+    return RouterPlan.model_validate(parse_json_content(value))
 
 
-def parse_reviser_output(value: Any) -> ReviserOutput:
+def parse_revision_plan(value: Any) -> RevisionPlan:
     if hasattr(value, "model_dump"):
-        return ReviserOutput.model_validate(value.model_dump())
-    return ReviserOutput.model_validate(parse_json_content(value))
+        return RevisionPlan.model_validate(value.model_dump())
+    return RevisionPlan.model_validate(parse_json_content(value))

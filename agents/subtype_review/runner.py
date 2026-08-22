@@ -10,6 +10,7 @@ from agents.subtype_review.llm import (
     build_default_router,
     build_default_verifier,
 )
+from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.llm_utils import load_yaml_file
 
 
@@ -28,20 +29,20 @@ def run_subtype_review(
         "patient_states_by_id": {
             str(key): dict(value) for key, value in patient_states_by_id.items()
         },
-        "output_root": str(data_root),
         "data_root": str(data_root),
-        "review_output_root": str(artifact_root or data_root),
+        "artifact_root": str(artifact_root or data_root),
         "config_dir": str(config_dir),
+        "tool_registry": TOOL_REGISTRY,
     }
     verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker)
     reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker)
     router_model = build_default_router(review_config, config_dir, usage_tracker=usage_tracker)
-    graph = build_review_graph(
-        verifier_model=verifier_model,
-        router_model=router_model,
-        reviser_model=reviser_model,
-        runtime=runtime,
-    )
+    runtime.update({
+        "verifier_model": verifier_model,
+        "router_model": router_model,
+        "reviser_model": reviser_model,
+    })
+    graph = build_review_graph()
     state = initial_review_state(candidate_clusters)
     state["control"]["max_rounds"] = int(budget.get("max_rounds", 10) or 10)
     state["control"]["max_failures"] = int(budget.get("max_failures", 3) or 3)

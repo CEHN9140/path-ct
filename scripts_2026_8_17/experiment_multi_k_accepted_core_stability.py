@@ -43,8 +43,6 @@ DEFAULT_EXPERIMENT_ROOT = (
 def accepted_assignments(final_sets: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     assignments = {}
     for item in final_sets:
-        if item.get("status") != "accept":
-            continue
         set_id = str(item.get("set_id", item.get("cluster_id", "")) or "")
         if not set_id:
             raise ValueError("Accepted set has no set_id")
@@ -234,7 +232,7 @@ def analyze(
             raw_status = str(summary.get("raw_control_status", ""))
             review_status = str(summary.get("status", ""))
             valid_for_analysis = scientifically_terminal(summary)
-            assignments = accepted_assignments(summary.get("partition_sets", []))
+            assignments = accepted_assignments(summary.get("accepted_subtype_sets", []))
             usage = dict(summary.get("llm_usage", {}) or {})
             row = {
                 "run_id": f"run{repeat}_K{initial_k}", "initial_k": initial_k,
