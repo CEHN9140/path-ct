@@ -2569,6 +2569,53 @@ def test_router_selection_requires_evidence_to_be_exclusive():
         validate_router_selection(RouterSelection(action_ids=["A0", "A1"]), actions, {})
 
 
+def test_terminal_and_structural_actions_cannot_share_a_batch():
+    actions = {
+        "A0": RouterAction(action="accept", target_ids=["C2"]),
+        "A1": RouterAction(action="split", target_ids=["C1"]),
+    }
+    with pytest.raises(ValueError, match="cannot be combined"):
+        validate_router_selection(RouterSelection(action_ids=["A0", "A1"]), actions, {})
+
+
+def test_deferred_merge_reactivates_an_accepted_endpoint():
+    state = initial_review_state([
+        {"cluster_id": "C1", "member_ids": ["P1", "P2"]},
+        {"cluster_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    add_identity_controls(state)
+    state["audit"]["findings"].append({
+        "target_ids": ["C2"], "dimension": "confounder_exclusion",
+        "scope": "set_identity", "status": "supporting", "metric_refs": ["confound"],
+    })
+    ref = "tool_results.multimodal_consistency_check.metrics.merge_candidate_pairs_by_modality"
+    state["evidence"]["results"].append(evidence_row(
+        state, "cross_modal_consistency", "set_identity", ["C1", "C2"], {},
+        "multimodal_consistency_check", {"merge_candidate_pairs_by_modality": {"C1+C2": ["ct", "wsi"]}}, ref,
+    ))
+    state["sets"][0]["status"] = "provisionally_accepted"
+    state["control"]["structural_reviews_used"] = state["control"]["max_structural_reviews"]
+
+    assert initial_revision_intents(state) == []
+    assert state["sets"][0]["status"] == "active"
+    assert state["control"]["deferred_structural_intents"] == [{
+        "action": "merge", "target_ids": ["C1", "C2"], "reason": "max_structural_reviews_reached",
+    }]
+
+
+def test_summary_reports_structural_search_diagnostics(tmp_path):
+    state = initial_review_state([{"cluster_id": "C1", "member_ids": ["P1"]}])
+    state["control"].update({
+        "structural_reviews_used": 2,
+        "structural_changes_used": 1,
+        "deferred_structural_intents": [{"action": "split", "target_ids": ["C1"], "reason": "max_split_depth_reached"}],
+    })
+    summary = save_review_outputs(state, str(tmp_path), direct=True)
+    assert summary["structural_search"]["reviews_used"] == 2
+    assert summary["structural_search"]["changes_used"] == 1
+    assert summary["structural_search"]["deferred_intents"]
+
+
 def test_structural_change_counter_survives_partition_reset():
     state = initial_review_state([
         {"cluster_id": "C1", "member_ids": ["P1", "P2"]},

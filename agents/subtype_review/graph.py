@@ -958,9 +958,15 @@ def invalidates_set(finding: Mapping[str, Any], target: str) -> bool:
     )
 
 
+def has_deferred_structural_intent(state: Mapping[str, Any], target: str) -> bool:
+    return any(
+        target in {str(value) for value in row.get("target_ids", []) or []}
+        for row in dict(state.get("control", {}) or {}).get("deferred_structural_intents", []) or []
+    )
+
+
 def set_acceptance(state: Mapping[str, Any], target: str) -> tuple[bool, str]:
-    deferred = list(dict(state.get("control", {}) or {}).get("deferred_structural_intents", []) or [])
-    if any(target in {str(value) for value in row.get("target_ids", []) or []} for row in deferred):
+    if has_deferred_structural_intent(state, target):
         return False, "Accept is blocked by deferred structural refinement"
     sets = current_sets(state)
     findings = list(dict(state.get("audit", {}) or {}).get("findings", []) or [])
@@ -1055,8 +1061,9 @@ def reactivate_provisional_sets(state: dict[str, Any], audit: VerifierOutput) ->
     for item in state["sets"]:
         status = str(item.get("status", ""))
         target = set_id(item)
-        if status == "provisionally_accepted" and any(
-            blocks_set_acceptance(finding, target) for finding in findings
+        if status == "provisionally_accepted" and (
+            has_deferred_structural_intent(state, target)
+            or any(blocks_set_acceptance(finding, target) for finding in findings)
         ):
             item["status"] = "active"
             item.pop("drop_reason", None)
@@ -1156,7 +1163,9 @@ def complete_audit(state: Mapping[str, Any]) -> bool:
         target = set_id(item)
         accept_blocker = any(blocks_set_acceptance(finding, target) for finding in findings)
         drop_evidence = any(invalidates_set(finding, target) for finding in findings)
-        if item.get("status") == "provisionally_accepted" and accept_blocker:
+        if item.get("status") == "provisionally_accepted" and (
+            accept_blocker or has_deferred_structural_intent(state, target)
+        ):
             return False
         if (
             item.get("status") == "provisionally_dropped"
@@ -1360,6 +1369,14 @@ def initial_revision_intents(state: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             intents.append({"action": "merge", "target_ids": list(targets)})
     control["deferred_structural_intents"] = deferred
+    deferred_targets = {
+        str(target)
+        for row in deferred
+        for target in row.get("target_ids", []) or []
+    }
+    for item in state.get("sets", []) or []:
+        if item.get("status") == "provisionally_accepted" and set_id(item) in deferred_targets:
+            item["status"] = "active"
     state["control"] = control
     return intents
 
@@ -1495,20 +1512,13 @@ def validate_router_selection(
     ]
     evidence_actions = [row for row in actions if row.action == "need_more_evidence"]
     structural_actions = [row for row in actions if row.action in {"split", "merge"}]
+    terminal_actions = [row for row in actions if row.action in {"accept", "drop"}]
     if evidence_actions and len(actions) != 1:
         raise ValueError("need_more_evidence must be selected alone")
     if len(structural_actions) > 1:
         raise ValueError("Router may select at most one structural action")
-    if structural_actions:
-        structural_targets = set(structural_actions[0].target_ids)
-        terminal_targets = {
-            target
-            for row in actions
-            if row.action in {"accept", "drop"}
-            for target in row.target_ids
-        }
-        if structural_targets.intersection(terminal_targets):
-            raise ValueError("Structural and terminal actions overlap on a target")
+    if structural_actions and terminal_actions:
+        raise ValueError("Structural actions cannot be combined with terminal actions")
     for action in actions:
         validate_router_action(action, state)
     return actions
@@ -2084,6 +2094,16 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "raw_control_status": raw_status,
         "rounds_used": control.get("round", 0),
         "llm_usage": to_jsonable(control.get("llm_usage", {})),
+        "structural_search": {
+            "reviews_used": control.get("structural_reviews_used", 0),
+            "changes_used": control.get("structural_changes_used", 0),
+            "deferred_intents": to_jsonable(control.get("deferred_structural_intents", [])),
+            "limits": {
+                "max_split_depth": control.get("max_split_depth"),
+                "max_structural_changes": control.get("max_structural_changes"),
+                "max_structural_reviews": control.get("max_structural_reviews"),
+            },
+        },
         "partition_sets": to_jsonable(sets),
         "accepted_subtype_sets": to_jsonable(accepted_sets),
         "unresolved_sets": to_jsonable([
