@@ -20,7 +20,7 @@ def test_groupwise_fdr_does_not_mix_candidate_sets():
     assert rows[2]["q_value"] == 0.9
 
 
-def test_cross_modal_effect_epsilon_filters_near_zero_support():
+def test_cross_modal_fixed_membership_metrics_do_not_emit_identity_flags():
     memberships = {"C1": ["a", "b"], "C2": ["c", "d"]}
     strong = np.array([[1.0, 0.9, 0.1, 0.1], [0.9, 1.0, 0.1, 0.1], [0.1, 0.1, 1.0, 0.9], [0.1, 0.1, 0.9, 1.0]])
     near_zero = np.ones((4, 4))
@@ -29,7 +29,7 @@ def test_cross_modal_effect_epsilon_filters_near_zero_support():
         ["a", "b", "c", "d"], memberships, permanova_permutations=9,
     )
 
-    metrics = result["decision_metrics"]
-    assert "genomic" not in metrics["identity_supporting_modalities"]
-    assert "genomic" not in metrics["merge_strong_boundary_modalities"]
-    assert metrics["effect_epsilon"] == 0.001
+    metrics = result["decision_metrics"]["cross_modal_consistency"]
+    assert "identity_supporting_modalities" not in metrics
+    assert "split_supporting_modalities" not in metrics
+    assert "merge_strong_boundary_modalities" not in metrics
