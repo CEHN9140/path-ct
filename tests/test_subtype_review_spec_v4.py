@@ -13,7 +13,7 @@ from agents.subtype_review.graph import (
     reviser_node,
     router_node,
     save_review_outputs,
-    successful_tool_keys,
+    completed_tool_keys,
     validate_reports,
     validate_tool_request,
     validate_router_plan,
@@ -49,25 +49,17 @@ def fake_registry():
 
 
 def reports_for_requests(requests):
-    by_dimension = {}
-    for request in requests:
-        by_dimension.setdefault(request["tool_name"], request)
-    grouped = {}
-    for request in requests:
-        grouped.setdefault(request["tool_name"], request)
     reports = []
-    dimensions = {}
-    for tool_name, request in grouped.items():
-        metadata = TOOL_REGISTRY[tool_name]
-        dimensions.setdefault(metadata["dimension"], []).append(tool_name)
-    set_ids = sorted({
-        target
-        for request in requests
-        for target in request.get("target_ids", [])
-    })
-    for dimension, tool_names in dimensions.items():
-        request = next(item for item in requests if TOOL_REGISTRY[item["tool_name"]]["dimension"] == dimension)
-        if request.get("target_ids"):
+    dimensions = sorted({TOOL_REGISTRY[item["tool_name"]]["dimension"] for item in requests})
+    for dimension in dimensions:
+        dimension_requests = [
+            item for item in requests
+            if TOOL_REGISTRY[item["tool_name"]]["dimension"] == dimension
+        ]
+        if any(item.get("target_ids") for item in dimension_requests):
+            set_ids = sorted({
+                target for item in dimension_requests for target in item.get("target_ids", [])
+            })
             reports.extend({
                 "dimension": dimension,
                 "scope": "set_identity",
@@ -76,10 +68,14 @@ def reports_for_requests(requests):
                 "statistical_interpretation": "computed",
                 "medical_interpretation": "computed",
                 "limitations": [],
-                "tool_refs": sorted(tool_names),
+                "tool_refs": sorted(
+                    item["tool_name"] for item in dimension_requests
+                    if set_id in item.get("target_ids", [])
+                ),
                 "metric_refs": [],
             } for set_id in set_ids)
         else:
+            tool_names = [item["tool_name"] for item in dimension_requests]
             reports.append({
                 "dimension": dimension,
                 "scope": "partition",
@@ -254,9 +250,99 @@ def test_successful_extra_tool_in_current_round_cannot_be_requested_again():
         "tool_name": "clinical_characterization",
         "target_ids": ["C1"],
     }
-    assert successful_tool_keys(state)
+    assert completed_tool_keys(state)
     with pytest.raises(ValueError, match="already succeeded"):
         validate_tool_request(ToolRequest.model_validate(request), state, fake_registry(), {"C1"})
+
+
+def test_scientific_unavailable_extra_tool_cannot_be_requested_again():
+    state = make_state(("C1", ["P1"]))
+    state["round_evidence"] = [{
+        "tool_name": "clinical_characterization",
+        "status": "scientific_unavailable",
+        "target_ids": ["C1"],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+    }]
+    with pytest.raises(ValueError, match="already succeeded"):
+        validate_tool_request(
+            ToolRequest(tool_name="clinical_characterization", target_ids=["C1"]),
+            state,
+            fake_registry(),
+            {"C1"},
+        )
+
+
+def test_reports_reject_tool_used_for_another_set():
+    state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
+    state["control"]["pending_tools"] = [
+        {"tool_name": "pathway_enrichment", "target_ids": ["C1", "C2"]},
+        {"tool_name": "clinical_characterization", "target_ids": ["C1"]},
+    ]
+    state["round_evidence"] = [
+        {"tool_name": "pathway_enrichment", "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1", "C2"], "metric_refs": []},
+        {"tool_name": "clinical_characterization", "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"], "metric_refs": []},
+    ]
+    batch = EvidenceReportBatch.model_validate({"reports": [
+        {"dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"], "observations": [], "tool_refs": ["clinical_characterization", "pathway_enrichment"], "metric_refs": []},
+        {"dimension": "biological_support", "scope": "set_identity", "target_ids": ["C2"], "observations": [], "tool_refs": ["clinical_characterization", "pathway_enrichment"], "metric_refs": []},
+    ]})
+    with pytest.raises(ValueError, match="target-aware|target|tool_refs"):
+        validate_reports(batch, state, fake_registry())
+
+
+def test_reports_must_account_for_all_tools_used_for_each_set():
+    state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
+    state["control"]["pending_tools"] = [
+        {"tool_name": "pathway_enrichment", "target_ids": ["C1", "C2"]},
+        {"tool_name": "mutation_enrichment", "target_ids": ["C1", "C2"]},
+    ]
+    state["round_evidence"] = [
+        {"tool_name": "pathway_enrichment", "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1", "C2"], "metric_refs": []},
+        {"tool_name": "mutation_enrichment", "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1", "C2"], "metric_refs": []},
+    ]
+    batch = EvidenceReportBatch.model_validate({"reports": [
+        {"dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"], "observations": [], "tool_refs": ["pathway_enrichment"], "metric_refs": []},
+        {"dimension": "biological_support", "scope": "set_identity", "target_ids": ["C2"], "observations": [], "tool_refs": ["pathway_enrichment", "mutation_enrichment"], "metric_refs": []},
+    ]})
+    with pytest.raises(ValueError, match="account|tool_refs"):
+        validate_reports(batch, state, fake_registry())
+
+
+def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch, tmp_path):
+    import tools.structural_adequacy as structural_adequacy
+
+    monkeypatch.setattr(
+        structural_adequacy,
+        "execute_split_membership",
+        lambda *args, **kwargs: [["P1"], ["P2", "P3"]],
+    )
+    state = make_state(("C1", ["P1", "P2", "P3"]))
+    state["router_plan"] = {
+        "actions": [{"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""}]
+    }
+    state["round_evidence"] = [{
+        "tool_name": "multimodal_consistency_check",
+        "metrics": {"internal_structure_by_set": {"C1": {"positive_internal_heterogeneity": True}}},
+        "metric_refs": [],
+    }]
+
+    class Reviser:
+        def invoke(self, payload):
+            return {"split_plans": [{
+                "target_id": "C1", "n_children": 2,
+                "structural_basis": ["fused"],
+                "execution_strategy": "fused_similarity_spectral",
+                "metric_refs": [],
+            }], "merge_plans": []}
+
+    result = reviser_node(state, {
+        "data_root": str(tmp_path),
+        "tool_registry": fake_registry(),
+        "reviser_model": Reviser(),
+    })
+    assert result["partition"]["sets"][0]["set_id"] == "C1"
+    assert result["control"]["next"] == "reviser"
+    assert "estimable" in result["control"]["error"]
 
 
 def test_clinical_extra_tool_outputs_only_requested_targets(tmp_path):

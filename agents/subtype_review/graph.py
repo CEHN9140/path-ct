@@ -212,7 +212,7 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     return state
 
 
-def successful_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
+def completed_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
     keys = set()
     rows = list(state.get("round_evidence", []) or [])
     rows.extend(
@@ -221,7 +221,7 @@ def successful_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
         for row in entry.get("round_evidence", []) or []
     )
     for row in rows:
-        if row.get("status") == "success":
+        if row.get("status") in {"success", "scientific_unavailable"}:
             base = (
                 str(row.get("tool_name", "")),
                 str(row.get("partition_signature", "")),
@@ -337,6 +337,8 @@ def validate_reports(
         targets = set(report.target_ids)
         if targets - sets:
             raise ValueError("Evidence Report references a non-current set")
+        if report.scope == "set_identity" and len(targets) != 1:
+            raise ValueError("set Evidence Reports must target exactly one current set")
         key = (
             report.dimension,
             report.scope,
@@ -350,11 +352,19 @@ def validate_reports(
             raise ValueError("Evidence Report references an unrequested tool")
         if not report.tool_refs:
             raise ValueError("Evidence Report must cite tool_refs")
+        target = next(iter(targets), "")
         allowed = {
-            name for name, row in raw_by_name.items() if row["dimension"] == report.dimension
+            name for name, row in raw_by_name.items()
+            if row["dimension"] == report.dimension
+            and row["scope"] == report.scope
+            and (
+                not row.get("target_ids", [])
+                if report.scope == "partition"
+                else target in row.get("target_ids", [])
+            )
         }
-        if not set(report.tool_refs).issubset(allowed):
-            raise ValueError("Evidence Report tool_refs do not match its dimension")
+        if set(report.tool_refs) != allowed:
+            raise ValueError("Evidence Report tool_refs do not exactly account for this target")
         refs = raw_metric_refs([raw_by_name[name] for name in report.tool_refs])
         observation_refs = {
             ref for observation in report.observations for ref in observation.metric_refs
@@ -467,16 +477,16 @@ def validate_tool_request(
     if metadata["scope"] == "set_identity" and not targets:
         raise ValueError("Set tool requests require targets")
     signature = partition_signature(current_sets(state))
-    successful = successful_tool_keys(state)
+    completed = completed_tool_keys(state)
     base = (request.tool_name, signature)
     if metadata["scope"] == "partition":
-        duplicate = (*base, "") in successful
+        duplicate = (*base, "") in completed
     else:
-        successful_targets = {
-            target for tool_name, partition, target in successful
+        completed_targets = {
+            target for tool_name, partition, target in completed
             if (tool_name, partition) == base and target
         }
-        duplicate = targets.issubset(successful_targets)
+        duplicate = targets.issubset(completed_targets)
     if duplicate:
         raise ValueError("The requested extra tool already succeeded for this partition and targets")
 
@@ -664,6 +674,8 @@ def execute_revision_plan(
             item.execution_strategy,
             list(item.structural_basis),
         )
+        if any(len(group) < 2 for group in groups):
+            raise ValueError("Split produced a non-estimable child set")
         children = []
         for index, members in enumerate(groups, 1):
             child_id = f"{item.target_id}_S{index}"
