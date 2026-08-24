@@ -196,6 +196,8 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     state["router_plan"] = None
     state["revision_plan"] = None
     state["revision_result"] = None
+    control["failed_revision_plan_signatures"] = []
+    control["revision_validation_error"] = None
     control["pending_tools"] = [
         *tool_requests_for_round(state, names, tools),
         *extra_requests,
@@ -621,6 +623,24 @@ def revision_metrics(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def revision_plan_signature(plan: RevisionPlan) -> str:
+    payload = {
+        "split_plans": [
+            {
+                "target_id": item.target_id,
+                "n_children": item.n_children,
+                "structural_basis": item.structural_basis,
+                "execution_strategy": item.execution_strategy,
+            }
+            for item in plan.split_plans
+        ],
+        "merge_plans": [{"target_ids": item.target_ids} for item in plan.merge_plans],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
 def validate_revision_plan(
     plan: RevisionPlan, router_plan: RouterPlan, state: Mapping[str, Any]
 ) -> None:
@@ -732,16 +752,34 @@ def execute_revision_plan(
 def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     values = context_values(runtime)
     router_plan = RouterPlan.model_validate(state["router_plan"])
+    control = dict(state["control"])
+    payload = {
+        "partition": state["partition"],
+        "router_plan": router_plan.model_dump(),
+        "raw_structural_metrics": revision_metrics(state),
+    }
+    if control.get("revision_validation_error"):
+        payload["previous_revision_plan"] = state.get("revision_plan")
+        payload["revision_validation_error"] = control["revision_validation_error"]
     try:
-        result = values["reviser_model"].invoke({
-            "partition": state["partition"],
-            "router_plan": router_plan.model_dump(),
-            "raw_structural_metrics": revision_metrics(state),
-        })
+        result = values["reviser_model"].invoke(payload)
         plan = parse_revision_plan(result)
-        validate_revision_plan(plan, router_plan, state)
+        signature = revision_plan_signature(plan)
+        failed = set(control.get("failed_revision_plan_signatures", []) or [])
+        if signature in failed:
+            raise ValueError("Reviser returned a previously failed RevisionPlan")
         state["revision_plan"] = plan.model_dump()
-        revision_result = execute_revision_plan(state, plan, values)
+        try:
+            validate_revision_plan(plan, router_plan, state)
+            revision_result = execute_revision_plan(state, plan, values)
+        except Exception as exc:
+            control = dict(state["control"])
+            control["failed_revision_plan_signatures"] = sorted(
+                set(control.get("failed_revision_plan_signatures", []) or []) | {signature}
+            )
+            control["revision_validation_error"] = f"{type(exc).__name__}: {exc}"
+            state["control"] = control
+            raise
         state["revision_result"] = revision_result
         index = int(state["control"].get("history_index", len(state["history"]) - 1))
         state["history"][index]["revision_plan"] = copy.deepcopy(state["revision_plan"])
@@ -749,6 +787,7 @@ def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         append_trace(state, {"node": "reviser", "event": "revision_applied", "result": revision_result})
         mark_success(state)
         control = dict(state["control"])
+        control["revision_validation_error"] = None
         if control["round"] >= control.get("max_rounds", 10):
             control["status"] = "review_incomplete_due_to_round_budget"
             control["next"] = "end"

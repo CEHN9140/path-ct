@@ -14,6 +14,11 @@ In audit mode, use the exact ToolMessages and write one detailed Evidence Report
 - \`tool_refs\`;
 - report-level \`metric_refs\`.
 
+For every set-level report, \`tool_refs\` must include every tool from this round
+with the same dimension whose request actually targeted that set, and must not
+include tools that targeted other sets only. Partition-level reports must account
+for every partition-scope tool of that dimension executed in this round.
+
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
 Return only:

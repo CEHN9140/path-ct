@@ -9,6 +9,12 @@ For each Split choose \`target_id\`, data-supported \`n_children\`, \`structural
 
 For each Merge return its exact \`target_ids\`, metric references, and rationale. Python performs the union. Return exactly:
 
+On a retry, \`previous_revision_plan\` and \`revision_validation_error\` identify a
+deterministic Python validation or execution failure. Keep the Router's Split/Merge
+targets and actions unchanged, correct the failing \`n_children\`,
+\`structural_basis\`, or \`execution_strategy\`, and do not return the same failed
+plan.
+
 \`\`\`json
 {"split_plans":[],"merge_plans":[],"rationale":""}
 \`\`\`

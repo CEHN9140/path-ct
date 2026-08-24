@@ -345,6 +345,57 @@ def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch
     assert "estimable" in result["control"]["error"]
 
 
+def test_reviser_retry_uses_error_feedback_and_accepts_corrected_plan(monkeypatch, tmp_path):
+    import tools.structural_adequacy as structural_adequacy
+
+    def split_membership(output_root, member_ids, n_children, strategy, basis):
+        if n_children == 3:
+            return [["P1"], ["P2"], ["P3", "P4"]]
+        return [["P1", "P2"], ["P3", "P4"]]
+
+    monkeypatch.setattr(structural_adequacy, "execute_split_membership", split_membership)
+    state = make_state(("C1", ["P1", "P2", "P3", "P4"]))
+    state["router_plan"] = {
+        "actions": [{"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""}]
+    }
+    state["history"] = [{"revision_plan": None, "revision_result": None}]
+    state["control"]["history_index"] = 0
+    state["round_evidence"] = [{
+        "tool_name": "multimodal_consistency_check",
+        "metrics": {"internal_structure_by_set": {"C1": {"positive_internal_heterogeneity": True}}},
+        "metric_refs": [],
+    }]
+
+    class Reviser:
+        def __init__(self):
+            self.payloads = []
+
+        def invoke(self, payload):
+            self.payloads.append(payload)
+            n_children = 3 if len(self.payloads) == 1 else 2
+            return {"split_plans": [{
+                "target_id": "C1", "n_children": n_children,
+                "structural_basis": ["fused"],
+                "execution_strategy": "fused_similarity_spectral",
+                "metric_refs": [],
+            }], "merge_plans": []}
+
+    reviser = Reviser()
+    runtime = {
+        "data_root": str(tmp_path),
+        "tool_registry": fake_registry(),
+        "reviser_model": reviser,
+    }
+    first = reviser_node(state, runtime)
+    assert first["control"]["next"] == "reviser"
+    assert first["control"]["revision_validation_error"]
+    second = reviser_node(first, runtime)
+    assert len(reviser.payloads) == 2
+    assert reviser.payloads[1]["previous_revision_plan"]["split_plans"][0]["n_children"] == 3
+    assert "non-estimable" in reviser.payloads[1]["revision_validation_error"]
+    assert {item["set_id"] for item in second["partition"]["sets"]} == {"C1_S1", "C1_S2"}
+
+
 def test_clinical_extra_tool_outputs_only_requested_targets(tmp_path):
     result = clinical_characterization(
         {"set_id": "C1", "member_ids": ["P1"]},
