@@ -253,18 +253,41 @@ def permanova_metrics(
     }
 
 
-def permdisp_statistic(distance: np.ndarray, labels: np.ndarray) -> float | None:
+def permdisp_coordinates(distance: np.ndarray) -> tuple[np.ndarray | None, dict[str, Any]]:
+    coordinates = gower_matrix(distance)
+    eigenvalues, eigenvectors = np.linalg.eigh(coordinates)
+    negative = eigenvalues[eigenvalues < -1e-10]
+    total = float(np.abs(eigenvalues).sum())
+    audit = {
+        "negative_eigenvalue_count": int(len(negative)),
+        "negative_eigenvalue_sum": round_value(float(np.abs(negative).sum())),
+        "negative_eigenvalue_fraction": round_value(
+            float(np.abs(negative).sum()) / total if total else 0.0
+        ),
+        "limitations": (
+            [
+                "Negative PCoA eigenvalues were discarded; PERMDISP is an approximate diagnostic."
+            ]
+            if len(negative)
+            else []
+        ),
+    }
+    keep = eigenvalues > 1e-10
+    if not np.any(keep):
+        return None, audit
+    return eigenvectors[:, keep] * np.sqrt(eigenvalues[keep]), audit
+
+
+def permdisp_statistic(coordinates: np.ndarray, labels: np.ndarray) -> float | None:
     unique = np.unique(labels)
     if len(unique) < 2 or min(np.sum(labels == label) for label in unique) < 2:
         return None
-    coordinates = gower_matrix(distance)
-    eigenvalues, eigenvectors = np.linalg.eigh(coordinates)
-    keep = eigenvalues > 1e-10
-    if not np.any(keep):
-        return None
-    points = eigenvectors[:, keep] * np.sqrt(eigenvalues[keep])
     group_distances = [
-        np.linalg.norm(points[labels == label] - points[labels == label].mean(axis=0), axis=1)
+        np.linalg.norm(
+            coordinates[labels == label]
+            - coordinates[labels == label].mean(axis=0),
+            axis=1,
+        )
         for label in unique
     ]
     grand = float(np.concatenate(group_distances).mean())
@@ -289,7 +312,8 @@ def permdisp_metrics(
         reason = ""
     distance = 1.0 - similarity
     np.fill_diagonal(distance, 0.0)
-    statistic = permdisp_statistic(distance, labels) if not reason else None
+    coordinates, audit = permdisp_coordinates(distance)
+    statistic = permdisp_statistic(coordinates, labels) if not reason and coordinates is not None else None
     if reason or statistic is None:
         return {
             "comparison_status": "not_estimable",
@@ -297,9 +321,10 @@ def permdisp_metrics(
             "permdisp_f": None,
             "permdisp_p_value": None,
             "permutations": int(permutations),
+            **audit,
         }
     rng = np.random.default_rng(seed)
-    null = [permdisp_statistic(distance, rng.permutation(labels)) for _ in range(permutations)]
+    null = [permdisp_statistic(coordinates, rng.permutation(labels)) for _ in range(permutations)]
     null = [value for value in null if value is not None]
     p_value = (1 + sum(value >= statistic for value in null)) / (len(null) + 1)
     return {
@@ -308,6 +333,7 @@ def permdisp_metrics(
         "permdisp_f": round_value(statistic),
         "permdisp_p_value": round_value(p_value),
         "permutations": int(permutations),
+        **audit,
     }
 
 
@@ -332,8 +358,9 @@ def compute_cross_modal_consistency(
     patient_profile = {
         case_id: {
             "silhouette_by_modality": {},
-            "available_modalities": [],
-            "available_modality_count": 0,
+            "data_available_modalities": [],
+            "membership_estimable_modalities": [],
+            "membership_estimable_modality_count": 0,
             "positive_modalities": [],
             "negative_modalities": [],
             "support_count": 0,
@@ -358,7 +385,7 @@ def compute_cross_modal_consistency(
                 patient_profile[case_id]["silhouette_by_modality"][modality] = None
             continue
         for case_id in case_ids:
-            patient_profile[case_id]["available_modalities"].append(modality)
+            patient_profile[case_id]["data_available_modalities"].append(modality)
         similarity, audit = normalized_affinity_with_audit(affinities[modality])
         if similarity.shape != (len(case_ids), len(case_ids)):
             raise ValueError(f"{modality} affinity shape does not match patient order")
@@ -383,6 +410,7 @@ def compute_cross_modal_consistency(
             limitations.append(permanova["not_estimable_reason"])
         if permdisp["comparison_status"] != "estimable":
             limitations.append(permdisp["not_estimable_reason"])
+        limitations.extend(permdisp.get("limitations", []))
         rows[modality] = {
             **global_row,
             "comparison_status": (
@@ -409,6 +437,8 @@ def compute_cross_modal_consistency(
             "permdisp_f": permdisp["permdisp_f"],
             "permdisp_p_value": permdisp["permdisp_p_value"],
             "permdisp_q_value": None,
+            "negative_eigenvalue_count": permdisp["negative_eigenvalue_count"],
+            "negative_eigenvalue_fraction": permdisp["negative_eigenvalue_fraction"],
             "affinity_audit": audit,
             "limitations": limitations,
         }
@@ -425,12 +455,21 @@ def compute_cross_modal_consistency(
             value for value in profile["silhouette_by_modality"].values()
             if value is not None
         ]
-        profile["available_modality_count"] = len(profile["available_modalities"])
-        profile["support_fraction"] = (
-            round_value(profile["support_count"] / profile["available_modality_count"])
-            if profile["available_modality_count"] else None
+        profile["membership_estimable_modalities"] = [
+            modality for modality, value in profile["silhouette_by_modality"].items()
+            if value is not None
+        ]
+        profile["membership_estimable_modality_count"] = len(
+            profile["membership_estimable_modalities"]
         )
-        profile["mean_available_silhouette"] = (
+        profile["support_fraction"] = (
+            round_value(
+                profile["support_count"]
+                / profile["membership_estimable_modality_count"]
+            )
+            if profile["membership_estimable_modality_count"] else None
+        )
+        profile["mean_estimable_silhouette"] = (
             round_value(np.mean(available)) if available else None
         )
 
@@ -449,8 +488,15 @@ def compute_cross_modal_consistency(
     for set_id, members in memberships.items():
         profiles = [patient_profile[case_id] for case_id in members]
         support = [profile["support_count"] for profile in profiles]
-        available_profiles = [
-            profile for profile in profiles if profile["available_modality_count"]
+        estimable_profiles = [
+            profile
+            for profile in profiles
+            if profile["membership_estimable_modality_count"]
+        ]
+        estimable_members = [
+            case_id
+            for case_id in members
+            if patient_profile[case_id]["membership_estimable_modality_count"]
         ]
         decision_sets[set_id] = {
             "modality_support": {
@@ -462,29 +508,36 @@ def compute_cross_modal_consistency(
                     str(count): support.count(count) for count in range(len(MODALITIES) + 1)
                 },
                 "median_support_count": round_value(np.median(support)) if support else None,
-                "all_available_positive_fraction": (
+                "all_estimable_positive_fraction": (
                     round_value(np.mean([
-                        profile["support_count"] == profile["available_modality_count"]
-                        for profile in available_profiles
-                    ])) if available_profiles else None
+                        profile["support_count"] == profile["membership_estimable_modality_count"]
+                        for profile in estimable_profiles
+                    ])) if estimable_profiles else None
                 ),
-                "no_positive_fraction": (
-                    round_value(np.mean(np.asarray(support) == 0)) if support else None
+                "no_positive_among_estimable_fraction": (
+                    round_value(np.mean([
+                        profile["support_count"] == 0
+                        for profile in estimable_profiles
+                    ])) if estimable_profiles else None
                 ),
+                "membership_unestimable_patient_n": len(profiles) - len(estimable_profiles),
                 "lowest_support_patients": [
                     {
                         "case_id": case_id,
                         "support_count": patient_profile[case_id]["support_count"],
-                        "mean_available_silhouette": patient_profile[case_id]["mean_available_silhouette"],
+                        "mean_estimable_silhouette": patient_profile[case_id]["mean_estimable_silhouette"],
                         "positive_modalities": patient_profile[case_id]["positive_modalities"],
                         "negative_modalities": patient_profile[case_id]["negative_modalities"],
                     }
                     for case_id in sorted(
-                        members,
+                        estimable_members,
                         key=lambda item: (
-                            patient_profile[item]["support_count"],
-                            patient_profile[item]["mean_available_silhouette"]
-                            if patient_profile[item]["mean_available_silhouette"] is not None
+                            patient_profile[item]["support_fraction"] is None,
+                            patient_profile[item]["support_fraction"]
+                            if patient_profile[item]["support_fraction"] is not None
+                            else float("inf"),
+                            patient_profile[item]["mean_estimable_silhouette"]
+                            if patient_profile[item]["mean_estimable_silhouette"] is not None
                             else float("inf"),
                             item,
                         ),

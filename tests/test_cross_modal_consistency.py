@@ -76,7 +76,7 @@ def test_patient_profile_and_top5_compression_are_complete():
     assert "mean_within_affinity" not in reported["modality_support"]["ct"]
 
 
-def test_top5_ties_are_sorted_by_mean_available_silhouette():
+def test_top5_ties_are_sorted_by_support_fraction_and_mean_estimable_silhouette():
     case_ids = [f"p{i}" for i in range(8)]
     matrix = positive_affinity(8)
     for case_id, affinity in ((0, 0.1), (1, 0.4), (2, 0.6)):
@@ -96,13 +96,18 @@ def test_top5_ties_are_sorted_by_mean_available_silhouette():
     expected = sorted(
         case_ids[:6],
         key=lambda case_id: (
-            profiles[case_id]["support_count"],
-            profiles[case_id]["mean_available_silhouette"],
+            profiles[case_id]["support_fraction"] is None,
+            profiles[case_id]["support_fraction"]
+            if profiles[case_id]["support_fraction"] is not None
+            else float("inf"),
+            profiles[case_id]["mean_estimable_silhouette"]
+            if profiles[case_id]["mean_estimable_silhouette"] is not None
+            else float("inf"),
             case_id,
         ),
     )[:5]
     actual = [row["case_id"] for row in reported["patient_membership_support"]["lowest_support_patients"]]
-    assert len({profiles[case_id]["mean_available_silhouette"] for case_id in case_ids[:6]}) > 1
+    assert len({profiles[case_id]["mean_estimable_silhouette"] for case_id in case_ids[:6]}) > 1
     assert actual == expected
 
 
@@ -121,6 +126,8 @@ def test_permanova_r2_and_permdisp_are_partition_diagnostics():
     assert full["permanova_r2"] is not None
     assert "permanova_q_value" in full["permanova"]
     assert "permdisp_q_value" in full["permdisp"]
+    assert "negative_eigenvalue_count" in full["permdisp"]
+    assert "negative_eigenvalue_fraction" in full["permdisp"]
     assert "ct" in decision["permanova_r2"]
     assert set(decision["permdisp"]["ct"]) == {"f", "p_value", "q_value"}
 
@@ -161,6 +168,16 @@ def test_scientific_non_estimability_and_partial_modality_availability():
     )
     assert singleton["modality_partition_support"]["ct"]["permdisp"]["not_estimable_reason"] == "singleton_set"
     assert singleton["modality_partition_support"]["ct"]["per_set"]["C1"]["comparison_status"] == "not_estimable"
+    singleton_profile = singleton["patient_membership_profile"]["a"]
+    assert singleton_profile["data_available_modalities"] == list(MODALITIES)
+    assert singleton_profile["membership_estimable_modalities"] == []
+    assert singleton_profile["membership_estimable_modality_count"] == 0
+    assert singleton_profile["support_fraction"] is None
+    singleton_support = singleton["decision_metrics"]["cross_modal_consistency"]["per_set"]["C1"]["patient_membership_support"]
+    assert singleton_support["all_estimable_positive_fraction"] is None
+    assert singleton_support["no_positive_among_estimable_fraction"] is None
+    assert singleton_support["membership_unestimable_patient_n"] == 1
+    assert singleton_support["lowest_support_patients"] == []
     partial = compute_cross_modal_consistency(
         four_modalities(positive_affinity(), missing=("genomic",)),
         ["a", "b", "c", "d"],
@@ -171,9 +188,24 @@ def test_scientific_non_estimability_and_partial_modality_availability():
     assert partial["modality_partition_support"]["genomic"]["comparison_status"] == "scientific_unavailable"
     profile = partial["patient_membership_profile"]["a"]
     assert profile["silhouette_by_modality"]["genomic"] is None
-    assert profile["available_modalities"] == ["ct", "wsi", "rna"]
-    assert profile["available_modality_count"] == 3
+    assert profile["data_available_modalities"] == ["ct", "wsi", "rna"]
+    assert profile["membership_estimable_modalities"] == ["ct", "wsi", "rna"]
+    assert profile["membership_estimable_modality_count"] == 3
     assert profile["support_count"] == 3
     assert profile["support_fraction"] == 1.0
     decision = partial["decision_metrics"]["cross_modal_consistency"]
-    assert decision["per_set"]["C1"]["patient_membership_support"]["all_available_positive_fraction"] == 1.0
+    assert decision["per_set"]["C1"]["patient_membership_support"]["all_estimable_positive_fraction"] == 1.0
+
+    mixed = compute_cross_modal_consistency(
+        {
+            "ct": positive_affinity(),
+            "wsi": negative_affinity(),
+            "rna": positive_affinity(),
+            "genomic": negative_affinity(),
+        },
+        ["a", "b", "c", "d"],
+        {"C1": ["a", "b"], "C2": ["c", "d"]},
+        permanova_permutations=3,
+        permdisp_permutations=3,
+    )
+    assert mixed["patient_membership_profile"]["a"]["support_fraction"] == 0.5
