@@ -829,7 +829,11 @@ def confound_decision_metrics(
         "global": global_rows,
         "sets": per_set,
         "deterministic_flags": {
-            "strong_technical_association": bool(categorical_associations or numeric_associations),
+            "categorical_warning_association": bool(categorical_associations),
+            "numeric_significant_association": bool(numeric_associations),
+            "notable_technical_association": bool(
+                categorical_associations or numeric_associations
+            ),
             "global_significant_fields": global_significant_fields,
             "set_significant_fields_by_set": set_significant_fields,
             "sets_with_significant_technical_association": sorted(
