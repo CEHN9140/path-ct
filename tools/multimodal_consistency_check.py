@@ -493,6 +493,7 @@ def compute_cross_modal_consistency(
             for profile in profiles
             if profile["membership_estimable_modality_count"]
         ]
+        estimable_support = [profile["support_count"] for profile in estimable_profiles]
         estimable_members = [
             case_id
             for case_id in members
@@ -505,9 +506,13 @@ def compute_cross_modal_consistency(
             },
             "patient_membership_support": {
                 "support_count_distribution": {
-                    str(count): support.count(count) for count in range(len(MODALITIES) + 1)
+                    str(count): estimable_support.count(count)
+                    for count in range(len(MODALITIES) + 1)
                 },
-                "median_support_count": round_value(np.median(support)) if support else None,
+                "median_support_count": (
+                    round_value(np.median(estimable_support))
+                    if estimable_support else None
+                ),
                 "all_estimable_positive_fraction": (
                     round_value(np.mean([
                         profile["support_count"] == profile["membership_estimable_modality_count"]

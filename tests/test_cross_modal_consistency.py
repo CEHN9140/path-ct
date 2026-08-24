@@ -177,6 +177,8 @@ def test_scientific_non_estimability_and_partial_modality_availability():
     assert singleton_support["all_estimable_positive_fraction"] is None
     assert singleton_support["no_positive_among_estimable_fraction"] is None
     assert singleton_support["membership_unestimable_patient_n"] == 1
+    assert singleton_support["support_count_distribution"]["0"] == 0
+    assert singleton_support["median_support_count"] is None
     assert singleton_support["lowest_support_patients"] == []
     partial = compute_cross_modal_consistency(
         four_modalities(positive_affinity(), missing=("genomic",)),
