@@ -42,6 +42,16 @@ Dimension-specific interpretation requirements:
   means only that the partition is not a simple stage/grade echo. The current
   data do not evaluate published molecular ccRCC subtype taxonomies.
 
+- For \`cross_modal_consistency\`, first interpret the fixed-membership
+  per-set median silhouette in CT, WSI, RNA, and genomic affinity spaces.
+  Then interpret the patient membership support profile (positive and negative
+  modalities and descriptive support_count), followed by partition PERMANOVA
+  R2 and PERMDISP. Do not require all modalities to be equally strong. A weak
+  modality, support_count, significant PERMANOVA, or significant PERMDISP is
+  not by itself an Accept/Drop rule. PERMANOVA is not independent validation,
+  PERMDISP is not automatic invalidation, and cross-modal evidence cannot
+  directly produce Split or Merge.
+
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
 Return only:

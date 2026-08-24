@@ -16,6 +16,13 @@ set invalidation. Known-label echo currently covers only independent stage and
 grade comparisons; low overlap with those clinical labels is not proof of a
 novel molecular subtype.
 
+For cross-modal consistency, use fixed-membership median silhouettes, patient
+support profiles, PERMANOVA R2, and PERMDISP as continuous evidence. Do not
+require a fixed number of positive modalities or a fixed silhouette cutoff,
+and do not treat support_count as a voting rule. Significant PERMANOVA or
+PERMDISP is not independent validation or an automatic veto. Split and Merge
+still require positive structural adequacy evidence.
+
 Do not compute tools, modify membership, or write a revision plan. Return only a valid JSON object:
 
 \`\`\`json
