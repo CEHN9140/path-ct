@@ -19,6 +19,29 @@ with the same dimension whose request actually targeted that set, and must not
 include tools that targeted other sets only. Partition-level reports must account
 for every partition-scope tool of that dimension executed in this round.
 
+Dimension-specific interpretation requirements:
+
+- For \`biological_support\`, interpret RNA Hallmark ssGSEA using pathway SMD,
+  direction, medians, availability, and BH-q; WXS mutation rows using set/rest
+  mutation frequency, frequency difference, odds ratio with 95% CI, Fisher p,
+  and BH-q; and CNV using continuous Cliff's delta/direction/q or gain/loss
+  frequency difference/odds ratio/95% CI/q. Explain effect size, uncertainty,
+  FDR, and coherence across RNA, WXS, and CNV. Do not decide from a count of
+  significant features, and do not treat optional clinical characterization as
+  molecular biological support.
+- For \`confounder_exclusion\`, interpret TSS, CT phase, manufacturer, scanner
+  model, reconstruction kernel, slice thickness, z-spacing, and pixel spacing.
+  Global categorical reports use Cramer's V and q; global numeric reports use
+  epsilon-squared and q. Per-set reports use categorical frequency difference /
+  odds ratio / q and numeric Cliff's delta / q. A technical association is a
+  limitation or alternative explanation to weigh, not an automatic invalidation
+  or Drop decision.
+- For \`known_label_echo\`, the assessable labels are only independent stage and
+  grade comparisons. Interpret ARI, homogeneity, and completeness continuously;
+  AMI and optimal mapping accuracy are audit metrics. Low stage/grade overlap
+  means only that the partition is not a simple stage/grade echo. The current
+  data do not evaluate published molecular ccRCC subtype taxonomies.
+
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
 Return only:

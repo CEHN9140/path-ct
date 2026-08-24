@@ -4,8 +4,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from tools.cnv_characterization import cnv_characterization
-from tools.confound_test import confound_test
-from tools.known_label_echo_test import known_label_echo_test
+from tools.confound import confound_test
+from tools.known_label_echo import known_label_echo_test
 from tools.multimodal_consistency_check import multimodal_consistency_check
 from tools.mutation_enrichment import mutation_enrichment
 from tools.pathway_enrichment import pathway_enrichment

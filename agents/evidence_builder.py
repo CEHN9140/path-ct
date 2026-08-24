@@ -644,7 +644,7 @@ def build_evidence_states(
         if bool(correction_config.get("enabled", True))
         else []
     )
-    from tools.confound_test import confounder_values
+    from tools.confound import confounder_values
 
     current_confounders = confounder_values(
         {

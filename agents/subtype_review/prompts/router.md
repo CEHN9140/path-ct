@@ -8,6 +8,14 @@ Every current set must occur exactly once across action targets. Merge is one ac
 
 Accept requires reliable cross-modal or complementary support, reasonable biology, no sufficient technical explanation, no simple known-label echo, and no positive internal heterogeneity or positive weak boundary. Split requires positive internal heterogeneity. Merge requires positive weak-boundary evidence. Neither Split nor Merge may be inferred from failure to Accept. If evidence is complete, no extra registered tool is available, and no structural action is supported, choose Drop.
 
+For biology, weigh effect sizes, uncertainty, FDR, and coherent RNA/WXS/CNV
+patterns; do not use a fixed number of significant features or optional clinical
+context as a hard rule. For confounders, technical association is evidence to
+interpret alongside biology and cross-modal structure, not an automatic Drop or
+set invalidation. Known-label echo currently covers only independent stage and
+grade comparisons; low overlap with those clinical labels is not proof of a
+novel molecular subtype.
+
 Do not compute tools, modify membership, or write a revision plan. Return only a valid JSON object:
 
 \`\`\`json

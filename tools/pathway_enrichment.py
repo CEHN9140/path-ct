@@ -4,8 +4,7 @@ import math
 import numpy as np
 
 from tools.subtype_review_common import (
-    bh_fdr,
-    enrichment_decision_metrics,
+    assign_groupwise_fdr,
     feature_dataframe,
     read_gmt_gene_sets,
     scoped_candidate_sets,
@@ -127,13 +126,21 @@ def pathway_rows(score_frame, pathway_gene_counts, candidate_sets):
                         else None
                     ),
                     "standardized_mean_difference": round_float(smd),
+                    "direction": (
+                        "up" if smd is not None and smd > 0
+                        else "down" if smd is not None and smd < 0
+                        else "neutral" if smd == 0
+                        else None
+                    ),
                     "mannwhitney_p_value": round_float(p_value),
                     "q_value": None,
                 }
             )
-    q_values = bh_fdr([row.get("mannwhitney_p_value") for row in rows])
-    for row, q_value in zip(rows, q_values):
-        row["q_value"] = round_float(q_value)
+    assign_groupwise_fdr(
+        rows, "candidate_set_id", "mannwhitney_p_value", "q_value"
+    )
+    for row in rows:
+        row["q_value"] = round_float(row["q_value"])
     return sorted(
         rows,
         key=lambda row: (
@@ -147,75 +154,6 @@ def pathway_rows(score_frame, pathway_gene_counts, candidate_sets):
                 )
             ),
             str(row.get("pathway") or ""),
-            str(row.get("candidate_set_id") or ""),
-        ),
-    )
-
-
-def gene_differential_expression_rows(feature_frame, candidate_sets):
-    from scipy.stats import mannwhitneyu
-
-    all_case_ids = sorted({case_id for members in candidate_sets.values() for case_id in members})
-    rows = []
-    for candidate_set_id, members in candidate_sets.items():
-        set_ids = [case_id for case_id in all_case_ids if case_id in members and case_id in feature_frame.index]
-        rest_ids = [
-            case_id
-            for case_id in all_case_ids
-            if case_id not in members and case_id in feature_frame.index
-        ]
-        for gene in feature_frame.columns:
-            set_values = (
-                feature_frame.loc[set_ids, gene]
-                .astype(float)
-                .replace([np.inf, -np.inf], np.nan)
-                .dropna()
-                .tolist()
-            )
-            rest_values = (
-                feature_frame.loc[rest_ids, gene]
-                .astype(float)
-                .replace([np.inf, -np.inf], np.nan)
-                .dropna()
-                .tolist()
-            )
-            if not set_values or not rest_values:
-                continue
-            set_mean = float(np.mean(set_values))
-            rest_mean = float(np.mean(rest_values))
-            p_value = float(mannwhitneyu(set_values, rest_values, alternative="two-sided").pvalue)
-            smd = standardized_mean_difference(set_values, rest_values)
-            rows.append(
-                {
-                    "candidate_set_id": candidate_set_id,
-                    "gene": gene,
-                    "available_n": len(set_values) + len(rest_values),
-                    "set_available_n": len(set_values),
-                    "rest_available_n": len(rest_values),
-                    "set_mean": round_float(set_mean),
-                    "rest_mean": round_float(rest_mean),
-                    "log2_fold_change": round_float(set_mean - rest_mean),
-                    "standardized_mean_difference": round_float(smd),
-                    "mannwhitney_p_value": round_float(p_value),
-                    "q_value": None,
-                }
-            )
-    q_values = bh_fdr([row.get("mannwhitney_p_value") for row in rows])
-    for row, q_value in zip(rows, q_values):
-        row["q_value"] = round_float(q_value)
-    return sorted(
-        rows,
-        key=lambda row: (
-            float("inf") if row.get("q_value") is None else float(row["q_value"]),
-            -abs(
-                float(
-                    row.get("standardized_mean_difference")
-                    if row.get("standardized_mean_difference") is not None
-                    else row.get("log2_fold_change")
-                    or 0.0
-                )
-            ),
-            str(row.get("gene") or ""),
             str(row.get("candidate_set_id") or ""),
         ),
     )
@@ -289,9 +227,25 @@ def pathway_enrichment(
         summary="RNA ssGSEA pathway enrichment table was computed.",
         metrics={"rna_pathway_enrichment": rows},
         decision_metrics={
-            "per_set_rna_pathway_enrichment": enrichment_decision_metrics(
-                rows, "pathway"
-            )
+            "per_set_rna_pathway_enrichment": {
+                set_id: [
+                    {
+                        "pathway": row["pathway"],
+                        "standardized_mean_difference": row[
+                            "standardized_mean_difference"
+                        ],
+                        "set_median_score": row["set_median_score"],
+                        "rest_median_score": row["rest_median_score"],
+                        "set_available_n": row["set_available_n"],
+                        "rest_available_n": row["rest_available_n"],
+                        "q_value": row["q_value"],
+                        "direction": row["direction"],
+                    }
+                    for row in rows
+                    if row["candidate_set_id"] == set_id
+                ]
+                for set_id in sorted(candidate_sets)
+            }
         },
         evidence_hints=[],
         support_level="informational",

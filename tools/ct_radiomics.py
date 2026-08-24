@@ -46,7 +46,7 @@ def build_ct_affinity(
     import pandas as pd
     from scipy.spatial.distance import cdist
     from snf.compute import affinity_matrix
-    from tools.confound_test import confounder_values
+    from tools.confound import confounder_values
     from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 
     config_path = Path(config_dir or "configs")

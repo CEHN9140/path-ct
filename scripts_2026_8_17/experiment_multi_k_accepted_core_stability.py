@@ -489,7 +489,7 @@ def main() -> None:
         *[
             ROOT / "tools" / name
             for name in (
-                "cnv_characterization.py", "confound_test.py", "known_label_echo_test.py",
+                "cnv_characterization.py", "confound.py", "known_label_echo.py",
                 "multimodal_consistency_check.py", "mutation_enrichment.py",
                 "pathway_enrichment.py", "structural_adequacy.py",
             )

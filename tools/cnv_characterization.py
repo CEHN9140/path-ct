@@ -103,9 +103,13 @@ def cnv_characterization(
                 p_value = None
                 odds_ratio = None
                 odds_ci = None
+                left_frequency = None
+                right_frequency = None
                 if binary:
                     a_pos = sum(value > 0 for value in left_values)
                     b_pos = sum(value > 0 for value in right_values)
+                    left_frequency = a_pos / len(left_values)
+                    right_frequency = b_pos / len(right_values)
                     odds_ratio, p_value = fisher_exact_result(
                         a_pos, len(left_values) - a_pos,
                         b_pos, len(right_values) - b_pos,
@@ -120,46 +124,64 @@ def cnv_characterization(
                             left_values, right_values, alternative="two-sided"
                         ).pvalue
                     )
+                direction = None
+                effect = cliffs_delta(left_values, right_values)
+                if effect is not None:
+                    direction = "higher_in_set" if effect > 0 else "lower_in_set" if effect < 0 else "neutral"
                 rows.append({
                     "comparison": f"{left}_vs_{right}",
+                    "candidate_set_id": left,
                     "feature": tested_feature,
                     "feature_type": "binary_event" if binary else "continuous",
                     "left_mean": float(np.mean(left_values)),
                     "right_mean": float(np.mean(right_values)),
                     "delta_mean": float(np.mean(left_values) - np.mean(right_values)),
-                    "cliffs_delta": cliffs_delta(left_values, right_values),
+                    "cliffs_delta": effect,
+                    "direction": direction,
+                    "alteration_frequency": (
+                        left_frequency if binary else None
+                    ),
+                    "rest_alteration_frequency": (
+                        right_frequency if binary else None
+                    ),
+                    "alteration_frequency_difference": (
+                        left_frequency - right_frequency
+                        if binary and left_frequency is not None and right_frequency is not None
+                        else None
+                    ),
                     "odds_ratio": odds_ratio,
                     "odds_ratio_ci95": odds_ci,
                     "p_value": p_value,
                     "q_value": None,
                 })
-    assign_groupwise_fdr(rows, "comparison", "p_value", "q_value")
-    summaries = {}
-    for comparison in sorted({row["comparison"] for row in rows}):
-        comparison_rows = [row for row in rows if row["comparison"] == comparison]
-        summaries[comparison] = {
-            "tested_feature_count": len(comparison_rows),
-            "significant_count_q05": sum(
-                float(row.get("q_value", 1) or 1) <= 0.05
-                for row in comparison_rows
-            ),
-            "top_by_q": sorted(
-                comparison_rows,
-                key=lambda row: (
-                    float(row.get("q_value", 1) or 1),
-                    -abs(float(row.get("delta_mean", 0) or 0)),
-                ),
-            )[:10],
-            "top_by_effect": sorted(
-                comparison_rows,
-                key=lambda row: abs(float(row.get(
-                    "delta_mean" if row.get("feature_type") == "binary_event"
-                    else "cliffs_delta",
-                    0,
-                ) or 0)),
-                reverse=True,
-            )[:10],
-        }
+    assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
+    summaries = {
+        comparison: [
+            (
+                {
+                    "feature": row["feature"],
+                    "alteration_frequency": row["alteration_frequency"],
+                    "rest_alteration_frequency": row["rest_alteration_frequency"],
+                    "alteration_frequency_difference": row[
+                        "alteration_frequency_difference"
+                    ],
+                    "odds_ratio": row["odds_ratio"],
+                    "odds_ratio_ci95": row["odds_ratio_ci95"],
+                    "q_value": row["q_value"],
+                }
+                if row["feature_type"] == "binary_event"
+                else {
+                    "feature": row["feature"],
+                    "cliffs_delta": row["cliffs_delta"],
+                    "direction": row["direction"],
+                    "q_value": row["q_value"],
+                }
+            )
+            for row in rows
+            if row["comparison"] == comparison
+        ]
+        for comparison in sorted({row["comparison"] for row in rows})
+    }
     return tool_result(
         tool_name="cnv_characterization",
         status="success",

@@ -7,8 +7,7 @@ import numpy as np
 from scipy.stats import mannwhitneyu
 
 from tools.subtype_review_common import (
-    bh_fdr,
-    enrichment_decision_metrics,
+    assign_groupwise_fdr,
     fisher_exact_result,
     odds_ratio_ci,
     read_case_feature_table,
@@ -51,19 +50,35 @@ def enrichment_rows(feature_names, table, candidate_sets):
             p_value = None
             odds_ratio = None
             odds_ratio_ci_value = None
+            mutation_frequency = None
+            rest_mutation_frequency = None
+            delta_frequency = None
+            fisher_p_value = None
+            binary_positive = None
+            rest_positive = None
+            if binary:
+                binary_positive = int(sum(value > 0 for value in set_values))
+                rest_positive = int(sum(value > 0 for value in rest_values))
+                mutation_frequency = (
+                    binary_positive / len(set_values) if set_values else None
+                )
+                rest_mutation_frequency = (
+                    rest_positive / len(rest_values) if rest_values else None
+                )
+                if mutation_frequency is not None and rest_mutation_frequency is not None:
+                    delta_frequency = mutation_frequency - rest_mutation_frequency
             if set_values and rest_values:
                 if binary:
-                    set_positive = int(sum(value > 0 for value in set_values))
-                    rest_positive = int(sum(value > 0 for value in rest_values))
                     odds_ratio, p_value = fisher_exact_result(
-                        set_positive,
-                        len(set_values) - set_positive,
+                        binary_positive,
+                        len(set_values) - binary_positive,
                         rest_positive,
                         len(rest_values) - rest_positive,
                     )
+                    fisher_p_value = p_value
                     odds_ratio, odds_ratio_ci_value = odds_ratio_ci(
-                        set_positive,
-                        len(set_values) - set_positive,
+                        binary_positive,
+                        len(set_values) - binary_positive,
                         rest_positive,
                         len(rest_values) - rest_positive,
                     )
@@ -84,12 +99,15 @@ def enrichment_rows(feature_names, table, candidate_sets):
                     "feature": feature,
                     "wxs_block": feature.split("::", 1)[0],
                     "feature_type": "binary" if binary else "continuous",
+                    "mutation_frequency": round_value(mutation_frequency),
+                    "rest_mutation_frequency": round_value(rest_mutation_frequency),
+                    "delta_frequency": round_value(delta_frequency),
                     "available_n": len(set_values) + len(rest_values),
                     "missing_n": len(all_case_ids)
                     - len(set_values)
                     - len(rest_values),
-                    "set_mean": round_value(set_mean),
-                    "rest_mean": round_value(rest_mean),
+                    "set_mean": round_value(set_mean) if not binary else None,
+                    "rest_mean": round_value(rest_mean) if not binary else None,
                     "delta_mean": round_value(
                         set_mean - rest_mean
                         if set_mean is not None and rest_mean is not None
@@ -101,12 +119,11 @@ def enrichment_rows(feature_names, table, candidate_sets):
                     "odds_ratio": round_value(odds_ratio),
                     "odds_ratio_ci95": [round_value(value) for value in odds_ratio_ci_value] if odds_ratio_ci_value else None,
                     "p_value": p_value,
+                    "fisher_p_value": round_value(fisher_p_value),
                     "q_value": None,
                 }
             )
-    q_values = bh_fdr([row.get("p_value") for row in rows])
-    for row, q_value in zip(rows, q_values):
-        row["q_value"] = q_value
+    assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
     for row in rows:
         row["p_value"] = (
             float(row["p_value"]) if row["p_value"] is not None else None
@@ -193,9 +210,24 @@ def mutation_enrichment(
         ),
         metrics={"wxs_gene_enrichment": rows},
         decision_metrics={
-            "per_set_wxs_feature_enrichment": enrichment_decision_metrics(
-                rows, "gene"
-            )
+            "per_set_wxs_feature_enrichment": {
+                set_id: [
+                    {
+                        "gene": row["gene"],
+                        "mutation_frequency": row["mutation_frequency"],
+                        "rest_mutation_frequency": row["rest_mutation_frequency"],
+                        "delta_frequency": row["delta_frequency"],
+                        "odds_ratio": row["odds_ratio"],
+                        "odds_ratio_ci95": row["odds_ratio_ci95"],
+                        "fisher_p_value": row["fisher_p_value"],
+                        "q_value": row["q_value"],
+                    }
+                    for row in rows
+                    if row["candidate_set_id"] == set_id
+                    and row["wxs_block"] == "mutation"
+                ]
+                for set_id in sorted(candidate_sets)
+            }
         },
         evidence_hints=[],
         support_level="informational",

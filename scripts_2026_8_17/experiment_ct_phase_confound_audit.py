@@ -96,7 +96,7 @@ def read_selected_metadata(
             for line in handle:
                 state = json.loads(line)
                 states[str(state.get("case_id", "") or "")] = state
-        from tools.confound_test import confounder_values
+        from tools.confound import confounder_values
 
         formal_values = confounder_values(states, str(qc_root.parent))
 
