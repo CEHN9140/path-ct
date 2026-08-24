@@ -20,7 +20,7 @@ from agents.subtype_review.graph import (
 )
 from agents.subtype_review.llm import LLMUsageTracker
 from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, RouterPlan, ToolRequest
-from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
+from agents.subtype_review.tools import TOOL_REGISTRY, clinical_characterization, compact_tool_result
 from tools.structural_adequacy import execute_split_membership, structure_diagnostics
 
 
@@ -243,11 +243,11 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
 
 
 def test_successful_extra_tool_in_current_round_cannot_be_requested_again():
-    state = make_state(("C1", ["P1"]))
+    state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
     state["round_evidence"] = [{
         "tool_name": "clinical_characterization",
         "status": "success",
-        "target_ids": ["C1"],
+        "target_ids": ["C1", "C2"],
         "partition_signature": partition_signature(state["partition"]["sets"]),
     }]
     request = {
@@ -257,6 +257,23 @@ def test_successful_extra_tool_in_current_round_cannot_be_requested_again():
     assert successful_tool_keys(state)
     with pytest.raises(ValueError, match="already succeeded"):
         validate_tool_request(ToolRequest.model_validate(request), state, fake_registry(), {"C1"})
+
+
+def test_clinical_extra_tool_outputs_only_requested_targets(tmp_path):
+    result = clinical_characterization(
+        {"set_id": "C1", "member_ids": ["P1"]},
+        {
+            "P1": {"clinical": {"stage": "I", "grade": "2"}},
+            "P2": {"clinical": {"stage": "III", "grade": "4"}},
+        },
+        str(tmp_path),
+        all_cluster_states=[
+            {"set_id": "C1", "member_ids": ["P1"]},
+            {"set_id": "C2", "member_ids": ["P2"]},
+        ],
+        target_ids=["C1"],
+    )
+    assert set(result["results"]["decision_metrics"]["clinical_by_set"]) == {"C1"}
 
 
 def test_same_set_level_extra_tool_requests_are_merged_before_verifier_call():
@@ -391,7 +408,7 @@ def test_round_ten_need_evidence_runs_extra_tool_then_stops_without_round_eleven
     assert verifier.acquisitions[1] == ["clinical_characterization"]
 
 
-def test_structural_diagnostics_reports_all_data_driven_k_and_modalities():
+def test_structural_diagnostics_reports_all_candidate_k_and_modalities():
     matrix = np.full((6, 6), 0.05)
     for start in (0, 2, 4):
         matrix[start:start + 2, start:start + 2] = 0.95

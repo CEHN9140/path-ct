@@ -212,15 +212,7 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     return state
 
 
-def tool_key(row: Mapping[str, Any]) -> str:
-    return "|".join([
-        str(row.get("tool_name", "")),
-        str(row.get("partition_signature", "")),
-        ",".join(sorted(str(item) for item in row.get("target_ids", []) or [])),
-    ])
-
-
-def successful_tool_keys(state: Mapping[str, Any]) -> set[str]:
+def successful_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
     keys = set()
     rows = list(state.get("round_evidence", []) or [])
     rows.extend(
@@ -230,7 +222,14 @@ def successful_tool_keys(state: Mapping[str, Any]) -> set[str]:
     )
     for row in rows:
         if row.get("status") == "success":
-            keys.add(tool_key(row))
+            base = (
+                str(row.get("tool_name", "")),
+                str(row.get("partition_signature", "")),
+            )
+            targets = [str(target) for target in row.get("target_ids", []) or []]
+            keys.update((*base, target) for target in targets)
+            if not targets:
+                keys.add((*base, ""))
     return keys
 
 
@@ -468,7 +467,17 @@ def validate_tool_request(
     if metadata["scope"] == "set_identity" and not targets:
         raise ValueError("Set tool requests require targets")
     signature = partition_signature(current_sets(state))
-    if tool_key({"tool_name": request.tool_name, "partition_signature": signature, "target_ids": request.target_ids}) in successful_tool_keys(state):
+    successful = successful_tool_keys(state)
+    base = (request.tool_name, signature)
+    if metadata["scope"] == "partition":
+        duplicate = (*base, "") in successful
+    else:
+        successful_targets = {
+            target for tool_name, partition, target in successful
+            if (tool_name, partition) == base and target
+        }
+        duplicate = targets.issubset(successful_targets)
+    if duplicate:
         raise ValueError("The requested extra tool already succeeded for this partition and targets")
 
 

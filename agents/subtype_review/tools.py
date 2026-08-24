@@ -27,6 +27,9 @@ def clinical_characterization(
         str(item.get("set_id") or item.get("cluster_id")): list(item.get("member_ids", []))
         for item in list(all_cluster_states or [cluster_state])
     }
+    requested = {str(target) for target in target_ids or []}
+    if requested:
+        groups = {group_id: members for group_id, members in groups.items() if group_id in requested}
     clinical = clinical_table(patient_states_by_id)
     rows = {}
     for group_id, members in groups.items():
