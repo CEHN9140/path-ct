@@ -76,6 +76,36 @@ def test_patient_profile_and_top5_compression_are_complete():
     assert "mean_within_affinity" not in reported["modality_support"]["ct"]
 
 
+def test_top5_ties_are_sorted_by_mean_available_silhouette():
+    case_ids = [f"p{i}" for i in range(8)]
+    matrix = positive_affinity(8)
+    for case_id, affinity in ((0, 0.1), (1, 0.4), (2, 0.6)):
+        for other in range(6):
+            if other != case_id:
+                matrix[case_id, other] = matrix[other, case_id] = affinity
+    result = compute_cross_modal_consistency(
+        four_modalities(matrix),
+        case_ids,
+        {"C1": case_ids[:6], "C2": case_ids[6:]},
+        permanova_permutations=3,
+        permdisp_permutations=3,
+        lowest_support_patients_to_report=5,
+    )
+    profiles = result["patient_membership_profile"]
+    reported = result["decision_metrics"]["cross_modal_consistency"]["per_set"]["C1"]
+    expected = sorted(
+        case_ids[:6],
+        key=lambda case_id: (
+            profiles[case_id]["support_count"],
+            profiles[case_id]["mean_available_silhouette"],
+            case_id,
+        ),
+    )[:5]
+    actual = [row["case_id"] for row in reported["patient_membership_support"]["lowest_support_patients"]]
+    assert len({profiles[case_id]["mean_available_silhouette"] for case_id in case_ids[:6]}) > 1
+    assert actual == expected
+
+
 def test_permanova_r2_and_permdisp_are_partition_diagnostics():
     result = compute_cross_modal_consistency(
         four_modalities(positive_affinity()),
@@ -139,4 +169,11 @@ def test_scientific_non_estimability_and_partial_modality_availability():
         permdisp_permutations=3,
     )
     assert partial["modality_partition_support"]["genomic"]["comparison_status"] == "scientific_unavailable"
-    assert partial["patient_membership_profile"]["a"]["silhouette_by_modality"]["genomic"] is None
+    profile = partial["patient_membership_profile"]["a"]
+    assert profile["silhouette_by_modality"]["genomic"] is None
+    assert profile["available_modalities"] == ["ct", "wsi", "rna"]
+    assert profile["available_modality_count"] == 3
+    assert profile["support_count"] == 3
+    assert profile["support_fraction"] == 1.0
+    decision = partial["decision_metrics"]["cross_modal_consistency"]
+    assert decision["per_set"]["C1"]["patient_membership_support"]["all_available_positive_fraction"] == 1.0

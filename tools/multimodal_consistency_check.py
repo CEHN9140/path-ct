@@ -332,6 +332,8 @@ def compute_cross_modal_consistency(
     patient_profile = {
         case_id: {
             "silhouette_by_modality": {},
+            "available_modalities": [],
+            "available_modality_count": 0,
             "positive_modalities": [],
             "negative_modalities": [],
             "support_count": 0,
@@ -355,6 +357,8 @@ def compute_cross_modal_consistency(
             for case_id in case_ids:
                 patient_profile[case_id]["silhouette_by_modality"][modality] = None
             continue
+        for case_id in case_ids:
+            patient_profile[case_id]["available_modalities"].append(modality)
         similarity, audit = normalized_affinity_with_audit(affinities[modality])
         if similarity.shape != (len(case_ids), len(case_ids)):
             raise ValueError(f"{modality} affinity shape does not match patient order")
@@ -416,6 +420,20 @@ def compute_cross_modal_consistency(
             elif value is not None and value < 0:
                 patient_profile[case_id]["negative_modalities"].append(modality)
 
+    for profile in patient_profile.values():
+        available = [
+            value for value in profile["silhouette_by_modality"].values()
+            if value is not None
+        ]
+        profile["available_modality_count"] = len(profile["available_modalities"])
+        profile["support_fraction"] = (
+            round_value(profile["support_count"] / profile["available_modality_count"])
+            if profile["available_modality_count"] else None
+        )
+        profile["mean_available_silhouette"] = (
+            round_value(np.mean(available)) if available else None
+        )
+
     for field, key in (("permanova_p_value", "permanova_q_value"), ("permdisp_p_value", "permdisp_q_value")):
         available = [rows[modality][field] for modality in MODALITIES if rows[modality][field] is not None]
         q_values = bh_fdr(available)
@@ -429,7 +447,11 @@ def compute_cross_modal_consistency(
 
     decision_sets = {}
     for set_id, members in memberships.items():
-        support = [patient_profile[case_id]["support_count"] for case_id in members]
+        profiles = [patient_profile[case_id] for case_id in members]
+        support = [profile["support_count"] for profile in profiles]
+        available_profiles = [
+            profile for profile in profiles if profile["available_modality_count"]
+        ]
         decision_sets[set_id] = {
             "modality_support": {
                 modality: {"median_silhouette": rows[modality]["per_set"][set_id].get("median_silhouette")}
@@ -440,8 +462,11 @@ def compute_cross_modal_consistency(
                     str(count): support.count(count) for count in range(len(MODALITIES) + 1)
                 },
                 "median_support_count": round_value(np.median(support)) if support else None,
-                "all_positive_fraction": (
-                    round_value(np.mean(np.asarray(support) == len(MODALITIES))) if support else None
+                "all_available_positive_fraction": (
+                    round_value(np.mean([
+                        profile["support_count"] == profile["available_modality_count"]
+                        for profile in available_profiles
+                    ])) if available_profiles else None
                 ),
                 "no_positive_fraction": (
                     round_value(np.mean(np.asarray(support) == 0)) if support else None
@@ -450,12 +475,19 @@ def compute_cross_modal_consistency(
                     {
                         "case_id": case_id,
                         "support_count": patient_profile[case_id]["support_count"],
+                        "mean_available_silhouette": patient_profile[case_id]["mean_available_silhouette"],
                         "positive_modalities": patient_profile[case_id]["positive_modalities"],
                         "negative_modalities": patient_profile[case_id]["negative_modalities"],
                     }
                     for case_id in sorted(
                         members,
-                        key=lambda item: (patient_profile[item]["support_count"], item),
+                        key=lambda item: (
+                            patient_profile[item]["support_count"],
+                            patient_profile[item]["mean_available_silhouette"]
+                            if patient_profile[item]["mean_available_silhouette"] is not None
+                            else float("inf"),
+                            item,
+                        ),
                     )[:lowest_support_patients_to_report]
                 ],
             },
