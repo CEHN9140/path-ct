@@ -40,18 +40,24 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
         if valid_label(clinical.get(case_id, {}).get(clinical_field, ""))
     ]
     missing_n = len(cluster_labels) - len(case_ids)
-    if len(case_ids) < 2:
+    set_levels = sorted({cluster_labels[case_id] for case_id in case_ids})
+    known_levels = sorted(
+        {str(clinical[case_id].get(clinical_field, "") or "") for case_id in case_ids}
+    )
+    if len(case_ids) < 2 or len(set_levels) < 2 or len(known_levels) < 2:
+        reason = (
+            "insufficient_cases" if len(case_ids) < 2
+            else "single_candidate_set" if len(set_levels) < 2
+            else "single_label_level"
+        )
         return {
             "label": label_name,
+            "comparison_status": "not_estimable",
+            "not_estimable_reason": reason,
             "available_n": len(case_ids),
             "missing_n": missing_n,
-            "set_count": len({cluster_labels[case_id] for case_id in case_ids}),
-            "known_label_count": len(
-                {
-                    str(clinical[case_id].get(clinical_field, "") or "")
-                    for case_id in case_ids
-                }
-            ),
+            "set_count": len(set_levels),
+            "known_label_count": len(known_levels),
             "contingency_table": {},
             "adjusted_mutual_information": None,
             "adjusted_rand_index": None,
@@ -59,10 +65,6 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
             "homogeneity": None,
             "completeness": None,
         }
-    set_levels = sorted({cluster_labels[case_id] for case_id in case_ids})
-    known_levels = sorted(
-        {str(clinical[case_id].get(clinical_field, "") or "") for case_id in case_ids}
-    )
     table = np.asarray(
         [
             [
@@ -96,6 +98,7 @@ def compare_label_structures(label_name, clinical_field, cluster_labels, clinica
     mapping_accuracy = float(overlap[rows, cols].sum() / len(case_ids))
     return {
         "label": label_name,
+        "comparison_status": "estimable",
         "available_n": len(case_ids),
         "missing_n": missing_n,
         "set_count": len(set_levels),
@@ -147,6 +150,8 @@ def known_label_echo_test(
                 key: comparison.get(key)
                 for key in (
                     "label",
+                    "comparison_status",
+                    "not_estimable_reason",
                     "available_n",
                     "missing_n",
                     "contingency_table",

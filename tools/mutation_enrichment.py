@@ -11,6 +11,7 @@ from tools.subtype_review_common import (
     fisher_exact_result,
     odds_ratio_ci,
     read_case_feature_table,
+    ranked_decision_summary,
     scoped_candidate_sets,
     standardized_mean_difference,
     tool_result,
@@ -102,6 +103,10 @@ def enrichment_rows(feature_names, table, candidate_sets):
                     "mutation_frequency": round_value(mutation_frequency),
                     "rest_mutation_frequency": round_value(rest_mutation_frequency),
                     "delta_frequency": round_value(delta_frequency),
+                    "set_mutated_n": binary_positive,
+                    "set_total_n": len(set_values),
+                    "rest_mutated_n": rest_positive,
+                    "rest_total_n": len(rest_values),
                     "available_n": len(set_values) + len(rest_values),
                     "missing_n": len(all_case_ids)
                     - len(set_values)
@@ -121,9 +126,10 @@ def enrichment_rows(feature_names, table, candidate_sets):
                     "p_value": p_value,
                     "fisher_p_value": round_value(fisher_p_value),
                     "q_value": None,
+                    "fdr_family": f"{set_id}:{feature.split('::', 1)[0]}",
                 }
             )
-    assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
+    assign_groupwise_fdr(rows, "fdr_family", "p_value", "q_value")
     for row in rows:
         row["p_value"] = (
             float(row["p_value"]) if row["p_value"] is not None else None
@@ -199,6 +205,29 @@ def mutation_enrichment(
     if not candidate_sets:
         return empty_result(cluster_id, output_root, "missing_candidate_sets", artifact_root)
     rows = enrichment_rows(feature_names, table, candidate_sets)
+    decision_by_set = {}
+    for set_id in sorted(candidate_sets):
+        core_rows = [
+            {
+                "gene": row["gene"],
+                "mutation_frequency": row["mutation_frequency"],
+                "rest_mutation_frequency": row["rest_mutation_frequency"],
+                "delta_frequency": row["delta_frequency"],
+                "odds_ratio": row["odds_ratio"],
+                "odds_ratio_ci95": row["odds_ratio_ci95"],
+                "fisher_p_value": row["fisher_p_value"],
+                "q_value": row["q_value"],
+                "set_mutated_n": row["set_mutated_n"],
+                "set_total_n": row["set_total_n"],
+                "rest_mutated_n": row["rest_mutated_n"],
+                "rest_total_n": row["rest_total_n"],
+            }
+            for row in rows
+            if row["candidate_set_id"] == set_id and row["wxs_block"] == "mutation"
+        ]
+        decision_by_set[set_id] = ranked_decision_summary(
+            core_rows, "delta_frequency"
+        )
     return tool_result(
         tool_name="mutation_enrichment",
         status="success",
@@ -209,26 +238,7 @@ def mutation_enrichment(
             "tested by candidate set."
         ),
         metrics={"wxs_gene_enrichment": rows},
-        decision_metrics={
-            "per_set_wxs_feature_enrichment": {
-                set_id: [
-                    {
-                        "gene": row["gene"],
-                        "mutation_frequency": row["mutation_frequency"],
-                        "rest_mutation_frequency": row["rest_mutation_frequency"],
-                        "delta_frequency": row["delta_frequency"],
-                        "odds_ratio": row["odds_ratio"],
-                        "odds_ratio_ci95": row["odds_ratio_ci95"],
-                        "fisher_p_value": row["fisher_p_value"],
-                        "q_value": row["q_value"],
-                    }
-                    for row in rows
-                    if row["candidate_set_id"] == set_id
-                    and row["wxs_block"] == "mutation"
-                ]
-                for set_id in sorted(candidate_sets)
-            }
-        },
+        decision_metrics={"per_set_wxs_feature_enrichment": decision_by_set},
         evidence_hints=[],
         support_level="informational",
         concern_level="none",

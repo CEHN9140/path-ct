@@ -686,6 +686,9 @@ def assign_q_values(
     global_refs = []
     global_p_values = []
     for field, row in global_metrics.items():
+        row["q_value"] = None
+        if field not in CATEGORICAL_FIELDS + NUMERIC_FIELDS:
+            continue
         p_value = (
             row.get("chi_square_p_value")
             if field in CATEGORICAL_FIELDS
@@ -701,7 +704,9 @@ def assign_q_values(
     for fields in set_metrics.values():
         set_refs = []
         set_p_values = []
-        for value in fields.values():
+        for field, value in fields.items():
+            if field not in CATEGORICAL_FIELDS + NUMERIC_FIELDS:
+                continue
             if value.get("field_type") == "numeric":
                 p_value = value.get("mannwhitney_p_value")
                 if p_value is not None:
@@ -724,7 +729,6 @@ def confound_decision_metrics(
     global_metrics,
     set_metrics,
     alpha=0.05,
-    numeric_large_cliffs_delta=0.474,
     categorical_cramers_v_warning=0.50,
 ):
     global_rows = {
@@ -748,7 +752,7 @@ def confound_decision_metrics(
     }
     per_set = {}
     set_significant_fields = {}
-    sets_with_strong_association = []
+    sets_with_significant_association = []
     for set_id, fields in set_metrics.items():
         associations = []
         for field, value in fields.items():
@@ -800,15 +804,10 @@ def confound_decision_metrics(
             if row.get("q_value") is not None and float(row["q_value"]) <= alpha
         ]
         if any(
-            row.get("q_value") is not None
-            and float(row["q_value"]) <= alpha
-            and (
-                row.get("field_type") == "categorical"
-                or abs(float(row.get("cliffs_delta", 0) or 0)) >= numeric_large_cliffs_delta
-            )
+            row.get("q_value") is not None and float(row["q_value"]) <= alpha
             for row in associations
         ):
-            sets_with_strong_association.append(set_id)
+            sets_with_significant_association.append(set_id)
     global_significant_fields = [
         field for field, row in global_rows.items()
         if row.get("q_value") is not None and float(row["q_value"]) <= alpha
@@ -823,7 +822,8 @@ def confound_decision_metrics(
         field for field, row in global_rows.items()
         if row.get("q_value") is not None
         and float(row["q_value"]) <= alpha
-        and float(row.get("max_pairwise_cliffs_delta", 0) or 0) >= numeric_large_cliffs_delta
+        and row.get("epsilon_squared") is not None
+        and float(row["epsilon_squared"]) > 0
     ]
     return {
         "global": global_rows,
@@ -832,14 +832,18 @@ def confound_decision_metrics(
             "strong_technical_association": bool(categorical_associations or numeric_associations),
             "global_significant_fields": global_significant_fields,
             "set_significant_fields_by_set": set_significant_fields,
-            "sets_with_strong_technical_association": sorted(sets_with_strong_association),
+            "sets_with_significant_technical_association": sorted(
+                sets_with_significant_association
+            ),
             "categorical_cramers_v_warning_fields": categorical_associations,
-            "numeric_large_effect_fields": numeric_associations,
+            "numeric_association_fields": numeric_associations,
             "thresholds": {
                 "alpha": alpha,
                 "categorical_cramers_v_warning": categorical_cramers_v_warning,
-                "numeric_large_cliffs_delta": numeric_large_cliffs_delta,
-                "threshold_semantics": "project protocol thresholds, not universal domain cutoffs",
+                "threshold_semantics": (
+                    "Cramer's V is a project warning threshold; numeric global "
+                    "association uses epsilon-squared with BH-q."
+                ),
             },
         },
     }
@@ -917,7 +921,6 @@ def confound_test(
             global_metrics,
             set_metrics,
             float(policy.get("alpha", 0.05)),
-            float(policy.get("numeric_large_cliffs_delta", 0.474)),
             float(policy.get("categorical_cramers_v_warning", 0.50)),
         ),
         evidence_hints=[

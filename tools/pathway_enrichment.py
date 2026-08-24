@@ -7,6 +7,7 @@ from tools.subtype_review_common import (
     assign_groupwise_fdr,
     feature_dataframe,
     read_gmt_gene_sets,
+    ranked_decision_summary,
     scoped_candidate_sets,
     standardized_mean_difference,
     tool_parameters,
@@ -219,6 +220,25 @@ def pathway_enrichment(
         min_pathway_overlap,
     )
     rows = pathway_rows(score_frame, pathway_gene_counts, candidate_sets)
+    decision_by_set = {}
+    for set_id in sorted(candidate_sets):
+        set_rows = [row for row in rows if row["candidate_set_id"] == set_id]
+        core_rows = [
+            {
+                "pathway": row["pathway"],
+                "standardized_mean_difference": row["standardized_mean_difference"],
+                "direction": row["direction"],
+                "set_median_score": row["set_median_score"],
+                "rest_median_score": row["rest_median_score"],
+                "set_available_n": row["set_available_n"],
+                "rest_available_n": row["rest_available_n"],
+                "q_value": row["q_value"],
+            }
+            for row in set_rows
+        ]
+        decision_by_set[set_id] = ranked_decision_summary(
+            core_rows, "standardized_mean_difference"
+        )
     return tool_result(
         tool_name="pathway_enrichment",
         status="success",
@@ -226,27 +246,7 @@ def pathway_enrichment(
         output_root=artifact_root,
         summary="RNA ssGSEA pathway enrichment table was computed.",
         metrics={"rna_pathway_enrichment": rows},
-        decision_metrics={
-            "per_set_rna_pathway_enrichment": {
-                set_id: [
-                    {
-                        "pathway": row["pathway"],
-                        "standardized_mean_difference": row[
-                            "standardized_mean_difference"
-                        ],
-                        "set_median_score": row["set_median_score"],
-                        "rest_median_score": row["rest_median_score"],
-                        "set_available_n": row["set_available_n"],
-                        "rest_available_n": row["rest_available_n"],
-                        "q_value": row["q_value"],
-                        "direction": row["direction"],
-                    }
-                    for row in rows
-                    if row["candidate_set_id"] == set_id
-                ]
-                for set_id in sorted(candidate_sets)
-            }
-        },
+        decision_metrics={"per_set_rna_pathway_enrichment": decision_by_set},
         evidence_hints=[],
         support_level="informational",
         concern_level="none",

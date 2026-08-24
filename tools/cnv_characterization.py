@@ -13,6 +13,7 @@ from tools.subtype_review_common import (
     fisher_exact_result,
     odds_ratio_ci,
     read_case_feature_table,
+    ranked_decision_summary,
     scoped_candidate_sets,
     tool_parameters,
     tool_result,
@@ -105,18 +106,20 @@ def cnv_characterization(
                 odds_ci = None
                 left_frequency = None
                 right_frequency = None
+                left_positive = None
+                right_positive = None
                 if binary:
-                    a_pos = sum(value > 0 for value in left_values)
-                    b_pos = sum(value > 0 for value in right_values)
-                    left_frequency = a_pos / len(left_values)
-                    right_frequency = b_pos / len(right_values)
+                    left_positive = int(sum(value > 0 for value in left_values))
+                    right_positive = int(sum(value > 0 for value in right_values))
+                    left_frequency = left_positive / len(left_values)
+                    right_frequency = right_positive / len(right_values)
                     odds_ratio, p_value = fisher_exact_result(
-                        a_pos, len(left_values) - a_pos,
-                        b_pos, len(right_values) - b_pos,
+                        left_positive, len(left_values) - left_positive,
+                        right_positive, len(right_values) - right_positive,
                     )
                     odds_ratio, odds_ci = odds_ratio_ci(
-                        a_pos, len(left_values) - a_pos,
-                        b_pos, len(right_values) - b_pos,
+                        left_positive, len(left_values) - left_positive,
+                        right_positive, len(right_values) - right_positive,
                     )
                 elif len(unique) > 1:
                     p_value = float(
@@ -149,39 +152,52 @@ def cnv_characterization(
                         if binary and left_frequency is not None and right_frequency is not None
                         else None
                     ),
+                    "left_altered_n": left_positive,
+                    "left_total_n": len(left_values),
+                    "right_altered_n": right_positive,
+                    "right_total_n": len(right_values),
                     "odds_ratio": odds_ratio,
                     "odds_ratio_ci95": odds_ci,
                     "p_value": p_value,
                     "q_value": None,
                 })
     assign_groupwise_fdr(rows, "candidate_set_id", "p_value", "q_value")
-    summaries = {
-        comparison: [
-            (
-                {
-                    "feature": row["feature"],
-                    "alteration_frequency": row["alteration_frequency"],
-                    "rest_alteration_frequency": row["rest_alteration_frequency"],
-                    "alteration_frequency_difference": row[
-                        "alteration_frequency_difference"
-                    ],
-                    "odds_ratio": row["odds_ratio"],
-                    "odds_ratio_ci95": row["odds_ratio_ci95"],
-                    "q_value": row["q_value"],
-                }
-                if row["feature_type"] == "binary_event"
-                else {
-                    "feature": row["feature"],
-                    "cliffs_delta": row["cliffs_delta"],
-                    "direction": row["direction"],
-                    "q_value": row["q_value"],
-                }
-            )
-            for row in rows
-            if row["comparison"] == comparison
-        ]
-        for comparison in sorted({row["comparison"] for row in rows})
-    }
+    summaries = {}
+    for comparison in sorted({row["comparison"] for row in rows}):
+        comparison_rows = [row for row in rows if row["comparison"] == comparison]
+        decision = {}
+        for feature_type, name, effect_key in (
+            ("continuous", "continuous", "cliffs_delta"),
+            ("binary_event", "gain_loss", "alteration_frequency_difference"),
+        ):
+            selected = [row for row in comparison_rows if row["feature_type"] == feature_type]
+            core_rows = [
+                (
+                    {
+                        "feature": row["feature"],
+                        "cliffs_delta": row["cliffs_delta"],
+                        "direction": row["direction"],
+                        "q_value": row["q_value"],
+                    }
+                    if feature_type == "continuous"
+                    else {
+                        "feature": row["feature"],
+                        "alteration_frequency": row["alteration_frequency"],
+                        "rest_alteration_frequency": row["rest_alteration_frequency"],
+                        "alteration_frequency_difference": row["alteration_frequency_difference"],
+                        "odds_ratio": row["odds_ratio"],
+                        "odds_ratio_ci95": row["odds_ratio_ci95"],
+                        "q_value": row["q_value"],
+                        "left_altered_n": row["left_altered_n"],
+                        "left_total_n": row["left_total_n"],
+                        "right_altered_n": row["right_altered_n"],
+                        "right_total_n": row["right_total_n"],
+                    }
+                )
+                for row in selected
+            ]
+            decision[name] = ranked_decision_summary(core_rows, effect_key)
+        summaries[comparison] = decision
     return tool_result(
         tool_name="cnv_characterization",
         status="success",

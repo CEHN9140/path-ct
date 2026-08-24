@@ -324,6 +324,40 @@ def assign_groupwise_fdr(
             row[q_key] = float(q_value)
 
 
+def ranked_decision_summary(rows: list[dict[str, Any]], effect_key: str) -> dict[str, Any]:
+    return {
+        "summary": {
+            "tested_count": len(rows),
+            "significant_q05": sum(
+                row.get("q_value") is not None and row["q_value"] <= 0.05
+                for row in rows
+            ),
+            "min_q_value": min(
+                (row["q_value"] for row in rows if row.get("q_value") is not None),
+                default=None,
+            ),
+        },
+        "top_by_q": sorted(
+            rows,
+            key=lambda row: (
+                row.get("q_value") is None,
+                row.get("q_value") if row.get("q_value") is not None else 1.0,
+                -abs(row.get(effect_key) or 0.0),
+                str(row.get("pathway") or row.get("gene") or row.get("feature") or ""),
+            ),
+        )[:5],
+        "top_by_effect": sorted(
+            rows,
+            key=lambda row: (
+                -abs(row.get(effect_key) or 0.0),
+                row.get("q_value") is None,
+                row.get("q_value") if row.get("q_value") is not None else 1.0,
+                str(row.get("pathway") or row.get("gene") or row.get("feature") or ""),
+            ),
+        )[:5],
+    }
+
+
 def fisher_exact_result(
     a: int, b: int, c: int, d: int
 ) -> tuple[float | None, float | None]:
