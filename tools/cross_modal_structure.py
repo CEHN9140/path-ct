@@ -76,6 +76,12 @@ def resampling_consensus(
     pac_upper: float = 0.9,
     seed: int = 0,
 ) -> dict[str, Any]:
+    if iterations < 1:
+        raise ValueError("resampling_iterations must be at least 1")
+    if not 0 < fraction < 1:
+        raise ValueError("resampling_fraction must be between 0 and 1")
+    if not 0 <= pac_lower < pac_upper <= 1:
+        raise ValueError("PAC bounds must satisfy 0 <= lower < upper <= 1")
     n = len(full_labels)
     sample_size = int(np.floor(n * fraction))
     if sample_size < 4:
@@ -102,12 +108,11 @@ def resampling_consensus(
         if min(counts) < 2:
             degenerate += 1
         aris.append(adjusted_rand_score(full_labels[indices], labels))
-        for left, right in combinations(indices, 2):
-            sampled[left, right] += 1
-            sampled[right, left] += 1
-            if labels[np.where(indices == left)[0][0]] == labels[np.where(indices == right)[0][0]]:
-                co_clustered[left, right] += 1
-                co_clustered[right, left] += 1
+        indexer = np.ix_(indices, indices)
+        sampled[indexer] += 1
+        co_clustered[indexer] += labels[:, None] == labels[None, :]
+        sampled[indices, indices] -= 1
+        co_clustered[indices, indices] -= 1
     valid = sampled > 0
     consensus = np.divide(
         co_clustered,
@@ -200,27 +205,32 @@ def characterize_internal_structure(
             "probe_support_by_modality": {},
             "limitations": ["The binary probe produced a singleton child."],
         }
+    resampling = resampling_consensus(
+        local_fused,
+        labels,
+        fraction=resampling_fraction,
+        iterations=resampling_iterations,
+        pac_lower=pac_lower,
+        pac_upper=pac_upper,
+        seed=random_seed,
+    )
     probe = probe_silhouette(local_fused, labels, members)
     probe.update({
         "child_sizes": child_sizes,
         "normalized_cut": normalized_cut(local_fused, labels),
         "probe_labels_by_case": {case_id: int(label) for case_id, label in zip(members, labels)},
-        "resampling": resampling_consensus(
-            local_fused,
-            labels,
-            fraction=resampling_fraction,
-            iterations=resampling_iterations,
-            pac_lower=pac_lower,
-            pac_upper=pac_upper,
-            seed=random_seed,
-        ),
+        "resampling": resampling,
     })
     for modality in MODALITIES:
         matrix = modality_affinities.get(modality)
         local = None if matrix is None else matrix[np.ix_(member_positions, member_positions)]
         supports[modality] = fixed_probe_support(local, labels, members)
     return {
-        "comparison_status": "estimable",
+        "comparison_status": (
+            "estimable"
+            if resampling["comparison_status"] == "estimable"
+            else "partially_estimable"
+        ),
         "member_n": len(members),
         "fused_binary_probe": probe,
         "probe_support_by_modality": supports,

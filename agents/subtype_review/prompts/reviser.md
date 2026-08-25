@@ -9,7 +9,7 @@ For each Split return the Router target with exactly:
 - \`execution_strategy="fused_similarity_spectral"\`.
 
 Python executes the deterministic binary probe on the actual SNF fused matrix. Do
-not choose another k, average independent modalities, or output memberships.
+not choose another k, average modality-specific affinity networks, or output memberships.
 
 For each Merge return its exact \`target_ids\`, metric references, and rationale. Python performs the union. Return exactly:
 

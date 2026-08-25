@@ -50,7 +50,7 @@ Dimension-specific interpretation requirements:
   probe using child sizes, normalized cut, fused fixed-probe silhouette, and
   resampling metrics (median ARI, consensus separation, PAC, and degenerate
   fraction), followed by the same fixed probe evaluated in available independent
-  modalities. For each pair of current sets, interpret fixed-membership pair
+  modality-specific affinity networks contributing to SNF. For each pair of current sets, interpret fixed-membership pair
   silhouette, left/right patient margins, and left/right boundary separation.
   These are current-partition structural characterization metrics, not independent
   validation. Do not require all modalities to be equally strong. A weak modality,

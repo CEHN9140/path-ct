@@ -153,11 +153,30 @@ def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any
             metric_refs.append(path)
 
     collect_leaves(metrics, f"tool_results.{tool_name}.metrics")
+    if tool_name == "multimodal_consistency_check":
+        def prune_patient_metrics(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {
+                    key: prune_patient_metrics(item)
+                    for key, item in value.items()
+                    if key not in {"probe_labels_by_case", "patient_silhouette", "patient_margins"}
+                }
+            if isinstance(value, list):
+                return [prune_patient_metrics(item) for item in value]
+            return value
+
+        full_metrics = {
+            "structural_characterization": prune_patient_metrics(
+                full_metrics.get("structural_characterization", {})
+            )
+        }
+    else:
+        full_metrics = {}
     return {
         "tool_name": tool_name,
         "status": status,
         "metrics": metrics,
-        "full_metrics": full_metrics if tool_name == "multimodal_consistency_check" else {},
+        "full_metrics": full_metrics,
         "metric_refs": metric_refs,
         "warnings": list(results.get("warnings", []) or []),
         "missing_reason": missing_reason,
