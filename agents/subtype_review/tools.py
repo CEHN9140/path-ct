@@ -127,6 +127,7 @@ EXTRA_REVIEW_TOOLS = tuple(
 def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
     payload = dict(raw or {})
     results = dict(payload.get("results", {}) or {})
+    full_metrics = to_jsonable(results.get("metrics", {}) or {})
     metrics = to_jsonable(results.get("decision_metrics", results.get("metrics", {})) or {})
     errors = list(payload.get("errors", []) or [])
     missing_reason = str(results.get("missing_reason", "") or "")
@@ -156,6 +157,7 @@ def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any
         "tool_name": tool_name,
         "status": status,
         "metrics": metrics,
+        "full_metrics": full_metrics if tool_name == "multimodal_consistency_check" else {},
         "metric_refs": metric_refs,
         "warnings": list(results.get("warnings", []) or []),
         "missing_reason": missing_reason,

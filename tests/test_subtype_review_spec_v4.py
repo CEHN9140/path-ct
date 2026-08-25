@@ -19,9 +19,9 @@ from agents.subtype_review.graph import (
     validate_router_plan,
 )
 from agents.subtype_review.llm import LLMUsageTracker
-from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, RouterPlan, ToolRequest
+from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, MergePlan, RouterAction, RouterPlan, ToolRequest
 from agents.subtype_review.tools import TOOL_REGISTRY, clinical_characterization, compact_tool_result
-from tools.structural_adequacy import execute_split_membership, structure_diagnostics
+from tools.cross_modal_structure import compute_structural_characterization, execute_split_membership
 
 
 def make_state(*groups):
@@ -309,10 +309,10 @@ def test_reports_must_account_for_all_tools_used_for_each_set():
 
 
 def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch, tmp_path):
-    import tools.structural_adequacy as structural_adequacy
+    import tools.cross_modal_structure as cross_modal_structure
 
     monkeypatch.setattr(
-        structural_adequacy,
+        cross_modal_structure,
         "execute_split_membership",
         lambda *args, **kwargs: [["P1"], ["P2", "P3"]],
     )
@@ -322,7 +322,7 @@ def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch
     }
     state["round_evidence"] = [{
         "tool_name": "multimodal_consistency_check",
-        "metrics": {"internal_structure_by_set": {"C1": {"positive_internal_heterogeneity": True}}},
+        "metrics": {"structural_characterization": {"internal_structure_by_set": {"C1": {}}}},
         "metric_refs": [],
     }]
 
@@ -342,18 +342,18 @@ def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch
     })
     assert result["partition"]["sets"][0]["set_id"] == "C1"
     assert result["control"]["next"] == "reviser"
-    assert "estimable" in result["control"]["error"]
+    assert "non-estimable" in result["control"]["error"]
 
 
 def test_reviser_retry_uses_error_feedback_and_accepts_corrected_plan(monkeypatch, tmp_path):
-    import tools.structural_adequacy as structural_adequacy
+    import tools.cross_modal_structure as cross_modal_structure
 
     def split_membership(output_root, member_ids, n_children, strategy, basis):
         if n_children == 3:
             return [["P1"], ["P2"], ["P3", "P4"]]
         return [["P1", "P2"], ["P3", "P4"]]
 
-    monkeypatch.setattr(structural_adequacy, "execute_split_membership", split_membership)
+    monkeypatch.setattr(cross_modal_structure, "execute_split_membership", split_membership)
     state = make_state(("C1", ["P1", "P2", "P3", "P4"]))
     state["router_plan"] = {
         "actions": [{"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""}]
@@ -362,7 +362,7 @@ def test_reviser_retry_uses_error_feedback_and_accepts_corrected_plan(monkeypatc
     state["control"]["history_index"] = 0
     state["round_evidence"] = [{
         "tool_name": "multimodal_consistency_check",
-        "metrics": {"internal_structure_by_set": {"C1": {"positive_internal_heterogeneity": True}}},
+        "metrics": {"structural_characterization": {"internal_structure_by_set": {"C1": {}}}},
         "metric_refs": [],
     }]
 
@@ -392,7 +392,7 @@ def test_reviser_retry_uses_error_feedback_and_accepts_corrected_plan(monkeypatc
     second = reviser_node(first, runtime)
     assert len(reviser.payloads) == 2
     assert reviser.payloads[1]["previous_revision_plan"]["split_plans"][0]["n_children"] == 3
-    assert "non-estimable" in reviser.payloads[1]["revision_validation_error"]
+    assert "binary" in reviser.payloads[1]["revision_validation_error"]
     assert {item["set_id"] for item in second["partition"]["sets"]} == {"C1_S1", "C1_S2"}
 
 
@@ -545,24 +545,25 @@ def test_round_ten_need_evidence_runs_extra_tool_then_stops_without_round_eleven
     assert verifier.acquisitions[1] == ["clinical_characterization"]
 
 
-def test_structural_diagnostics_reports_all_candidate_k_and_modalities():
+def test_structural_diagnostics_reports_one_binary_probe_and_modalities():
     matrix = np.full((6, 6), 0.05)
     for start in (0, 2, 4):
         matrix[start:start + 2, start:start + 2] = 0.95
     np.fill_diagonal(matrix, 1.0)
-    result = structure_diagnostics(
+    result = compute_structural_characterization(
+        matrix,
         {name: matrix for name in ("ct", "wsi", "rna", "genomic")},
         [f"P{i}" for i in range(6)],
         {"C1": [f"P{i}" for i in range(6)]},
+        resampling_iterations=5,
     )
-    rows = result["internal_structure_by_set"]["C1"]["k_diagnostics"]
-    assert [row["k"] for row in rows] == [2, 3, 4, 5]
-    assert all(set(row["modalities"]) == {"fused", "ct", "wsi", "rna", "genomic"} for row in rows)
-    assert all("subsampling_stability" in row["modalities"]["ct"] for row in rows)
-    assert not any(key.startswith("recommended") for key in result["internal_structure_by_set"]["C1"])
+    internal = result["internal_structure_by_set"]["C1"]
+    assert internal["fused_binary_probe"]["child_sizes"]
+    assert set(internal["probe_support_by_modality"]) == {"ct", "wsi", "rna", "genomic"}
+    assert "k_diagnostics" not in internal
 
 
-def test_declared_multimodal_basis_changes_split_execution(tmp_path):
+def test_split_execution_uses_actual_fused_binary_probe(tmp_path):
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
     ids = [f"P{i}" for i in range(6)]
@@ -575,9 +576,28 @@ def test_declared_multimodal_basis_changes_split_execution(tmp_path):
         wsi[start:start + 2, start:start + 2] = 0.95
     np.save(candidate / "rna_affinity.npy", rna)
     np.save(candidate / "wsi_affinity.npy", wsi)
-    assert execute_split_membership(
-        str(tmp_path), ids, 3, "multimodal_consensus", ["rna", "wsi"]
-    ) == [["P0", "P1"], ["P2", "P3"], ["P4", "P5"]]
+    groups = execute_split_membership(
+        str(tmp_path), ids, 2, "fused_similarity_spectral", ["fused"]
+    )
+    assert len(groups) == 2
+    assert sorted(sum(groups, [])) == ids
+    assert all(len(group) >= 2 for group in groups)
+
+
+def test_structural_actions_are_not_python_gated_and_merge_is_pairwise():
+    state = make_state(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    validate_router_plan(
+        RouterPlan(actions=[
+            {"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""},
+            {"action": "accept", "target_ids": ["C2"], "tool_requests": [], "reason": ""},
+        ]),
+        state,
+        fake_registry(),
+    )
+    with pytest.raises(ValueError, match="exactly two"):
+        RouterAction(action="merge", target_ids=["C1", "C2", "C3"], reason="")
+    with pytest.raises(ValueError):
+        MergePlan(target_ids=["C1", "C2", "C3"])
 
 
 def test_reviser_is_called_once_for_whole_partition_and_parent_is_removed(tmp_path):
@@ -599,7 +619,7 @@ def test_reviser_is_called_once_for_whole_partition_and_parent_is_removed(tmp_pa
     }
     state["round_evidence"] = [{
         "tool_name": "multimodal_consistency_check",
-        "metrics": {"internal_structure_by_set": {"C1": {"positive_internal_heterogeneity": True}}},
+        "metrics": {"structural_characterization": {"internal_structure_by_set": {"C1": {}}}},
         "metric_refs": [],
     }]
 
@@ -611,7 +631,7 @@ def test_reviser_is_called_once_for_whole_partition_and_parent_is_removed(tmp_pa
             return {
                 "split_plans": [{
                     "target_id": "C1",
-                    "n_children": 3,
+                    "n_children": 2,
                     "structural_basis": ["fused"],
                     "execution_strategy": "fused_similarity_spectral",
                     "metric_refs": [],
@@ -627,7 +647,7 @@ def test_reviser_is_called_once_for_whole_partition_and_parent_is_removed(tmp_pa
     })
     assert reviser.calls == 1
     assert {item["set_id"] for item in result["partition"]["sets"]} == {
-        "C1_S1", "C1_S2", "C1_S3", "C2"
+        "C1_S1", "C1_S2", "C2"
     }
     assert result["revision_result"]["superseded_sets"][0]["set_id"] == "C1"
     assert result["history"] == []

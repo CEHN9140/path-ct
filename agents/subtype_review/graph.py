@@ -292,11 +292,18 @@ def execute_tool_calls(
             from langchain_core.messages import ToolMessage
 
             messages.append(ToolMessage(
-                content=json.dumps(compact, ensure_ascii=False),
+                content=json.dumps(
+                    {key: value for key, value in compact.items() if key != "full_metrics"},
+                    ensure_ascii=False,
+                ),
                 tool_call_id=call_id,
             ))
         except Exception:
-            messages.append({"role": "tool", "name": name, "content": compact})
+            messages.append({
+                "role": "tool",
+                "name": name,
+                "content": {key: value for key, value in compact.items() if key != "full_metrics"},
+            })
     state["round_evidence"] = results
     state["messages"] = messages
     control = dict(state["control"])
@@ -423,44 +430,6 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     return state
 
 
-def structure_metrics(state: Mapping[str, Any]) -> dict[str, Any]:
-    for row in state.get("round_evidence", []) or []:
-        if row.get("tool_name") == "multimodal_consistency_check":
-            return dict(row.get("metrics", {}) or {})
-    return {}
-
-
-def positive_split(state: Mapping[str, Any], target: str) -> bool:
-    row = dict(dict(structure_metrics(state).get("internal_structure_by_set", {})).get(target, {}) or {})
-    return bool(row.get("positive_internal_heterogeneity"))
-
-
-def positive_merge(state: Mapping[str, Any], targets: list[str]) -> bool:
-    return "+".join(sorted(targets)) in dict(
-        structure_metrics(state).get("positive_weak_boundary_pairs", {}) or {}
-    )
-
-
-def positive_merge_for_target(state: Mapping[str, Any], target: str) -> bool:
-    return any(
-        target in key.split("+")
-        for key in dict(structure_metrics(state).get("positive_weak_boundary_pairs", {}) or {})
-    )
-
-
-def technical_invalidates(state: Mapping[str, Any], target: str) -> bool:
-    metrics = next(
-        (
-            row.get("metrics", {})
-            for row in state.get("round_evidence", []) or []
-            if row.get("tool_name") == "confound_test"
-        ),
-        {},
-    )
-    flags = dict(metrics.get("deterministic_flags", {}) or {})
-    return target in {str(item) for item in flags.get("invalidated_set_ids", []) or []}
-
-
 def validate_tool_request(
     request: ToolRequest, state: Mapping[str, Any], runtime: Mapping[str, Any], action_targets: set[str]
 ) -> None:
@@ -494,7 +463,7 @@ def validate_tool_request(
 
 
 def validate_action_contract(
-    action: RouterAction, state: Mapping[str, Any], runtime: Mapping[str, Any], scientific: bool
+    action: RouterAction, state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> None:
     known = {set_id(item) for item in current_sets(state)}
     if not set(action.target_ids).issubset(known):
@@ -508,20 +477,6 @@ def validate_action_contract(
                 raise ValueError("Duplicate extra tool request")
             seen.add(key)
         return
-    if not scientific:
-        return
-    if action.action == "accept":
-        if technical_invalidates(state, action.target_ids[0]):
-            raise ValueError("Accept is blocked by technical invalidation")
-        if positive_split(state, action.target_ids[0]) or positive_merge_for_target(state, action.target_ids[0]):
-            raise ValueError("Accept is blocked by positive structural evidence")
-    elif action.action == "drop":
-        if positive_split(state, action.target_ids[0]) or positive_merge_for_target(state, action.target_ids[0]):
-            raise ValueError("Drop is blocked by positive structural evidence")
-    elif action.action == "split" and not positive_split(state, action.target_ids[0]):
-        raise ValueError("Split requires positive internal heterogeneity")
-    elif action.action == "merge" and not positive_merge(state, action.target_ids):
-        raise ValueError("Merge requires positive weak-boundary evidence")
 
 
 def validate_router_plan(
@@ -536,9 +491,8 @@ def validate_router_plan(
         occupied.update(targets)
     if occupied != known:
         raise ValueError("Router plan must cover every current set exactly once")
-    has_need = any(action.action == "need_more_evidence" for action in plan.actions)
     for action in plan.actions:
-        validate_action_contract(action, state, runtime, scientific=not has_need)
+        validate_action_contract(action, state, runtime)
 
 
 def history_entry(state: Mapping[str, Any], plan: RouterPlan) -> dict[str, Any]:
@@ -617,9 +571,18 @@ def structural_actions(plan: RouterPlan) -> tuple[list[RouterAction], list[Route
 
 
 def revision_metrics(state: Mapping[str, Any]) -> dict[str, Any]:
+    row = next(
+        (
+            item for item in state.get("round_evidence", []) or []
+            if item.get("tool_name") == "multimodal_consistency_check"
+        ),
+        {},
+    )
     return {
         "partition": state["partition"],
-        "multimodal": structure_metrics(state),
+        "structural_characterization": dict(
+            dict(row.get("full_metrics", {}) or {}).get("structural_characterization", {}) or {}
+        ),
     }
 
 
@@ -656,12 +619,12 @@ def validate_revision_plan(
     for item in plan.split_plans:
         if item.target_id not in current or item.target_id in occupied:
             raise ValueError("RevisionPlan split target is not current or is duplicated")
-        if item.n_children > len(current[item.target_id]["member_ids"]):
-            raise ValueError("Split n_children exceeds parent membership")
-        if item.execution_strategy == "fused_similarity_spectral" and item.structural_basis != ["fused"]:
-            raise ValueError("Fused split requires structural_basis=['fused']")
-        if item.execution_strategy == "multimodal_consensus" and len(set(item.structural_basis)) < 2:
-            raise ValueError("Multimodal split requires at least two modalities")
+        if (
+            item.n_children != 2
+            or item.structural_basis != ["fused"]
+            or item.execution_strategy != "fused_similarity_spectral"
+        ):
+            raise ValueError("Split requires a binary fused_similarity_spectral plan with structural_basis=['fused']")
         occupied.add(item.target_id)
     for item in plan.merge_plans:
         targets = set(item.target_ids)
@@ -677,7 +640,7 @@ def validate_revision_plan(
 def execute_revision_plan(
     state: dict[str, Any], plan: RevisionPlan, runtime: Mapping[str, Any]
 ) -> dict[str, Any]:
-    from tools.structural_adequacy import execute_split_membership
+    from tools.cross_modal_structure import execute_split_membership
 
     old_sets = current_sets(state)
     old_signature = partition_signature(old_sets)

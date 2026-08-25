@@ -584,7 +584,8 @@ def compute_cross_modal_consistency(
         "decision_metrics": decision,
         "analysis_scope": (
             "Fixed candidate memberships were evaluated independently in CT, WSI, "
-            "RNA, and genomic affinity spaces; no modality was reclustered."
+            "RNA, and genomic affinity spaces; no independent modality was reclustered. "
+            "Structural characterization uses the actual SNF fused network for a binary probe."
         ),
     }
 
@@ -616,6 +617,8 @@ def multimodal_consistency_check(
     for modality in MODALITIES:
         path = modality_affinity_path(output_root, modality)
         affinities[modality] = np.load(path)[np.ix_(positions, positions)] if path.exists() else None
+    fused_path = candidate_dir / "fused_similarity.npy"
+    fused = np.load(fused_path)[np.ix_(positions, positions)] if fused_path.exists() else None
     parameters = {}
     if config_dir:
         from tools.subtype_review_common import tool_parameters
@@ -630,21 +633,67 @@ def multimodal_consistency_check(
             parameters.get("lowest_support_patients_to_report", 5)
         ),
     )
-    structure_keys = {
-        "internal_structure_by_set": {},
-        "boundary_by_pair": {},
-        "positive_weak_boundary_pairs": {},
-    }
-    if all(affinities.get(modality) is not None for modality in MODALITIES):
-        from tools.structural_adequacy import structure_diagnostics
-        try:
-            structure_keys = structure_diagnostics(affinities, case_ids, memberships)
-        except (FloatingPointError, ValueError):
-            metrics["decision_metrics"]["cross_modal_consistency"]["limitations"].append(
-                "Structural diagnostics were not estimable for the current partition."
-            )
-    metrics["structural_diagnostics"] = structure_keys
-    metrics["decision_metrics"].update(structure_keys)
+    from tools.cross_modal_structure import compute_structural_characterization
+    structure_parameters = dict(parameters.get("structure", {}) or {})
+    structure = compute_structural_characterization(
+        fused,
+        affinities,
+        case_ids,
+        memberships,
+        resampling_fraction=float(structure_parameters.get("resampling_fraction", 0.8)),
+        resampling_iterations=int(structure_parameters.get("resampling_iterations", 200)),
+        pac_lower=float(structure_parameters.get("pac_lower", 0.1)),
+        pac_upper=float(structure_parameters.get("pac_upper", 0.9)),
+        random_seed=int(structure_parameters.get("random_seed", 0)),
+    )
+    decision = metrics["decision_metrics"]["cross_modal_consistency"]
+    for set_id in memberships:
+        full_internal = structure["internal_structure_by_set"][set_id]
+        full_probe = dict(full_internal.get("fused_binary_probe", {}) or {})
+        probe = {
+            key: full_probe[key]
+            for key in ("child_sizes", "normalized_cut", "median_silhouette", "mean_silhouette", "fraction_silhouette_positive")
+            if key in full_probe
+        }
+        if "resampling" in full_probe:
+            probe["resampling"] = full_probe["resampling"]
+        decision["per_set"][set_id]["internal_structure"] = {
+            "comparison_status": full_internal.get("comparison_status"),
+            "member_n": full_internal.get("member_n"),
+            "fused_binary_probe": probe,
+            "probe_support_by_modality": {
+                modality: {
+                    key: value
+                    for key, value in metrics_row.items()
+                    if key in {"comparison_status", "not_estimable_reason", "median_silhouette"}
+                }
+                for modality, metrics_row in full_internal.get("probe_support_by_modality", {}).items()
+            },
+            "limitations": full_internal.get("limitations", []),
+        }
+        decision["per_set"][set_id]["boundary_to_other_sets"] = {}
+    for pair in structure["boundary_by_pair"].values():
+        left, right = pair["targets"]
+        compact_pair = {
+            "targets": pair["targets"],
+            "fused": {
+                metric: value
+                for metric, value in pair["fused"].items()
+                if metric not in {"patient_silhouette", "patient_margins"}
+            },
+            "modalities": {
+                modality: {
+                    metric: value
+                    for metric, value in row.items()
+                    if metric not in {"patient_silhouette", "patient_margins"}
+                }
+                for modality, row in pair["modalities"].items()
+            },
+        }
+        decision["per_set"][left]["boundary_to_other_sets"][right] = compact_pair
+        decision["per_set"][right]["boundary_to_other_sets"][left] = compact_pair
+    decision["limitations"].extend(structure.get("limitations", []))
+    metrics["structural_characterization"] = structure
     return tool_result(
         tool_name="multimodal_consistency_check",
         status="success",

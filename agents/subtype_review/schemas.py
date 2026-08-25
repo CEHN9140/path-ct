@@ -104,8 +104,8 @@ class RouterAction(BaseModel):
             raise ValueError("scientific actions cannot contain tool_requests")
         if self.action in {"accept", "drop", "split"} and len(self.target_ids) != 1:
             raise ValueError(f"{self.action} requires one target")
-        if self.action == "merge" and len(self.target_ids) < 2:
-            raise ValueError("merge requires at least two targets")
+        if self.action == "merge" and len(self.target_ids) != 2:
+            raise ValueError("merge requires exactly two targets")
         return self
 
 
@@ -122,9 +122,7 @@ class SplitPlan(BaseModel):
     target_id: str
     n_children: int = Field(ge=2)
     structural_basis: list[str] = Field(min_length=1)
-    execution_strategy: Literal[
-        "multimodal_consensus", "fused_similarity_spectral"
-    ]
+    execution_strategy: Literal["fused_similarity_spectral"]
     metric_refs: list[str] = Field(default_factory=list)
     rationale: str = ""
 
@@ -133,7 +131,7 @@ class MergePlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["merge"] = "merge"
-    target_ids: list[str] = Field(min_length=2)
+    target_ids: list[str] = Field(min_length=2, max_length=2)
     metric_refs: list[str] = Field(default_factory=list)
     rationale: str = ""
 

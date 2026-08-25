@@ -46,11 +46,19 @@ Dimension-specific interpretation requirements:
   per-set median silhouette in CT, WSI, RNA, and genomic affinity spaces.
   Then interpret the patient membership support profile (positive and negative
   modalities and descriptive support_count), followed by partition PERMANOVA
-  R2 and PERMDISP. Do not require all modalities to be equally strong. A weak
-  modality, support_count, significant PERMANOVA, or significant PERMDISP is
-  not by itself an Accept/Drop rule. PERMANOVA is not independent validation,
-  PERMDISP is not automatic invalidation, and cross-modal evidence cannot
-  directly produce Split or Merge.
+  R2 and PERMDISP. Also interpret each current set's actual-SNF binary internal
+  probe using child sizes, normalized cut, fused fixed-probe silhouette, and
+  resampling metrics (median ARI, consensus separation, PAC, and degenerate
+  fraction), followed by the same fixed probe evaluated in available independent
+  modalities. For each pair of current sets, interpret fixed-membership pair
+  silhouette, left/right patient margins, and left/right boundary separation.
+  These are current-partition structural characterization metrics, not independent
+  validation. Do not require all modalities to be equally strong. A weak modality,
+  support_count, significant PERMANOVA, or significant PERMDISP is not by itself
+  an Accept/Drop rule. PERMANOVA is not independent validation, PERMDISP is not
+  automatic invalidation, and cross-modal evidence cannot directly produce Split
+  or Merge. Missing or non-estimable structural metrics are limitations, not
+  negative evidence.
 
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
