@@ -181,7 +181,12 @@ def accepted_set_catalog(runs: Sequence[Mapping[str, Any]]) -> list[dict[str, An
     return catalog
 
 
-def accepted_set_similarity(catalog: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def accepted_set_similarity(
+    catalog: Sequence[Mapping[str, Any]],
+    *,
+    jaccard_threshold: float = FAMILY_JACCARD_THRESHOLD,
+    overlap_threshold: float = FAMILY_OVERLAP_THRESHOLD,
+) -> list[dict[str, Any]]:
     rows = []
     for left, right in combinations(catalog, 2):
         if left["run_id"] == right["run_id"]:
@@ -197,6 +202,28 @@ def accepted_set_similarity(catalog: Sequence[Mapping[str, Any]]) -> list[dict[s
                 **set_similarity(set(left["member_ids"]), set(right["member_ids"])),
             }
         )
+    for row in rows:
+        if row["jaccard"] < jaccard_threshold or row["overlap"] < overlap_threshold:
+            row["relation_type"] = "below_threshold"
+            continue
+        left_matches = set()
+        right_matches = set()
+        for other in rows:
+            if other["jaccard"] < jaccard_threshold or other["overlap"] < overlap_threshold:
+                continue
+            for node_id, matches in (
+                (row["left_node_id"], left_matches),
+                (row["right_node_id"], right_matches),
+            ):
+                if node_id == other["left_node_id"]:
+                    matches.add(other["right_node_id"])
+                elif node_id == other["right_node_id"]:
+                    matches.add(other["left_node_id"])
+        row["relation_type"] = {
+            (1, 1): "one_to_one",
+            (1, 2): "many_to_one",
+            (2, 1): "one_to_many",
+        }.get((min(len(left_matches), 2), min(len(right_matches), 2)), "many_to_many")
     return rows
 
 
@@ -241,16 +268,41 @@ def accepted_set_families(
     families = []
     for family_number, node_group in enumerate(sorted(components, key=lambda group: group[0]), 1):
         items = [catalog_by_id[node_id] for node_id in node_group]
+        same_run_conflict_count = sum(
+            left["run_id"] == right["run_id"]
+            for left, right in combinations(items, 2)
+        )
         pair_metrics = [
             similarity_by_pair[frozenset((left, right))]
             for left, right in combinations(node_group, 2)
             if frozenset((left, right)) in similarity_by_pair
         ]
+        k_coverage = len({int(item["initial_k"]) for item in items})
+        is_recurrent = len(node_group) >= 2 and k_coverage >= 2
+        is_cohesive = (
+            is_recurrent
+            and same_run_conflict_count == 0
+            and len(pair_metrics) == len(node_group) * (len(node_group) - 1) // 2
+            and all(
+                float(row["jaccard"]) >= jaccard_threshold
+                and float(row["overlap"]) >= overlap_threshold
+                for row in pair_metrics
+            )
+        )
         frequencies = Counter(
             patient_id
             for item in items
             for patient_id in item["member_ids"]
         )
+        k_frequencies = Counter()
+        for initial_k in sorted({int(item["initial_k"]) for item in items}):
+            k_members = {
+                patient_id
+                for item in items
+                if int(item["initial_k"]) == initial_k
+                for patient_id in item["member_ids"]
+            }
+            k_frequencies.update(k_members)
         families.append(
             {
                 "family_id": f"FAMILY{family_number:02d}",
@@ -258,10 +310,16 @@ def accepted_set_families(
                 "run_ids": sorted({item["run_id"] for item in items}),
                 "initial_k_values": sorted({int(item["initial_k"]) for item in items}),
                 "repeat_values": sorted({int(item["repeat"]) for item in items}),
-                "k_coverage": len({int(item["initial_k"]) for item in items}),
+                "k_coverage": k_coverage,
                 "repeat_coverage": len({int(item["repeat"]) for item in items}),
                 "member_ids": sorted(frequencies),
                 "member_frequency": dict(sorted(frequencies.items())),
+                "k_member_frequency": dict(sorted(k_frequencies.items())),
+                "same_run_conflict": same_run_conflict_count > 0,
+                "same_run_conflict_count": same_run_conflict_count,
+                "is_recurrent_relation_component": is_recurrent,
+                "is_cohesive_family": is_cohesive,
+                "is_orphan_set": len(node_group) == 1,
                 "mean_jaccard": float(np.mean([row["jaccard"] for row in pair_metrics])) if pair_metrics else None,
                 "minimum_jaccard": float(np.min([row["jaccard"] for row in pair_metrics])) if pair_metrics else None,
                 "mean_dice": float(np.mean([row["dice"] for row in pair_metrics])) if pair_metrics else None,
@@ -311,9 +369,10 @@ def aggregate_k_levels(
     patient_ids: Sequence[str],
     initial_ks: Sequence[int],
     expected_repeat_count: int,
-) -> tuple[list[dict[str, Any]], list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]]:
+) -> tuple[list[dict[str, Any]], dict[str, list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]]]:
     levels = []
-    matrices = []
+    matrices = {"primary": [], "strict": [], "exploratory": []}
+    primary_minimum = 2 if expected_repeat_count >= 2 else 1
     for initial_k in initial_ks:
         k_runs = [run for run in runs if int(run["initial_k"]) == int(initial_k)]
         level = {
@@ -328,11 +387,35 @@ def aggregate_k_levels(
                 if k_runs
                 else "unavailable"
             ),
+            "primary_eligible": len(k_runs) >= primary_minimum,
+            "strict_eligible": len(k_runs) == expected_repeat_count,
         }
         levels.append(level)
         if k_runs:
-            matrices.append(stability_matrices([run["assignments"] for run in k_runs], patient_ids))
+            matrix = stability_matrices([run["assignments"] for run in k_runs], patient_ids)
+            matrices["exploratory"].append(matrix)
+            if len(k_runs) >= primary_minimum:
+                matrices["primary"].append(matrix)
+            if len(k_runs) == expected_repeat_count:
+                matrices["strict"].append(matrix)
     return levels, matrices
+
+
+def combine_k_matrices(
+    matrices: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if not matrices:
+        raise ValueError("No K-level matrices are available")
+    joint = np.mean([matrix[0] for matrix in matrices], axis=0)
+    coacceptance = np.mean([matrix[1] for matrix in matrices], axis=0)
+    acceptance = np.mean([matrix[3] for matrix in matrices], axis=0)
+    conditional = np.divide(
+        joint,
+        coacceptance,
+        out=np.zeros_like(joint),
+        where=coacceptance > 0,
+    )
+    return joint, coacceptance, conditional, acceptance
 
 
 def extract_cores(
@@ -457,13 +540,25 @@ def analyze(
         for run in runs
     ]
     catalog = accepted_set_catalog(runs)
-    set_similarity_rows = accepted_set_similarity(catalog)
-    families = accepted_set_families(
+    set_similarity_rows = accepted_set_similarity(
+        catalog,
+        jaccard_threshold=family_jaccard_threshold,
+        overlap_threshold=family_overlap_threshold,
+    )
+    relation_components = accepted_set_families(
         catalog,
         set_similarity_rows,
         jaccard_threshold=family_jaccard_threshold,
         overlap_threshold=family_overlap_threshold,
     )
+    recurrent_families = [
+        component
+        for component in relation_components
+        if component["is_recurrent_relation_component"]
+    ]
+    cohesive_families = [
+        component for component in recurrent_families if component["is_cohesive_family"]
+    ]
     pairwise_rows = []
     for left, right in combinations(runs, 2):
         pairwise_rows.append(
@@ -478,11 +573,32 @@ def analyze(
     k_levels, k_matrices = aggregate_k_levels(
         runs, patient_ids, initial_ks, expected_repeat_count=len(repeats)
     )
-    joint, coacceptance, conditional, acceptance = tuple(
-        np.mean([matrix[index] for matrix in k_matrices], axis=0)
-        for index in range(4)
-    )
-    valid_k_count = len(k_matrices)
+    primary_k_matrices = k_matrices["primary"]
+    if not primary_k_matrices:
+        summary = {
+            "experiment": "multi_k_accepted_core_stability",
+            "analysis_status": "primary_unavailable",
+            "expected_run_count": len(initial_ks) * len(repeats),
+            "valid_run_count": len(runs),
+            "k_level_summary": k_levels,
+            "interpretation": "No K level has enough valid repeats for primary consensus analysis.",
+        }
+        write_json(experiment_root / "summary.json", summary)
+        return summary
+    joint, coacceptance, conditional, acceptance = combine_k_matrices(primary_k_matrices)
+    valid_k_count = len(primary_k_matrices)
+    exploratory_k_count = len(k_matrices["exploratory"])
+    strict_k_count = len(k_matrices["strict"])
+    strict_cores = []
+    if k_matrices["strict"]:
+        strict_joint, _, _, strict_acceptance = combine_k_matrices(k_matrices["strict"])
+        strict_cores = extract_cores(
+            strict_joint,
+            strict_acceptance,
+            patient_ids,
+            threshold=2 / 3,
+            min_size=min_core_size,
+        )
     patient_index = {patient_id: index for index, patient_id in enumerate(patient_ids)}
     threshold_rows, cores_by_threshold = [], {}
     for threshold in THRESHOLDS:
@@ -518,6 +634,7 @@ def analyze(
         within_values = within_conditional[pair_indices]
         coacceptance_values = within_coacceptance[pair_indices]
         outside_indices = [index for index in range(len(patient_ids)) if index not in indices]
+        outside_joint = joint[np.ix_(indices, outside_indices)].ravel()
         outside_values = conditional[np.ix_(indices, outside_indices)].ravel()
         recurrence = core_recurrence(members, runs)
         core_rows.append(
@@ -538,6 +655,8 @@ def analyze(
                 "min_within_coacceptance": float(coacceptance_values.min()),
                 "mean_outside_conditional_coassignment": float(outside_values.mean()) if outside_values.size else 0.0,
                 "max_outside_conditional_coassignment": float(outside_values.max()) if outside_values.size else 0.0,
+                "mean_outside_joint_coassignment": float(outside_joint.mean()) if outside_joint.size else 0.0,
+                "max_outside_joint_coassignment": float(outside_joint.max()) if outside_joint.size else 0.0,
                 "mean_acceptance_frequency_across_k": float(acceptance[indices].mean()),
                 "min_acceptance_frequency_across_k": float(acceptance[indices].min()),
                 "member_ids": json.dumps(members, ensure_ascii=False),
@@ -562,18 +681,23 @@ def analyze(
             },
             "member_ids": json.dumps(catalog_by_id[node_id]["member_ids"], ensure_ascii=False),
         }
-        for family in families
+        for family in cohesive_families
         for node_id in family["node_ids"]
     ]
     family_patient_rows = [
         {
             "family_id": family["family_id"],
             "patient_id": patient_id,
-            "occurrence_count": count,
+            "node_occurrence_count": count,
             "node_count": len(family["node_ids"]),
-            "membership_fraction": count / len(family["node_ids"]),
+            "node_membership_fraction": count / len(family["node_ids"]),
+            "k_occurrence_count": family["k_member_frequency"].get(patient_id, 0),
+            "k_coverage": family["k_coverage"],
+            "k_membership_fraction": (
+                family["k_member_frequency"].get(patient_id, 0) / family["k_coverage"]
+            ),
         }
-        for family in families
+        for family in cohesive_families
         for patient_id, count in sorted(family["member_frequency"].items())
     ]
     family_csv_rows = [
@@ -582,7 +706,7 @@ def analyze(
             for key, value in family.items()
             if key != "node_ids"
         }
-        for family in families
+        for family in cohesive_families
     ]
     catalog_csv_rows = [
         {
@@ -601,12 +725,21 @@ def analyze(
     ]
     write_json(experiment_root / "run_summary.json", {"runs": run_rows})
     write_json(experiment_root / "accepted_set_catalog.json", {"sets": catalog})
-    write_json(experiment_root / "accepted_set_families.json", {"families": families})
+    write_json(experiment_root / "accepted_set_relation_components.json", {"components": relation_components})
+    write_json(experiment_root / "accepted_set_families.json", {"families": cohesive_families})
     for name, rows in (
         ("run_summary.csv", run_rows),
         ("pairwise_partition_consistency.csv", pairwise_csv_rows),
         ("accepted_set_catalog.csv", catalog_csv_rows),
         ("accepted_set_similarity.csv", similarity_csv_rows),
+        ("accepted_set_relation_components.csv", [
+            {
+                key: json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value
+                for key, value in component.items()
+                if key != "node_ids"
+            }
+            for component in relation_components
+        ]),
         ("accepted_set_families.csv", family_csv_rows),
         ("accepted_set_family_membership.csv", family_membership_rows),
         ("accepted_set_family_patient_frequency.csv", family_patient_rows),
@@ -699,20 +832,33 @@ def analyze(
         "valid_run_count": len(runs),
         "invalid_run_count": len(execution_rows) - len(runs),
         "valid_k_count": valid_k_count,
+        "exploratory_k_count": exploratory_k_count,
+        "strict_k_count": strict_k_count,
+        "strict_sensitivity": {
+            "core_count": len(strict_cores),
+            "core_patient_count": sum(len(core["member_ids"]) for core in strict_cores),
+            "cores": strict_cores,
+        },
         "k_level_summary": k_levels,
         "partition_assessment_counts": dict(sorted(Counter(
             str(run.get("partition_assessment", "unavailable")) for run in runs
         ).items())),
         "patient_count": len(patient_ids),
         "accepted_only": True,
-        "scientific_denominator": "valid Review runs are aggregated within K, then each available K level receives equal weight",
+        "scientific_denominator": "K levels with at least two valid repeats are primary; valid repeats are aggregated within K, then each primary K receives equal weight",
         "accepted_set_family_definition": {
             "jaccard_threshold": family_jaccard_threshold,
             "overlap_threshold": family_overlap_threshold,
             "cross_run_only": True,
+            "cohesive_family_requires_no_same_run_conflict": True,
+            "cohesive_family_requires_all_pairwise_edges": True,
         },
-        "accepted_set_family_count": len(families),
-        "accepted_set_families": families,
+        "accepted_set_relation_level": "run_level_cross_run; K-level consensus is reported separately in k_level_summary",
+        "accepted_set_relation_component_count": len(relation_components),
+        "recurrent_relation_component_count": len(recurrent_families),
+        "cohesive_family_count": len(cohesive_families),
+        "orphan_set_count": sum(component["is_orphan_set"] for component in relation_components),
+        "accepted_set_families": cohesive_families,
         "primary_core_definition": {
             "acceptance_frequency": primary_threshold,
             "minimum_pairwise_joint_coassignment": primary_threshold,
@@ -801,6 +947,12 @@ def main() -> None:
             [
                 args.data_root / "storage" / "patient_states" / "patient_states.jsonl",
                 args.data_root / "candidate_subtype" / "affinity_patient_order.json",
+                *(
+                    path
+                    for directory in ("candidate_subtype", "wxs", "cnv")
+                    for path in sorted((args.data_root / directory).rglob("*"))
+                    if path.is_file()
+                ),
                 *source_paths.values(),
             ]
         )

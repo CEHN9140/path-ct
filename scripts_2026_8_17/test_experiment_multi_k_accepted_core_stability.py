@@ -47,6 +47,24 @@ def test_set_family_catalog_reports_overlap_and_cross_run_family():
     assert families[0]["k_coverage"] == 2
 
 
+def test_relation_component_with_same_run_conflict_is_not_cohesive_family():
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "repeat": 1, "assignments": {"p1": "A1", "p2": "A1", "p3": "A2", "p4": "A2"}},
+        {"run_id": "run2_K3", "initial_k": 3, "repeat": 2, "assignments": {"p1": "B", "p2": "B", "p3": "B", "p4": "B"}},
+    ]
+    catalog = experiment.accepted_set_catalog(runs)
+    families = experiment.accepted_set_families(
+        catalog,
+        experiment.accepted_set_similarity(catalog),
+        jaccard_threshold=0.5,
+        overlap_threshold=0.8,
+    )
+    assert len(families) == 1
+    assert families[0]["is_recurrent_relation_component"] is True
+    assert families[0]["is_cohesive_family"] is False
+    assert families[0]["same_run_conflict_count"] == 1
+
+
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
     result = experiment.compare_runs({}, {})
     assert result["both_empty"] is True
@@ -80,8 +98,20 @@ def test_aggregate_k_levels_gives_each_available_k_equal_weight():
     ]
     levels, matrices = experiment.aggregate_k_levels(runs, ["p1"], [2, 3], 2)
     assert [level["status"] for level in levels] == ["complete", "low_confidence"]
-    assert len(matrices) == 2
-    assert [matrix[3][0] for matrix in matrices] == [1.0, 0.0]
+    assert len(matrices["primary"]) == 1
+    assert len(matrices["exploratory"]) == 2
+    assert matrices["primary"][0][3][0] == 1.0
+
+
+def test_cross_k_conditional_is_joint_over_coacceptance():
+    matrices = [
+        (np.array([[1.0, 1.0], [1.0, 1.0]]), np.array([[1.0, 1.0], [1.0, 1.0]]), np.ones((2, 2)), np.ones(2)),
+        (np.array([[1.0, 0.0], [0.0, 1.0]]), np.array([[1.0, 0.1], [0.1, 1.0]]), np.zeros((2, 2)), np.ones(2)),
+    ]
+    joint, coacceptance, conditional, _ = experiment.combine_k_matrices(matrices)
+    assert joint[0, 1] == pytest.approx(0.5)
+    assert coacceptance[0, 1] == pytest.approx(0.55)
+    assert conditional[0, 1] == pytest.approx(0.5 / 0.55)
 
 
 def test_extract_cores_uses_joint_recurrence_and_complete_linkage():
