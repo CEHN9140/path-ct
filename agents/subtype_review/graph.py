@@ -205,6 +205,8 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "max_rounds": 10,
             "max_failures": 3,
             "extra_tool_requests": [],
+            "router_validation_error": None,
+            "router_correction_attempted": False,
             "pending_tools": [],
             "budget_evidence": False,
             "trace": [],
@@ -292,6 +294,29 @@ def completed_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
             if not targets:
                 keys.add((*base, ""))
     return keys
+
+
+def available_extra_evidence(
+    state: Mapping[str, Any], runtime: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    tools = registry(runtime)
+    signature = partition_signature(current_sets(state))
+    completed = completed_tool_keys(state)
+    available = []
+    for name, metadata in sorted(tools.items()):
+        if metadata.get("default_every_round") or not metadata.get(
+            "router_requestable", not metadata.get("default_every_round", False)
+        ):
+            continue
+        if metadata["scope"] == "partition":
+            if (name, signature, "") not in completed:
+                available.append({"tool_name": name, "target_ids": []})
+            continue
+        for item in current_sets(state):
+            target = set_id(item)
+            if (name, signature, target) not in completed:
+                available.append({"tool_name": name, "target_ids": [target]})
+    return available
 
 
 def execute_tool_calls(
@@ -563,8 +588,10 @@ def validate_tool_request(
     if request.tool_name not in tools:
         raise ValueError(f"Router requested an unregistered tool: {request.tool_name}")
     metadata = tools[request.tool_name]
-    if metadata["default_every_round"]:
-        raise ValueError("Default tools cannot be requested as extra evidence")
+    if metadata.get("default_every_round") or not metadata.get(
+        "router_requestable", not metadata.get("default_every_round", False)
+    ):
+        raise ValueError(f"Tool {request.tool_name} is not available as extra evidence")
     known = {set_id(item) for item in current_sets(state)}
     targets = set(request.target_ids)
     if not targets.issubset(known) or not targets.issubset(action_targets):
@@ -653,15 +680,35 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             "partition": state["partition"],
             "evidence_reports": summarize_reports(state.get("reports", [])),
             "tool_registry": registry_payload,
+            "available_extra_evidence": available_extra_evidence(state, values),
             "round": int(control.get("round", 0)) + 1,
         }
+        if control.get("router_validation_error"):
+            payload["validation_error"] = control["router_validation_error"]
+            payload["instruction"] = "return a corrected RouterPlan only"
         plan = parse_router_plan(values["router_model"].invoke(payload))
         validate_router_plan(plan, state, values)
     except Exception as exc:
-        mark_failure(state, "router", exc, is_length_finish_error(exc))
+        if is_length_finish_error(exc) or control.get("router_correction_attempted"):
+            mark_failure(state, "router", exc, immediate=True)
+        elif isinstance(exc, ValueError):
+            control["router_correction_attempted"] = True
+            control["router_validation_error"] = f"{type(exc).__name__}: {exc}"
+            control["error"] = control["router_validation_error"]
+            control["next"] = "router"
+            state["control"] = control
+            append_trace(state, {
+                "node": "router",
+                "event": "validation_retry",
+                "error": control["router_validation_error"],
+            })
+        else:
+            mark_failure(state, "router", exc, immediate=False)
         return state
     control["round"] = int(control.get("round", 0)) + 1
     control["error"] = None
+    control["router_validation_error"] = None
+    control["router_correction_attempted"] = False
     state["router_plan"] = plan.model_dump()
     state["history"].append(history_entry(state, plan))
     control["history_index"] = len(state["history"]) - 1

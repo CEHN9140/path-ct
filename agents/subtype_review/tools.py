@@ -109,6 +109,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "tool_name": "clinical_characterization",
         "dimension": "biological_support",
         "default_every_round": False,
+        "router_requestable": False,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "Optional clinical descriptors for the current sets.",

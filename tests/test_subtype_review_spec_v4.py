@@ -16,6 +16,7 @@ from agents.subtype_review.graph import (
     save_review_outputs,
     completed_tool_keys,
     expected_tool_refs_for_round,
+    available_extra_evidence,
     required_reports_for_round,
     validate_reports,
     validate_tool_request,
@@ -39,6 +40,7 @@ def fake_registry():
     registry = {}
     for name, metadata in TOOL_REGISTRY.items():
         registry[name] = {**metadata}
+        registry[name]["router_requestable"] = not metadata["default_every_round"]
 
         def fake_tool(*args, _name=name, **kwargs):
             return {
@@ -145,6 +147,116 @@ def test_tool_registry_uses_real_names_and_separates_default_from_extra():
         if name != "clinical_characterization"
     )
     assert not TOOL_REGISTRY["clinical_characterization"]["default_every_round"]
+
+
+def test_clinical_characterization_is_not_router_requestable():
+    assert TOOL_REGISTRY["clinical_characterization"]["router_requestable"] is False
+
+
+def test_available_extra_evidence_excludes_completed_targets_and_partition_tools():
+    state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
+    tools = fake_registry()
+    tools["extra_partition"] = {
+        "tool_name": "extra_partition", "dimension": "biological_support",
+        "default_every_round": False, "router_requestable": True,
+        "scope": "partition", "function": lambda *args, **kwargs: {},
+    }
+    signature = partition_signature(state["partition"]["sets"])
+    state["round_evidence"] = [
+        {
+            "tool_name": "clinical_characterization", "status": "success",
+            "target_ids": ["C1"], "partition_signature": signature,
+        },
+        {
+            "tool_name": "extra_partition", "status": "scientific_unavailable",
+            "target_ids": [], "partition_signature": signature,
+        },
+    ]
+    available = available_extra_evidence(state, {"tool_registry": tools})
+    assert {tuple(item["target_ids"]) for item in available if item["tool_name"] == "clinical_characterization"} == {("C2",)}
+    assert not any(item["tool_name"] == "extra_partition" for item in available)
+
+
+def test_need_evidence_for_empty_availability_is_rejected():
+    state = make_state(("C1", ["P1"]))
+    tools = fake_registry()
+    signature = partition_signature(state["partition"]["sets"])
+    state["round_evidence"] = [{
+        "tool_name": "clinical_characterization", "status": "success",
+        "target_ids": ["C1"], "partition_signature": signature,
+    }]
+    plan = RouterPlan.model_validate({
+        "actions": [{
+            "action": "need_more_evidence", "target_ids": ["C1"],
+            "tool_requests": [{
+                "tool_name": "clinical_characterization", "target_ids": ["C1"],
+            }],
+        }],
+    })
+    with pytest.raises(ValueError, match="already succeeded|available"):
+        validate_router_plan(plan, state, tools)
+
+
+def test_router_validation_uses_one_correction_retry_only():
+    state = make_state(("C1", ["P1", "P2"]))
+    state["round_evidence"] = [{
+        "tool_name": "clinical_characterization", "status": "success",
+        "target_ids": ["C1"],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+    }]
+
+    class Router:
+        def __init__(self):
+            self.calls = []
+
+        def invoke(self, payload):
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                return {"actions": [{
+                    "action": "need_more_evidence", "target_ids": ["C1"],
+                    "tool_requests": [{
+                        "tool_name": "clinical_characterization", "target_ids": ["C1"],
+                    }],
+                }]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+
+    router = Router()
+    router_node(state, {"tool_registry": fake_registry(), "router_model": router})
+    assert state["control"]["round"] == 0
+    assert state["control"]["router_correction_attempted"] is True
+    router_node(state, {"tool_registry": fake_registry(), "router_model": router})
+    assert len(router.calls) == 2
+    assert router.calls[1]["validation_error"]
+    assert router.calls[1]["available_extra_evidence"] == []
+    assert router.calls[1]["instruction"] == "return a corrected RouterPlan only"
+    assert state["control"]["status"] == "complete"
+
+
+def test_router_second_validation_failure_fails_fast_without_third_call():
+    state = make_state(("C1", ["P1", "P2"]))
+    state["round_evidence"] = [{
+        "tool_name": "clinical_characterization", "status": "success",
+        "target_ids": ["C1"],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+    }]
+
+    class Router:
+        calls = 0
+
+        def invoke(self, payload):
+            self.calls += 1
+            return {"actions": [{
+                "action": "need_more_evidence", "target_ids": ["C1"],
+                "tool_requests": [{
+                    "tool_name": "clinical_characterization", "target_ids": ["C1"],
+                }],
+            }]}
+
+    router = Router()
+    router_node(state, {"tool_registry": fake_registry(), "router_model": router})
+    router_node(state, {"tool_registry": fake_registry(), "router_model": router})
+    assert router.calls == 2
+    assert state["control"]["status"] == "review_unavailable"
 
 
 def test_router_requires_complete_nonoverlapping_coverage():
@@ -270,7 +382,10 @@ def test_successful_extra_tool_in_current_round_cannot_be_requested_again():
     }
     assert completed_tool_keys(state)
     with pytest.raises(ValueError, match="already succeeded"):
-        validate_tool_request(ToolRequest.model_validate(request), state, fake_registry(), {"C1"})
+        validate_tool_request(
+            ToolRequest.model_validate(request), state,
+            {"tool_registry": fake_registry()}, {"C1"},
+        )
 
 
 def test_scientific_unavailable_extra_tool_cannot_be_requested_again():
@@ -285,7 +400,7 @@ def test_scientific_unavailable_extra_tool_cannot_be_requested_again():
         validate_tool_request(
             ToolRequest(tool_name="clinical_characterization", target_ids=["C1"]),
             state,
-            fake_registry(),
+            {"tool_registry": fake_registry()},
             {"C1"},
         )
 
