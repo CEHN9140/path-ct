@@ -18,6 +18,15 @@ def test_scientifically_terminal_requires_normal_completion():
     assert not experiment.scientifically_terminal({"status": "review_incomplete_due_to_round_budget", "raw_control_status": "review_incomplete_due_to_round_budget"})
 
 
+def test_review_failure_stops_by_default_but_can_be_explicitly_continued():
+    failed = {"status": "review_unavailable", "raw_control_status": "review_unavailable"}
+    assert experiment.should_stop_after_review(failed, False)
+    assert not experiment.should_stop_after_review(failed, True)
+    assert not experiment.should_stop_after_review(
+        {"status": "review_complete", "raw_control_status": "complete"}, False
+    )
+
+
 def test_compare_runs_uses_shared_accepted_patients():
     result = experiment.compare_runs(
         {"p1": "A", "p2": "A", "p3": "B"},

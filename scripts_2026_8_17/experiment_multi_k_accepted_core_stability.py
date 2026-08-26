@@ -93,6 +93,12 @@ def scientifically_terminal(summary: Mapping[str, Any]) -> bool:
     )
 
 
+def should_stop_after_review(
+    summary: Mapping[str, Any], continue_on_review_failure: bool
+) -> bool:
+    return not continue_on_review_failure and not scientifically_terminal(summary)
+
+
 def set_similarity(left: set[str], right: set[str]) -> dict[str, float]:
     intersection = len(left & right)
     union = len(left | right)
@@ -1226,6 +1232,7 @@ def main() -> None:
     parser.add_argument("--family-overlap-threshold", type=float, default=FAMILY_OVERLAP_THRESHOLD)
     parser.add_argument("--analyze-only", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--continue-on-review-failure", action="store_true")
     args = parser.parse_args()
     initial_ks = sorted(set(args.initial_k or INITIAL_KS))
     repeats = sorted(set(args.repeat or REPEATS))
@@ -1350,6 +1357,11 @@ def main() -> None:
                     },
                 )
                 print(f"[complete] run{repeat}/K{initial_k}: {summary['status']}")
+                if should_stop_after_review(summary, args.continue_on_review_failure):
+                    raise RuntimeError(
+                        f"Subtype Review failed for run{repeat}/K{initial_k}: "
+                        f"{summary.get('status', 'unknown')}"
+                    )
 
     summary = analyze(
         args.experiment_root,
