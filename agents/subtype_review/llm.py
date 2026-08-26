@@ -287,7 +287,7 @@ class VerifierChatModel:
                     return last
                 except Exception as next_exc:
                     exc = next_exc
-            raise RuntimeError("Verifier report failed schema validation")
+            raise RuntimeError(f"Verifier report failed schema validation: {exc}")
 
 
 class LocalVerifierModel:
