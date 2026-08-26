@@ -31,8 +31,108 @@ Medical interpretation must not introduce prognosis, aggressiveness, treatment r
 
 For RNA, WXS, and CNV, summarize the dominant coherent pattern and at most 1–3 representative findings per modality when needed; do not reproduce every Top5 row.
 
-Return only:
+Output format requirements:
 
-\`\`\`json
-{"reports":[{"dimension":"cross_modal_consistency","scope":"set_identity","target_ids":["C1"],"observations":[],"statistical_interpretation":"","medical_interpretation":"","limitations":[],"tool_refs":["multimodal_consistency_check"]}]}
-\`\`\`
+Return exactly one JSON object with a single top-level key `reports`.
+
+Every report MUST contain exactly these fields:
+- `dimension`
+- `scope`
+- `target_ids`
+- `observations`
+- `statistical_interpretation`
+- `medical_interpretation`
+- `limitations`
+- `tool_refs`
+
+Do NOT output `metric_refs`; Python adds them deterministically after validation.
+Do NOT add any other report-level fields.
+
+Every item in `observations` MUST be a JSON object with exactly these two fields:
+
+{
+  "metric": "<short metric or evidence-family name>",
+  "finding": "<concise quantitative finding grounded in ToolMessage metrics>"
+}
+
+Both `metric` and `finding` are required strings.
+
+Never:
+- put the finding text inside `metric`;
+- omit `finding`;
+- use `detail`, `details`, `description`, `evidence`, `result`, or `value`
+  instead of `finding`;
+- output an observation as a bare string;
+- add extra fields to an observation.
+
+A set-level report must use:
+{
+  "scope": "set_identity",
+  "target_ids": ["<exact current set id>"]
+}
+
+A partition-level report must use:
+{
+  "scope": "partition",
+  "target_ids": []
+}
+
+Example of the required JSON shape:
+
+```json
+{
+  "reports": [
+    {
+      "dimension": "biological_support",
+      "scope": "set_identity",
+      "target_ids": ["C0001"],
+      "observations": [
+        {
+          "metric": "RNA Hallmark ssGSEA",
+          "finding": "Representative pathways show quantitatively distinct activity with reported SMD, direction, availability counts, and BH-q values."
+        },
+        {
+          "metric": "WXS mutation enrichment",
+          "finding": "Representative mutation differences are summarized using set/rest frequencies, odds ratio, 95% confidence interval, Fisher p-value, and BH-q."
+        },
+        {
+          "metric": "CNV characterization",
+          "finding": "Representative copy-number differences are summarized using Cliff's delta or alteration frequencies, direction, effect size, and BH-q."
+        }
+      ],
+      "statistical_interpretation": "Interpret the supplied effect sizes, uncertainty, multiple-testing correction, estimability, and coherence across the available biological evidence.",
+      "medical_interpretation": "Provide a conservative medical interpretation grounded only in the supplied ToolMessage evidence.",
+      "limitations": [
+        "State concrete limitations supported by the supplied data."
+      ],
+      "tool_refs": [
+        "pathway_enrichment",
+        "mutation_enrichment",
+        "cnv_characterization"
+      ]
+    },
+    {
+      "dimension": "known_label_echo",
+      "scope": "partition",
+      "target_ids": [],
+      "observations": [
+        {
+          "metric": "Stage overlap",
+          "finding": "Summarize ARI, homogeneity, and completeness for stage using the supplied values."
+        },
+        {
+          "metric": "Grade overlap",
+          "finding": "Summarize ARI, homogeneity, and completeness for grade using the supplied values."
+        }
+      ],
+      "statistical_interpretation": "Describe the degree of overlap or concordance without calling these metrics statistical independence.",
+      "medical_interpretation": "Explain only whether the partition appears to be a simple stage or grade echo; do not claim molecular novelty.",
+      "limitations": [
+        "Only the supplied assessable known labels are evaluated."
+      ],
+      "tool_refs": [
+        "known_label_echo_test"
+      ]
+    }
+  ]
+}
