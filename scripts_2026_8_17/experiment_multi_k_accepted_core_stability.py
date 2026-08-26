@@ -411,27 +411,6 @@ def cohesive_set_families(
                 for item in items
                 for patient_id in item["member_ids"]
             )
-            member_count_by_k = {
-                initial_k: Counter(
-                    patient_id
-                    for item in items
-                    if int(item["initial_k"]) == initial_k
-                    for patient_id in item["member_ids"]
-                )
-                for initial_k in node_count_by_k
-            }
-            k_member_frequency = Counter(
-                patient_id
-                for counts in member_count_by_k.values()
-                for patient_id in counts
-            )
-            k_membership_fraction = {
-                patient_id: {
-                    str(initial_k): counts.get(patient_id, 0) / node_count_by_k[initial_k]
-                    for initial_k, counts in member_count_by_k.items()
-                }
-                for patient_id in sorted(member_frequency)
-            }
             families.append(
                 {
                     "family_id": f"FAMILY{len(families) + 1:02d}",
@@ -444,8 +423,6 @@ def cohesive_set_families(
                     "repeat_coverage": len({int(item["repeat"]) for item in items}),
                     "member_ids": sorted(member_frequency),
                     "member_frequency": dict(sorted(member_frequency.items())),
-                    "k_member_frequency": dict(sorted(k_member_frequency.items())),
-                    "k_membership_fraction": k_membership_fraction,
                     "same_run_conflict": False,
                     "same_run_conflict_count": 0,
                     "is_recurrent_relation_component": True,
@@ -460,6 +437,87 @@ def cohesive_set_families(
                 }
             )
     return families
+
+
+def family_layer(
+    runs: Sequence[Mapping[str, Any]],
+    *,
+    jaccard_threshold: float,
+    overlap_threshold: float,
+) -> dict[str, Any]:
+    catalog = accepted_set_catalog(runs)
+    similarities = accepted_set_similarity(
+        catalog,
+        jaccard_threshold=jaccard_threshold,
+        overlap_threshold=overlap_threshold,
+    )
+    components = accepted_set_families(
+        catalog,
+        similarities,
+        jaccard_threshold=jaccard_threshold,
+        overlap_threshold=overlap_threshold,
+    )
+    families = cohesive_set_families(
+        catalog,
+        similarities,
+        components,
+        jaccard_threshold=jaccard_threshold,
+        overlap_threshold=overlap_threshold,
+    )
+    runs_by_k: dict[int, list[Mapping[str, Any]]] = {}
+    catalog_by_id = {str(item["node_id"]): item for item in catalog}
+    for run in runs:
+        runs_by_k.setdefault(int(run["initial_k"]), []).append(run)
+    for family in families:
+        family_nodes = {
+            node_id: catalog_by_id[node_id]
+            for node_id in family["node_ids"]
+        }
+        family_nodes_by_run = {
+            item["run_id"]: item for item in family_nodes.values()
+        }
+        presence_count_by_k = {}
+        valid_count_by_k = {}
+        conditional_by_patient: dict[str, dict[str, float | None]] = {
+            patient_id: {} for patient_id in family["member_ids"]
+        }
+        unconditional_by_patient: dict[str, dict[str, float]] = {
+            patient_id: {} for patient_id in family["member_ids"]
+        }
+        for initial_k, k_runs in sorted(runs_by_k.items()):
+            present_items = [
+                family_nodes_by_run[run["run_id"]]
+                for run in k_runs
+                if run["run_id"] in family_nodes_by_run
+            ]
+            valid_count_by_k[str(initial_k)] = len(k_runs)
+            presence_count_by_k[str(initial_k)] = len(present_items)
+            for patient_id in family["member_ids"]:
+                present_count = sum(
+                    patient_id in item["member_ids"] for item in present_items
+                )
+                conditional_by_patient[patient_id][str(initial_k)] = (
+                    present_count / len(present_items) if present_items else None
+                )
+                unconditional_by_patient[patient_id][str(initial_k)] = (
+                    present_count / len(k_runs) if k_runs else 0.0
+                )
+        family["family_presence_count_by_k"] = presence_count_by_k
+        family["family_valid_run_count_by_k"] = valid_count_by_k
+        family["family_presence_fraction_by_k"] = {
+            initial_k: presence_count_by_k[initial_k] / valid_count_by_k[initial_k]
+            if valid_count_by_k[initial_k]
+            else 0.0
+            for initial_k in valid_count_by_k
+        }
+        family["patient_membership_given_family_present_by_k"] = conditional_by_patient
+        family["patient_unconditional_membership_by_k"] = unconditional_by_patient
+    return {
+        "catalog": catalog,
+        "similarities": similarities,
+        "components": components,
+        "families": families,
+    }
 
 
 def stability_matrices(
@@ -670,50 +728,53 @@ def analyze(
         {key: value for key, value in run.items() if key != "assignments"}
         for run in runs
     ]
-    catalog = accepted_set_catalog(runs)
-    set_similarity_rows = accepted_set_similarity(
-        catalog,
-        jaccard_threshold=family_jaccard_threshold,
-        overlap_threshold=family_overlap_threshold,
+    k_levels, k_matrices = aggregate_k_levels(
+        runs, patient_ids, initial_ks, expected_repeat_count=len(repeats)
     )
-    relation_components = accepted_set_families(
-        catalog,
-        set_similarity_rows,
-        jaccard_threshold=family_jaccard_threshold,
-        overlap_threshold=family_overlap_threshold,
-    )
+    primary_ks = {
+        int(level["initial_k"])
+        for level in k_levels
+        if level["primary_eligible"]
+    }
+    strict_ks = {
+        int(level["initial_k"])
+        for level in k_levels
+        if level["strict_eligible"]
+    }
+    family_layers = {
+        "primary": family_layer(
+            [run for run in runs if int(run["initial_k"]) in primary_ks],
+            jaccard_threshold=family_jaccard_threshold,
+            overlap_threshold=family_overlap_threshold,
+        ),
+        "strict": family_layer(
+            [run for run in runs if int(run["initial_k"]) in strict_ks],
+            jaccard_threshold=family_jaccard_threshold,
+            overlap_threshold=family_overlap_threshold,
+        ),
+        "exploratory": family_layer(
+            runs,
+            jaccard_threshold=family_jaccard_threshold,
+            overlap_threshold=family_overlap_threshold,
+        ),
+    }
+    primary_layer = family_layers["primary"]
+    catalog = primary_layer["catalog"]
+    set_similarity_rows = primary_layer["similarities"]
+    relation_components = primary_layer["components"]
+    cohesive_families = primary_layer["families"]
     recurrent_families = [
         component
         for component in relation_components
         if component["is_recurrent_relation_component"]
     ]
-    cohesive_families = cohesive_set_families(
-        catalog,
-        set_similarity_rows,
-        relation_components,
-        jaccard_threshold=family_jaccard_threshold,
-        overlap_threshold=family_overlap_threshold,
-    )
     family_threshold_rows = []
     for jaccard_threshold, overlap_threshold in sorted({
         *FAMILY_THRESHOLD_GRID,
         (family_jaccard_threshold, family_overlap_threshold),
     }):
-        threshold_similarities = accepted_set_similarity(
-            catalog,
-            jaccard_threshold=jaccard_threshold,
-            overlap_threshold=overlap_threshold,
-        )
-        threshold_components = accepted_set_families(
-            catalog,
-            threshold_similarities,
-            jaccard_threshold=jaccard_threshold,
-            overlap_threshold=overlap_threshold,
-        )
-        threshold_families = cohesive_set_families(
-            catalog,
-            threshold_similarities,
-            threshold_components,
+        threshold_layer = family_layer(
+            [run for run in runs if int(run["initial_k"]) in primary_ks],
             jaccard_threshold=jaccard_threshold,
             overlap_threshold=overlap_threshold,
         )
@@ -721,13 +782,17 @@ def analyze(
             {
                 "jaccard_threshold": jaccard_threshold,
                 "overlap_threshold": overlap_threshold,
-                "relation_component_count": len(threshold_components),
+                "relation_component_count": len(threshold_layer["components"]),
                 "recurrent_relation_component_count": sum(
-                    item["is_recurrent_relation_component"] for item in threshold_components
+                    item["is_recurrent_relation_component"]
+                    for item in threshold_layer["components"]
                 ),
-                "cohesive_family_count": len(threshold_families),
+                "cohesive_family_count": len(threshold_layer["families"]),
                 "cohesive_family_sizes": json.dumps(
-                    sorted((len(item["member_ids"]) for item in threshold_families), reverse=True)
+                    sorted(
+                        (len(item["member_ids"]) for item in threshold_layer["families"]),
+                        reverse=True,
+                    )
                 ),
             }
         )
@@ -742,9 +807,6 @@ def analyze(
             }
         )
 
-    k_levels, k_matrices = aggregate_k_levels(
-        runs, patient_ids, initial_ks, expected_repeat_count=len(repeats)
-    )
     primary_k_matrices = k_matrices["primary"]
     if not primary_k_matrices:
         summary = {
@@ -863,15 +925,18 @@ def analyze(
             "node_occurrence_count": count,
             "node_count": len(family["node_ids"]),
             "node_membership_fraction": count / len(family["node_ids"]),
-            "k_occurrence_count": family["k_member_frequency"].get(patient_id, 0),
-            "k_coverage": family["k_coverage"],
-            "k_membership_fraction": (
-                np.mean(list(family["k_membership_fraction"].get(patient_id, {}).values()))
-                if family["k_membership_fraction"].get(patient_id)
-                else 0.0
+            "family_present_k_count": sum(
+                value > 0 for value in family["family_presence_count_by_k"].values()
             ),
-            "k_membership_fraction_by_k": json.dumps(
-                family["k_membership_fraction"].get(patient_id, {}),
+            "family_presence_fraction_by_k": json.dumps(
+                family["family_presence_fraction_by_k"], ensure_ascii=False
+            ),
+            "patient_membership_given_family_present_by_k": json.dumps(
+                family["patient_membership_given_family_present_by_k"][patient_id],
+                ensure_ascii=False,
+            ),
+            "patient_unconditional_membership_by_k": json.dumps(
+                family["patient_unconditional_membership_by_k"][patient_id],
                 ensure_ascii=False,
             ),
         }
@@ -905,6 +970,21 @@ def analyze(
     write_json(experiment_root / "accepted_set_catalog.json", {"sets": catalog})
     write_json(experiment_root / "accepted_set_relation_components.json", {"components": relation_components})
     write_json(experiment_root / "accepted_set_families.json", {"families": cohesive_families})
+    for level, layer in family_layers.items():
+        if level == "primary":
+            continue
+        write_json(
+            experiment_root / f"{level}_accepted_set_catalog.json",
+            {"sets": layer["catalog"]},
+        )
+        write_json(
+            experiment_root / f"{level}_accepted_set_relation_components.json",
+            {"components": layer["components"]},
+        )
+        write_json(
+            experiment_root / f"{level}_accepted_set_families.json",
+            {"families": layer["families"]},
+        )
     for name, rows in (
         ("run_summary.csv", run_rows),
         ("pairwise_partition_consistency.csv", pairwise_csv_rows),
@@ -1042,6 +1122,16 @@ def analyze(
         "accepted_set_relation_component_count": len(relation_components),
         "recurrent_relation_component_count": len(recurrent_families),
         "cohesive_family_count": len(cohesive_families),
+        "strict_cohesive_family_count": len(family_layers["strict"]["families"]),
+        "exploratory_cohesive_family_count": len(family_layers["exploratory"]["families"]),
+        "primary_family_k_values": sorted(primary_ks),
+        "strict_family_k_values": sorted(strict_ks),
+        "exploratory_family_k_values": sorted({int(run["initial_k"]) for run in runs}),
+        "family_level_denominator": {
+            "primary": "K levels with at least two valid repeats",
+            "strict": "K levels with all expected repeats valid",
+            "exploratory": "all scientifically terminal runs",
+        },
         "orphan_set_count": sum(component["is_orphan_set"] for component in relation_components),
         "accepted_set_families": cohesive_families,
         "family_threshold_sensitivity": family_threshold_rows,

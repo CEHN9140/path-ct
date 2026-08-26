@@ -114,17 +114,50 @@ def test_cohesive_family_reports_within_k_membership_fraction():
         {"run_id": "run2_K2", "initial_k": 2, "repeat": 2, "assignments": {"p1": "B", "p2": "B"}},
         {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "C"}},
     ]
-    catalog = experiment.accepted_set_catalog(runs)
-    similarities = experiment.accepted_set_similarity(catalog)
-    components = experiment.accepted_set_families(
-        catalog, similarities, jaccard_threshold=0.5, overlap_threshold=0.8
-    )
-    families = experiment.cohesive_set_families(
-        catalog, similarities, components, jaccard_threshold=0.5, overlap_threshold=0.8
-    )
+    families = experiment.family_layer(
+        runs, jaccard_threshold=0.5, overlap_threshold=0.8
+    )["families"]
     assert len(families) == 1
-    assert families[0]["k_membership_fraction"]["p2"] == {"2": 1.0, "3": 0.0}
-    assert families[0]["k_membership_fraction"]["p1"] == {"2": 1.0, "3": 1.0}
+    assert families[0]["patient_unconditional_membership_by_k"]["p2"] == {
+        "2": 1.0, "3": 0.0
+    }
+    assert families[0]["patient_unconditional_membership_by_k"]["p1"] == {
+        "2": 1.0, "3": 1.0
+    }
+
+
+def test_family_presence_and_unconditional_membership_include_missing_repeats():
+    runs = [
+        {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "A", "p2": "A"}},
+        {"run_id": "run1_K4", "initial_k": 4, "repeat": 1, "assignments": {"p1": "B", "p2": "B"}},
+        {"run_id": "run2_K4", "initial_k": 4, "repeat": 2, "assignments": {"p3": "C"}},
+        {"run_id": "run3_K4", "initial_k": 4, "repeat": 3, "assignments": {"p4": "D"}},
+    ]
+    families = experiment.family_layer(
+        runs, jaccard_threshold=0.5, overlap_threshold=0.8
+    )["families"]
+    family = families[0]
+    assert family["family_presence_fraction_by_k"]["4"] == pytest.approx(1 / 3)
+    assert family["patient_membership_given_family_present_by_k"]["p1"]["4"] == 1.0
+    assert family["patient_unconditional_membership_by_k"]["p1"]["4"] == pytest.approx(1 / 3)
+
+
+def test_primary_families_exclude_k_with_only_one_valid_repeat(tmp_path):
+    for initial_k, repeat in ((4, 1), (4, 2), (5, 1)):
+        run_root = tmp_path / f"run{repeat}" / f"K{initial_k}"
+        run_root.mkdir(parents=True)
+        (run_root / "run_metadata.json").write_text("{}")
+        (run_root / "final_review_summary.json").write_text(json.dumps({
+            "status": "review_complete",
+            "raw_control_status": "complete",
+            "accepted_subtype_sets": [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+        }))
+    summary = experiment.analyze(tmp_path, ["p1", "p2"], [4, 5], [1, 2, 3], 2)
+    assert summary["primary_family_k_values"] == [4]
+    primary_catalog = json.loads((tmp_path / "accepted_set_catalog.json").read_text())
+    exploratory_catalog = json.loads((tmp_path / "exploratory_accepted_set_catalog.json").read_text())
+    assert {item["initial_k"] for item in primary_catalog["sets"]} == {4}
+    assert {item["initial_k"] for item in exploratory_catalog["sets"]} == {4, 5}
 
 
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
