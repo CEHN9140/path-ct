@@ -65,6 +65,68 @@ def test_relation_component_with_same_run_conflict_is_not_cohesive_family():
     assert families[0]["same_run_conflict_count"] == 1
 
 
+def test_relation_type_is_scoped_to_the_two_runs_being_compared():
+    runs = [
+        {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "A"}},
+        {"run_id": "run1_K4", "initial_k": 4, "repeat": 1, "assignments": {"p1": "B"}},
+        {"run_id": "run1_K5", "initial_k": 5, "repeat": 1, "assignments": {"p1": "C"}},
+    ]
+    rows = experiment.accepted_set_similarity(experiment.accepted_set_catalog(runs))
+    assert {row["relation_type"] for row in rows} == {"one_to_one"}
+
+
+def test_relation_type_reports_many_to_one_within_a_run_pair():
+    runs = [
+        {
+            "run_id": "run1_K3",
+            "initial_k": 3,
+            "repeat": 1,
+            "assignments": {"p1": "A1", "p2": "A1", "p3": "A2", "p4": "A2"},
+        },
+        {
+            "run_id": "run2_K4",
+            "initial_k": 4,
+            "repeat": 2,
+            "assignments": {"p1": "B", "p2": "B", "p3": "B", "p4": "B"},
+        },
+    ]
+    rows = experiment.accepted_set_similarity(experiment.accepted_set_catalog(runs))
+    assert {row["relation_type"] for row in rows} == {"many_to_one"}
+
+
+def test_cohesive_subfamily_is_recovered_inside_a_bridged_component():
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "repeat": 1, "assignments": {"p1": "A", "p2": "A"}},
+        {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "B", "p2": "B"}},
+        {"run_id": "run1_K4", "initial_k": 4, "repeat": 1, "assignments": {"p1": "C", "p2": "C", "p3": "C", "p4": "C"}},
+        {"run_id": "run1_K5", "initial_k": 5, "repeat": 1, "assignments": {"p1": "D", "p2": "D", "p3": "D", "p4": "D", "p5": "D"}},
+    ]
+    catalog = experiment.accepted_set_catalog(runs)
+    similarities = experiment.accepted_set_similarity(catalog)
+    components = experiment.accepted_set_families(catalog, similarities, jaccard_threshold=0.5, overlap_threshold=0.8)
+    families = experiment.cohesive_set_families(catalog, similarities, components, jaccard_threshold=0.5, overlap_threshold=0.8)
+    assert families[0]["node_ids"] == ["run1_K2::A", "run1_K3::B", "run1_K4::C"]
+
+
+def test_cohesive_family_reports_within_k_membership_fraction():
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "repeat": 1, "assignments": {"p1": "A", "p2": "A"}},
+        {"run_id": "run2_K2", "initial_k": 2, "repeat": 2, "assignments": {"p1": "B", "p2": "B"}},
+        {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "C"}},
+    ]
+    catalog = experiment.accepted_set_catalog(runs)
+    similarities = experiment.accepted_set_similarity(catalog)
+    components = experiment.accepted_set_families(
+        catalog, similarities, jaccard_threshold=0.5, overlap_threshold=0.8
+    )
+    families = experiment.cohesive_set_families(
+        catalog, similarities, components, jaccard_threshold=0.5, overlap_threshold=0.8
+    )
+    assert len(families) == 1
+    assert families[0]["k_membership_fraction"]["p2"] == {"2": 1.0, "3": 0.0}
+    assert families[0]["k_membership_fraction"]["p1"] == {"2": 1.0, "3": 1.0}
+
+
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
     result = experiment.compare_runs({}, {})
     assert result["both_empty"] is True

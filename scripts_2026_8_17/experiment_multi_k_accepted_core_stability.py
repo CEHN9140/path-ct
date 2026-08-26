@@ -37,6 +37,14 @@ REPEATS = (1, 2, 3)
 THRESHOLDS = (0.5, 2 / 3, 0.75, 0.8)
 FAMILY_JACCARD_THRESHOLD = 0.5
 FAMILY_OVERLAP_THRESHOLD = 0.8
+FAMILY_THRESHOLD_GRID = (
+    (0.5, 0.8),
+    (0.5, 1.0),
+    (2 / 3, 0.8),
+    (2 / 3, 1.0),
+    (0.75, 0.8),
+    (0.75, 1.0),
+)
 MIN_CONCURRENT_ACCEPTED_RUNS_FOR_CONDITIONAL_PLOT = 2
 DEFAULT_DATA_ROOT = ROOT / "output_kirc"
 DEFAULT_EXPERIMENT_ROOT = (
@@ -206,14 +214,29 @@ def accepted_set_similarity(
         if row["jaccard"] < jaccard_threshold or row["overlap"] < overlap_threshold:
             row["relation_type"] = "below_threshold"
             continue
+        run_pair = tuple(sorted((row["left_run_id"], row["right_run_id"])))
+        node_a = (
+            row["left_node_id"]
+            if row["left_run_id"] == run_pair[0]
+            else row["right_node_id"]
+        )
+        node_b = (
+            row["right_node_id"]
+            if row["right_run_id"] == run_pair[1]
+            else row["left_node_id"]
+        )
         left_matches = set()
         right_matches = set()
         for other in rows:
-            if other["jaccard"] < jaccard_threshold or other["overlap"] < overlap_threshold:
+            if (
+                tuple(sorted((other["left_run_id"], other["right_run_id"]))) != run_pair
+                or other["jaccard"] < jaccard_threshold
+                or other["overlap"] < overlap_threshold
+            ):
                 continue
             for node_id, matches in (
-                (row["left_node_id"], left_matches),
-                (row["right_node_id"], right_matches),
+                (node_a, left_matches),
+                (node_b, right_matches),
             ):
                 if node_id == other["left_node_id"]:
                     matches.add(other["right_node_id"])
@@ -328,6 +351,114 @@ def accepted_set_families(
                 "minimum_overlap": float(np.min([row["overlap"] for row in pair_metrics])) if pair_metrics else None,
             }
         )
+    return families
+
+
+def cohesive_set_families(
+    catalog: Sequence[Mapping[str, Any]],
+    similarities: Sequence[Mapping[str, Any]],
+    relation_components: Sequence[Mapping[str, Any]],
+    *,
+    jaccard_threshold: float,
+    overlap_threshold: float,
+) -> list[dict[str, Any]]:
+    catalog_by_id = {str(item["node_id"]): item for item in catalog}
+    similarity_by_pair = {
+        frozenset((row["left_node_id"], row["right_node_id"])): row
+        for row in similarities
+    }
+    families = []
+    for component in relation_components:
+        node_ids = [str(node_id) for node_id in component["node_ids"]]
+        if len(node_ids) < 2:
+            continue
+        distances = np.ones((len(node_ids), len(node_ids)), dtype=float)
+        np.fill_diagonal(distances, 0)
+        for left_index, left_id in enumerate(node_ids):
+            for right_index in range(left_index + 1, len(node_ids)):
+                right_id = node_ids[right_index]
+                row = similarity_by_pair.get(frozenset((left_id, right_id)))
+                if (
+                    row
+                    and row.get("relation_type") == "one_to_one"
+                    and float(row["jaccard"]) >= jaccard_threshold
+                    and float(row["overlap"]) >= overlap_threshold
+                ):
+                    distances[left_index, right_index] = 0
+                    distances[right_index, left_index] = 0
+        labels = fcluster(
+            linkage(squareform(distances, checks=False), method="complete"),
+            t=1 - 1e-12,
+            criterion="distance",
+        )
+        for label in sorted(set(labels)):
+            group = [node_ids[index] for index, value in enumerate(labels) if value == label]
+            items = [catalog_by_id[node_id] for node_id in group]
+            if len(group) < 2 or len({int(item["initial_k"]) for item in items}) < 2:
+                continue
+            pair_metrics = [
+                similarity_by_pair[frozenset((left, right))]
+                for left, right in combinations(group, 2)
+            ]
+            if any(
+                row.get("relation_type") != "one_to_one"
+                for row in pair_metrics
+            ):
+                continue
+            node_count_by_k = Counter(int(item["initial_k"]) for item in items)
+            member_frequency = Counter(
+                patient_id
+                for item in items
+                for patient_id in item["member_ids"]
+            )
+            member_count_by_k = {
+                initial_k: Counter(
+                    patient_id
+                    for item in items
+                    if int(item["initial_k"]) == initial_k
+                    for patient_id in item["member_ids"]
+                )
+                for initial_k in node_count_by_k
+            }
+            k_member_frequency = Counter(
+                patient_id
+                for counts in member_count_by_k.values()
+                for patient_id in counts
+            )
+            k_membership_fraction = {
+                patient_id: {
+                    str(initial_k): counts.get(patient_id, 0) / node_count_by_k[initial_k]
+                    for initial_k, counts in member_count_by_k.items()
+                }
+                for patient_id in sorted(member_frequency)
+            }
+            families.append(
+                {
+                    "family_id": f"FAMILY{len(families) + 1:02d}",
+                    "relation_component_id": component["family_id"],
+                    "node_ids": sorted(group),
+                    "run_ids": sorted({item["run_id"] for item in items}),
+                    "initial_k_values": sorted(node_count_by_k),
+                    "repeat_values": sorted({int(item["repeat"]) for item in items}),
+                    "k_coverage": len(node_count_by_k),
+                    "repeat_coverage": len({int(item["repeat"]) for item in items}),
+                    "member_ids": sorted(member_frequency),
+                    "member_frequency": dict(sorted(member_frequency.items())),
+                    "k_member_frequency": dict(sorted(k_member_frequency.items())),
+                    "k_membership_fraction": k_membership_fraction,
+                    "same_run_conflict": False,
+                    "same_run_conflict_count": 0,
+                    "is_recurrent_relation_component": True,
+                    "is_cohesive_family": True,
+                    "is_orphan_set": False,
+                    "mean_jaccard": float(np.mean([row["jaccard"] for row in pair_metrics])),
+                    "minimum_jaccard": float(np.min([row["jaccard"] for row in pair_metrics])),
+                    "mean_dice": float(np.mean([row["dice"] for row in pair_metrics])),
+                    "minimum_dice": float(np.min([row["dice"] for row in pair_metrics])),
+                    "mean_overlap": float(np.mean([row["overlap"] for row in pair_metrics])),
+                    "minimum_overlap": float(np.min([row["overlap"] for row in pair_metrics])),
+                }
+            )
     return families
 
 
@@ -556,9 +687,50 @@ def analyze(
         for component in relation_components
         if component["is_recurrent_relation_component"]
     ]
-    cohesive_families = [
-        component for component in recurrent_families if component["is_cohesive_family"]
-    ]
+    cohesive_families = cohesive_set_families(
+        catalog,
+        set_similarity_rows,
+        relation_components,
+        jaccard_threshold=family_jaccard_threshold,
+        overlap_threshold=family_overlap_threshold,
+    )
+    family_threshold_rows = []
+    for jaccard_threshold, overlap_threshold in sorted({
+        *FAMILY_THRESHOLD_GRID,
+        (family_jaccard_threshold, family_overlap_threshold),
+    }):
+        threshold_similarities = accepted_set_similarity(
+            catalog,
+            jaccard_threshold=jaccard_threshold,
+            overlap_threshold=overlap_threshold,
+        )
+        threshold_components = accepted_set_families(
+            catalog,
+            threshold_similarities,
+            jaccard_threshold=jaccard_threshold,
+            overlap_threshold=overlap_threshold,
+        )
+        threshold_families = cohesive_set_families(
+            catalog,
+            threshold_similarities,
+            threshold_components,
+            jaccard_threshold=jaccard_threshold,
+            overlap_threshold=overlap_threshold,
+        )
+        family_threshold_rows.append(
+            {
+                "jaccard_threshold": jaccard_threshold,
+                "overlap_threshold": overlap_threshold,
+                "relation_component_count": len(threshold_components),
+                "recurrent_relation_component_count": sum(
+                    item["is_recurrent_relation_component"] for item in threshold_components
+                ),
+                "cohesive_family_count": len(threshold_families),
+                "cohesive_family_sizes": json.dumps(
+                    sorted((len(item["member_ids"]) for item in threshold_families), reverse=True)
+                ),
+            }
+        )
     pairwise_rows = []
     for left, right in combinations(runs, 2):
         pairwise_rows.append(
@@ -694,7 +866,13 @@ def analyze(
             "k_occurrence_count": family["k_member_frequency"].get(patient_id, 0),
             "k_coverage": family["k_coverage"],
             "k_membership_fraction": (
-                family["k_member_frequency"].get(patient_id, 0) / family["k_coverage"]
+                np.mean(list(family["k_membership_fraction"].get(patient_id, {}).values()))
+                if family["k_membership_fraction"].get(patient_id)
+                else 0.0
+            ),
+            "k_membership_fraction_by_k": json.dumps(
+                family["k_membership_fraction"].get(patient_id, {}),
+                ensure_ascii=False,
             ),
         }
         for family in cohesive_families
@@ -741,6 +919,7 @@ def analyze(
             for component in relation_components
         ]),
         ("accepted_set_families.csv", family_csv_rows),
+        ("accepted_set_family_threshold_sensitivity.csv", family_threshold_rows),
         ("accepted_set_family_membership.csv", family_membership_rows),
         ("accepted_set_family_patient_frequency.csv", family_patient_rows),
         ("k_level_summary.csv", k_levels),
@@ -784,7 +963,12 @@ def analyze(
     else:
         order = np.arange(len(patient_ids))
     conditional_plot = conditional.copy()
-    conditional_plot[coacceptance * valid_k_count < MIN_CONCURRENT_ACCEPTED_RUNS_FOR_CONDITIONAL_PLOT] = np.nan
+    coaccepted_k_support_count = np.sum(
+        [matrix[1] > 0 for matrix in primary_k_matrices], axis=0
+    )
+    conditional_plot[
+        coaccepted_k_support_count < MIN_CONCURRENT_ACCEPTED_RUNS_FOR_CONDITIONAL_PLOT
+    ] = np.nan
     for filename, matrix, title, label in (
         (
             "coassignment_heatmap.png",
@@ -852,6 +1036,7 @@ def analyze(
             "cross_run_only": True,
             "cohesive_family_requires_no_same_run_conflict": True,
             "cohesive_family_requires_all_pairwise_edges": True,
+            "cohesive_family_requires_one_to_one_pair_relations": True,
         },
         "accepted_set_relation_level": "run_level_cross_run; K-level consensus is reported separately in k_level_summary",
         "accepted_set_relation_component_count": len(relation_components),
@@ -859,6 +1044,7 @@ def analyze(
         "cohesive_family_count": len(cohesive_families),
         "orphan_set_count": sum(component["is_orphan_set"] for component in relation_components),
         "accepted_set_families": cohesive_families,
+        "family_threshold_sensitivity": family_threshold_rows,
         "primary_core_definition": {
             "acceptance_frequency": primary_threshold,
             "minimum_pairwise_joint_coassignment": primary_threshold,
