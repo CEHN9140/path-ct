@@ -8,6 +8,7 @@ import pytest
 from agents.subtype_review.graph import (
     build_review_graph,
     initial_review_state,
+    is_length_finish_error,
     partition_signature,
     prepare_round_node,
     reviser_node,
@@ -18,7 +19,7 @@ from agents.subtype_review.graph import (
     validate_tool_request,
     validate_router_plan,
 )
-from agents.subtype_review.llm import LLMUsageTracker
+from agents.subtype_review.llm import LLMOutputLengthError, LLMUsageTracker
 from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, MergePlan, RouterAction, RouterPlan, ToolRequest
 from agents.subtype_review.tools import TOOL_REGISTRY, clinical_characterization, compact_tool_result
 from tools.cross_modal_structure import compute_structural_characterization, execute_split_membership
@@ -517,6 +518,10 @@ def test_length_finish_reason_error_ends_review_without_retry():
     assert verifier.calls == 1
     assert result["control"]["status"] == "review_unavailable"
     assert result["control"]["next"] == "end"
+
+
+def test_graph_recognizes_direct_sdk_length_error():
+    assert is_length_finish_error(LLMOutputLengthError("too long"))
 
 
 def test_round_ten_accept_drop_decision_completes_without_round_eleven():

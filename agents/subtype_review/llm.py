@@ -18,6 +18,10 @@ from utils.llm_utils import (
 )
 
 
+class LLMOutputLengthError(RuntimeError):
+    pass
+
+
 class LLMUsageTracker:
     def __init__(self):
         self.api_calls = 0
@@ -108,6 +112,20 @@ def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def audit_tool_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    payloads = []
+    for message in messages:
+        normalized = normalize_message(message)
+        if normalized.get("role") != "tool":
+            continue
+        content = normalized.get("content", {})
+        payload = content if isinstance(content, Mapping) else json.loads(str(content))
+        if not isinstance(payload, Mapping):
+            raise ValueError("ToolMessage content must be a JSON object")
+        payloads.append(dict(payload))
+    return payloads
+
+
 class JsonStructuredModel:
     def __init__(
         self,
@@ -152,10 +170,16 @@ class JsonStructuredModel:
                 )
                 if self.usage_tracker:
                     self.usage_tracker.record_response(response)
+                if getattr(response.choices[0], "finish_reason", None) == "length":
+                    raise LLMOutputLengthError(
+                        "LLM output reached max_new_tokens before completing JSON"
+                    )
                 content = response.choices[0].message.content
                 return dict(
                     self.schema.model_validate(parse_json_content(content)).model_dump()
                 )
+            except LLMOutputLengthError:
+                raise
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 if content is not None:
@@ -209,16 +233,16 @@ class LocalStructuredModel:
 class VerifierChatModel:
     def __init__(
         self,
-        model: Any,
+        acquire_model: Any,
+        audit_model: Any,
         system_prompt: str,
         tools: list[Any],
-        retries: int = 1,
         usage_tracker: LLMUsageTracker | None = None,
     ):
-        self.model = model
+        self.acquire_model = acquire_model
+        self.audit_model = audit_model
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
-        self.retries = retries
         self.usage_tracker = usage_tracker
 
     def invoke_model(self, model: Any, messages: list[Any]) -> Any:
@@ -232,63 +256,29 @@ class VerifierChatModel:
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = dict(payload)
         mode = str(request.get("mode", "audit"))
-        history = message_history(request)
-        request.pop("message_history", None)
-        request.pop("tool_messages", None)
         if mode == "acquire":
+            history = message_history(request)
+            request.pop("message_history", None)
+            request.pop("tool_messages", None)
             tool_names = [str(row["tool_name"]) for row in request["tool_requests"]]
-            model = self.model.bind_tools(
+            model = self.acquire_model.bind_tools(
                 [self.tools[name] for name in dict.fromkeys(tool_names)],
                 tool_choice="required",
             )
-        else:
-            model = self.model.bind(response_format={"type": "json_object"})
-        response = self.invoke_model(
-            model,
-            [
-                {"role": "system", "content": self.system_prompt},
-                *history,
-                {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
-            ],
-        )
-        if mode == "acquire":
-            return response
-        try:
-            EvidenceReportBatch.model_validate(
-                parse_json_content(getattr(response, "content", response))
+            return self.invoke_model(
+                model,
+                [
+                    {"role": "system", "content": self.system_prompt},
+                    *history,
+                    {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
+                ],
             )
-            return response
-        except Exception as exc:
-            last = response
-            for _ in range(self.retries):
-                last = self.invoke_model(
-                    model,
-                    [
-                        {"role": "system", "content": self.system_prompt},
-                        {
-                            "role": "user",
-                            "content": json.dumps(
-                                {
-                                    **request,
-                                    "proposed_report": parse_json_content(
-                                        getattr(last, "content", last)
-                                    ),
-                                    "validation_error": f"{type(exc).__name__}: {exc}",
-                                    "instruction": "Return corrected EvidenceReportBatch JSON only.",
-                                },
-                                ensure_ascii=False,
-                            ),
-                        },
-                    ],
-                )
-                try:
-                    EvidenceReportBatch.model_validate(
-                        parse_json_content(getattr(last, "content", last))
-                    )
-                    return last
-                except Exception as next_exc:
-                    exc = next_exc
-            raise RuntimeError(f"Verifier report failed schema validation: {exc}")
+        audit_request = dict(request)
+        audit_request.pop("message_history", None)
+        audit_request["tool_messages"] = audit_tool_messages(
+            list(request.get("tool_messages", []) or [])
+        )
+        return self.audit_model.invoke(audit_request)
 
 
 class LocalVerifierModel:
@@ -414,17 +404,23 @@ def build_default_verifier(
         return LocalVerifierModel(cfg, prompt, tools, usage_tracker)
     from langchain_openai import ChatOpenAI
 
-    model = ChatOpenAI(
+    acquire_model = ChatOpenAI(
         model=str(cfg["model_name"]),
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
-        max_tokens=int(cfg["max_new_tokens"]),
         timeout=float(cfg.get("timeout", 120)),
         extra_body={"thinking": {"type": "disabled"}},
     )
+    audit_model = JsonStructuredModel(
+        cfg, EvidenceReportBatch, prompt, usage_tracker
+    )
     return VerifierChatModel(
-        model, prompt, tools, int(cfg.get("json_retries", 1) or 1), usage_tracker
+        acquire_model,
+        audit_model,
+        prompt,
+        tools,
+        usage_tracker,
     )
 
 

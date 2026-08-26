@@ -114,10 +114,10 @@ def append_trace(state: dict[str, Any], event: dict[str, Any]) -> None:
 def is_length_finish_error(exc: Exception) -> bool:
     current: BaseException | None = exc
     while current is not None:
-        if type(current).__name__ == "LengthFinishReasonError":
+        if type(current).__name__ in {"LengthFinishReasonError", "LLMOutputLengthError"}:
             return True
         current = current.__cause__ or current.__context__
-    return "LengthFinishReasonError" in str(exc)
+    return any(name in str(exc) for name in ("LengthFinishReasonError", "LLMOutputLengthError"))
 
 
 def mark_failure(
