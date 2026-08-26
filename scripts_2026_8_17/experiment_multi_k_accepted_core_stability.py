@@ -708,6 +708,8 @@ def analyze(
     family_jaccard_threshold: float = FAMILY_JACCARD_THRESHOLD,
     family_overlap_threshold: float = FAMILY_OVERLAP_THRESHOLD,
 ) -> dict[str, Any]:
+    initial_ks = list(INITIAL_KS)
+    repeats = list(REPEATS)
     runs = []
     execution_rows = []
     for repeat in repeats:
@@ -852,12 +854,62 @@ def analyze(
 
     primary_k_matrices = k_matrices["primary"]
     if not primary_k_matrices:
+        exploratory = family_layers["exploratory"]
+        exploratory_catalog = exploratory["catalog"]
+        exploratory_catalog_rows = [
+            {
+                key: json.dumps(value, ensure_ascii=False) if isinstance(value, list) else value
+                for key, value in item.items()
+            }
+            for item in exploratory_catalog
+        ]
+        exploratory_family_rows = [
+            {
+                key: json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value
+                for key, value in family.items()
+                if key != "node_ids"
+            }
+            for family in exploratory["families"]
+        ]
+        write_json(experiment_root / "run_summary.json", {"runs": run_rows})
+        write_json(experiment_root / "exploratory_accepted_set_catalog.json", {"sets": exploratory_catalog})
+        write_json(experiment_root / "exploratory_accepted_set_relation_components.json", {"components": exploratory["components"]})
+        write_json(experiment_root / "exploratory_accepted_set_families.json", {"families": exploratory["families"]})
+        for name, rows in (
+            ("run_summary.csv", run_rows),
+            ("exploratory_accepted_set_catalog.csv", exploratory_catalog_rows),
+            ("exploratory_accepted_set_families.csv", exploratory_family_rows),
+            ("k_level_summary.csv", k_levels),
+            (
+                "patient_acceptance_frequency.csv",
+                [
+                    {
+                        "patient_id": patient_id,
+                        "acceptance_frequency": sum(
+                            patient_id in run["assignments"] for run in runs
+                        ) / len(runs),
+                    }
+                    for patient_id in patient_ids
+                ],
+            ),
+        ):
+            with (experiment_root / name).open("w", newline="", encoding="utf-8") as handle:
+                if rows:
+                    writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                    writer.writeheader()
+                    writer.writerows(rows)
         summary = {
             "experiment": "multi_k_accepted_core_stability",
             "analysis_status": "primary_unavailable",
+            "initial_k_values": list(initial_ks),
+            "review_repeats": list(repeats),
             "expected_run_count": len(initial_ks) * len(repeats),
             "valid_run_count": len(runs),
+            "invalid_run_count": len(execution_rows) - len(runs),
             "k_level_summary": k_levels,
+            "primary_family_k_values": [],
+            "strict_family_k_values": [],
+            "exploratory_family_k_values": sorted({int(run["initial_k"]) for run in runs}),
             "interpretation": "No K level has enough valid repeats for primary consensus analysis.",
         }
         write_json(experiment_root / "summary.json", summary)
