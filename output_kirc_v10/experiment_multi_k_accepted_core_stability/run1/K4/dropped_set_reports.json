@@ -1,0 +1,515 @@
+[
+  {
+    "set_id": "C0003",
+    "membership": [
+      "TCGA-B0-5702",
+      "TCGA-B0-5706",
+      "TCGA-B8-4148",
+      "TCGA-B8-5159",
+      "TCGA-B8-5162",
+      "TCGA-B8-5164",
+      "TCGA-B8-5549",
+      "TCGA-B8-5553",
+      "TCGA-B8-A54E",
+      "TCGA-B8-A54F",
+      "TCGA-BP-4167",
+      "TCGA-BP-4967",
+      "TCGA-BP-4989",
+      "TCGA-CZ-4863",
+      "TCGA-CZ-4865",
+      "TCGA-CZ-5451",
+      "TCGA-CZ-5984",
+      "TCGA-G6-A8L7"
+    ],
+    "drop_reason": "No significant biological evidence in RNA, WXS, or CNV, and strong technical confounding across multiple fields indicate this set is not a biologically meaningful subtype.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA",
+            "finding": "0 of 50 pathways significant at BH-q<0.05; top pathway TGF-beta signaling (SMD=-0.49, q=0.94), with set_available_n=18 and rest_available_n=85."
+          },
+          {
+            "metric": "WXS mutation enrichment",
+            "finding": "No mutations significant at BH-q<0.05; PBRM1 lower (22.2% vs 41.2%, OR=0.41, q=0.98); FLG higher (16.7% vs 3.5%, OR=5.47, Fisher p=0.065, q=0.98)."
+          },
+          {
+            "metric": "CNV characterization",
+            "finding": "No CNV features significant at BH-q<0.05; top continuous differences include higher chr2p (Cliff's delta=0.29, q=1.0) and lower chr8q (-0.21, q=1.0)."
+          }
+        ],
+        "statistical_interpretation": "RNA, WXS, and CNV all show no significant differences after FDR correction. Effect sizes are small to moderate but with high q-values, indicating no strong molecular separation from the rest.",
+        "medical_interpretation": "This set lacks robust molecular evidence for a distinct biological identity based on the supplied metrics; any differences are exploratory.",
+        "limitations": [
+          "Small set size (n=18) limits power.",
+          "No significant pathway, mutation, or CNV features after FDR.",
+          "RNA and CNV q-values are near 1.0, indicating no evidence of enrichment."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0003_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0003",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0003"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "Per-set technical associations",
+            "finding": "Significant per-set associations: tissue_source_site B8 (set 44.4% vs rest 12.9%, OR=5.38, q=0.035), ct_manufacturer GE (16.7% vs 78.8%, OR=0.05, q=4.6e-05), SIEMENS (66.7% vs 21.2%, OR=7.44, q=0.005), ct_scanner_model LightSpeed16 (0% vs 36.5%, q=0.014), ct_reconstruction_kernel STANDARD (16.7% vs 70.6%, OR=0.08, q=0.0007)."
+          },
+          {
+            "metric": "Numeric technical fields",
+            "finding": "Significant numeric associations: slice thickness Cliff's delta=0.38 (q=0.035), z-spacing=0.37 (q=0.050)."
+          },
+          {
+            "metric": "Global technical associations",
+            "finding": "Global tests show significant associations for tissue_source_site, ct_manufacturer, ct_scanner_model, and ct_reconstruction_kernel (all q<0.01)."
+          }
+        ],
+        "statistical_interpretation": "C0003 shows strong per-set technical associations across multiple fields, including manufacturer, scanner, kernel, and numeric slice thickness/z-spacing, indicating substantial technical confounding.",
+        "medical_interpretation": "The set's technical characteristics are strongly associated with its membership, raising concern that biological findings may be confounded by acquisition parameters.",
+        "limitations": [
+          "Multiple technical fields are significantly associated, increasing confounding risk.",
+          "Small set size (n=18) may inflate effect estimates.",
+          "Global associations are significant but not specific to this set."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0003"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "Modality-specific median silhouette",
+            "finding": "Per-set median silhouettes: CT=0.058, WSI=0.013, RNA=-0.010, genomic=-0.0001, indicating strong CT support, weak WSI, and negative RNA/genomic."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count=2; 55.6% of patients have all estimable modalities positive; 0% have no positive modalities; 0 unestimable."
+          },
+          {
+            "metric": "Internal structure",
+            "finding": "Fused binary probe: child sizes 9/9, normalized cut=1.011, median silhouette=0.0009, resampling median ARI=0.713, consensus separation=0.720, PAC=0.438, degenerate fraction=0.0."
+          }
+        ],
+        "statistical_interpretation": "Cross-modal consistency is mixed: CT shows strong positive silhouette, but RNA and genomic are negative. Internal structure shows high resampling ARI and low PAC, indicating good internal cohesion despite modality disagreement.",
+        "medical_interpretation": "The set is strongly supported by CT but not by RNA or genomic, suggesting modality-specific signal.",
+        "limitations": [
+          "Negative PCoA eigenvalues discarded; PERMDISP approximate.",
+          "Resampling performed on existing SNF subgraph, not re-estimated.",
+          "Structural metrics describe current partition, not independent validation."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0003"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage overlap",
+            "finding": "Stage: ARI=0.071, homogeneity=0.109, completeness=0.093, indicating low overlap between partition and stage labels."
+          },
+          {
+            "metric": "Grade overlap",
+            "finding": "Grade: ARI=0.017, homogeneity=0.084, completeness=0.063, indicating very low overlap between partition and grade labels."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show low ARI, homogeneity, and completeness, indicating that the partition has low concordance with these known labels.",
+        "medical_interpretation": "The partition does not appear to be a simple echo of stage or grade, but this does not establish molecular novelty.",
+        "limitations": [
+          "Only TCGA stage and grade labels are assessable.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not by itself establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 2076,
+        "history_chars": 129423,
+        "tool_message_chars": [
+          0,
+          10122,
+          13960,
+          21344,
+          37302,
+          45387,
+          1308
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 13
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "Strong RNA pathway enrichment with large effect sizes, significant BAP1 mutation enrichment, and coherent CNV trend support a distinct biological subtype despite weak cross-modal silhouettes."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "Robust RNA pathway differences, significant CNV alterations, and moderate cross-modal consistency with high resampling ARI support a distinct subtype, despite technical associations that are not overwhelming."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "No significant biological evidence in RNA, WXS, or CNV, and strong technical confounding across multiple fields indicate this set is not a biologically meaningful subtype."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "Weak biological support with only moderate RNA findings, no significant CNV or mutation enrichment, and weak cross-modal consistency with low resampling ARI indicate insufficient evidence for a distinct subtype."
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "set_id": "C0004",
+    "membership": [
+      "TCGA-B0-5712",
+      "TCGA-B8-4151",
+      "TCGA-B8-4153",
+      "TCGA-B8-4622",
+      "TCGA-B8-5158",
+      "TCGA-B8-A54D",
+      "TCGA-B8-A54G",
+      "TCGA-BP-4164",
+      "TCGA-BP-4977",
+      "TCGA-BP-4992",
+      "TCGA-BP-5000",
+      "TCGA-BP-5001",
+      "TCGA-BP-5009",
+      "TCGA-BP-5180",
+      "TCGA-BP-5183",
+      "TCGA-BP-5200",
+      "TCGA-CJ-4903",
+      "TCGA-CJ-6027",
+      "TCGA-CJ-6030",
+      "TCGA-CZ-4859",
+      "TCGA-CZ-5462",
+      "TCGA-CZ-5988",
+      "TCGA-G6-A5PC"
+    ],
+    "drop_reason": "Weak biological support with only moderate RNA findings, no significant CNV or mutation enrichment, and weak cross-modal consistency with low resampling ARI indicate insufficient evidence for a distinct subtype.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA",
+            "finding": "7 of 50 pathways significant at BH-q<0.05; top include downregulated angiogenesis (SMD=-0.94, q=0.008) and myogenesis (SMD=-0.83, q=0.027), with set_available_n=23 and rest_available_n=80."
+          },
+          {
+            "metric": "WXS mutation enrichment",
+            "finding": "No mutations significant at BH-q<0.05; DST and SPTA1 higher (17.4% vs 2.5%, OR=8.21, Fisher p=0.022, q=0.24); PBRM1 higher (52.2% vs 33.8%, OR=2.14, q=0.79)."
+          },
+          {
+            "metric": "CNV characterization",
+            "finding": "No CNV features significant at BH-q<0.05; top include higher chr13q (Cliff's delta=0.41, q=0.42) and chr14q loss (freq diff +0.26, OR=2.89, q=0.42)."
+          }
+        ],
+        "statistical_interpretation": "RNA shows moderate FDR-significant pathway downregulation. WXS and CNV show suggestive but not FDR-significant differences. Coherence is partial: RNA and CNV both suggest distinct profiles, but mutation evidence is weak.",
+        "medical_interpretation": "The set shows a transcriptomic profile with downregulated angiogenesis and possible CNV alterations, but molecular support is moderate and not conclusive.",
+        "limitations": [
+          "WXS and CNV not significant after FDR correction.",
+          "RNA significant pathways are limited in number.",
+          "Small set size (n=23) and multiple testing reduce confidence."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0004_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0004",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0004"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "Per-set technical associations",
+            "finding": "No per-set technical fields reached q<0.05; largest differences include ct_manufacturer SIEMENS (set 43.5% vs rest 25.0%, OR=2.31, q=1.0) and ct_phase DEL (26.1% vs 10.0%, OR=3.18, q=1.0)."
+          },
+          {
+            "metric": "Numeric technical fields",
+            "finding": "No numeric fields significant at q<0.05; slice thickness Cliff's delta=-0.04 (q=1.0), z-spacing=-0.05 (q=1.0), pixel spacing=0.002 (q=1.0)."
+          },
+          {
+            "metric": "Global technical associations",
+            "finding": "Global tests show significant associations for tissue_source_site, ct_manufacturer, ct_scanner_model, and ct_reconstruction_kernel (all q<0.01)."
+          }
+        ],
+        "statistical_interpretation": "C0004 shows no significant per-set technical associations after FDR, though global associations are significant. Numeric fields show no differences.",
+        "medical_interpretation": "Technical confounding is not prominent for this set, but global associations warrant caution.",
+        "limitations": [
+          "Per-set tests may be underpowered.",
+          "Global associations are significant but not specific to this set.",
+          "Categorical fields have many levels."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0004"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "Modality-specific median silhouette",
+            "finding": "Per-set median silhouettes: CT=0.004, WSI=0.021, RNA=0.005, genomic=-0.0001, indicating weak positive support in CT, WSI, RNA, and near-zero genomic."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count=2; 0% of patients have all estimable modalities positive; 0% have no positive modalities; 0 unestimable."
+          },
+          {
+            "metric": "Internal structure",
+            "finding": "Fused binary probe: child sizes 8/15, normalized cut=1.014, median silhouette=0.0006, resampling median ARI=0.412, consensus separation=0.449, PAC=0.791, degenerate fraction=0.0."
+          }
+        ],
+        "statistical_interpretation": "Cross-modal consistency is weak: all modalities show near-zero or slightly positive silhouettes. Internal structure shows low resampling ARI and high PAC, indicating weak internal cohesion.",
+        "medical_interpretation": "The set shows limited cross-modal agreement and weak internal structure, suggesting it may not be a well-defined cluster.",
+        "limitations": [
+          "Negative PCoA eigenvalues discarded; PERMDISP approximate.",
+          "Resampling performed on existing SNF subgraph, not re-estimated.",
+          "Structural metrics describe current partition, not independent validation."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0004"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage overlap",
+            "finding": "Stage: ARI=0.071, homogeneity=0.109, completeness=0.093, indicating low overlap between partition and stage labels."
+          },
+          {
+            "metric": "Grade overlap",
+            "finding": "Grade: ARI=0.017, homogeneity=0.084, completeness=0.063, indicating very low overlap between partition and grade labels."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show low ARI, homogeneity, and completeness, indicating that the partition has low concordance with these known labels.",
+        "medical_interpretation": "The partition does not appear to be a simple echo of stage or grade, but this does not establish molecular novelty.",
+        "limitations": [
+          "Only TCGA stage and grade labels are assessable.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not by itself establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 2076,
+        "history_chars": 129423,
+        "tool_message_chars": [
+          0,
+          10122,
+          13960,
+          21344,
+          37302,
+          45387,
+          1308
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 13
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "Strong RNA pathway enrichment with large effect sizes, significant BAP1 mutation enrichment, and coherent CNV trend support a distinct biological subtype despite weak cross-modal silhouettes."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "Robust RNA pathway differences, significant CNV alterations, and moderate cross-modal consistency with high resampling ARI support a distinct subtype, despite technical associations that are not overwhelming."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "No significant biological evidence in RNA, WXS, or CNV, and strong technical confounding across multiple fields indicate this set is not a biologically meaningful subtype."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "Weak biological support with only moderate RNA findings, no significant CNV or mutation enrichment, and weak cross-modal consistency with low resampling ARI indicate insufficient evidence for a distinct subtype."
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
