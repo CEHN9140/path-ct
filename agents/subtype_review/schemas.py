@@ -16,7 +16,6 @@ EVIDENCE_DIMENSIONS = (
 class EvidenceObservation(BaseModel):
     metric: str
     finding: str
-    metric_refs: list[str] = Field(default_factory=list)
 
 
 class EvidenceReport(BaseModel):

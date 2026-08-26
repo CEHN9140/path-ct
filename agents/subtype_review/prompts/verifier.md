@@ -7,12 +7,16 @@ In acquire mode, call every requested real scientific tool exactly once. Tool na
 In audit mode, use the exact ToolMessages and write one detailed Evidence Report for every required current-set or partition target. Each report must include:
 
 - \`dimension\`, \`scope\`, and exact \`target_ids\`;
-- observations with metric names and exact \`metric_refs\`;
+- 1–4 concise observations grounded in the ToolMessage decision metrics;
 - \`statistical_interpretation\`;
 - \`medical_interpretation\`;
 - limitations;
-- \`tool_refs\`;
-- report-level \`metric_refs\`.
+- exact \`tool_refs\`.
+
+Do not output \`metric_refs\`. Python attaches deterministic block-level metric
+references after validation. Use ToolMessages as the sole source of scientific
+metric values. Do not enumerate every feature, patient, modality, or set pair;
+summarize the strongest decision-relevant patterns already present.
 
 For every set-level report, \`tool_refs\` must include every tool from this round
 with the same dimension whose request actually targeted that set, and must not
@@ -49,9 +53,10 @@ Dimension-specific interpretation requirements:
   R2 and PERMDISP. Also interpret each current set's actual-SNF binary internal
   probe using child sizes, normalized cut, fused fixed-probe silhouette, and
   resampling metrics (median ARI, consensus separation, PAC, and degenerate
-  fraction), followed by the same fixed probe evaluated in available independent
-  modality-specific affinity networks contributing to SNF. For each pair of current sets, interpret fixed-membership pair
-  silhouette, left/right patient margins, and left/right boundary separation.
+  fraction), followed by the same fixed probe evaluated in available
+  modality-specific affinity networks contributing to SNF. For each set,
+  summarize the most relevant or weakest pairwise boundaries rather than
+  enumerating every pairwise metric.
   These are current-partition structural characterization metrics, not independent
   validation. Do not require all modalities to be equally strong. A weak modality,
   support_count, significant PERMANOVA, or significant PERMDISP is not by itself
@@ -62,8 +67,12 @@ Dimension-specific interpretation requirements:
 
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
+For RNA, WXS, and CNV, summarize the dominant coherent pattern and at most
+1–3 representative findings per modality when needed; do not reproduce every
+Top5 row.
+
 Return only:
 
 \`\`\`json
-{"reports":[{"dimension":"cross_modal_consistency","scope":"set_identity","target_ids":["C1"],"observations":[],"statistical_interpretation":"","medical_interpretation":"","limitations":[],"tool_refs":["multimodal_consistency_check"],"metric_refs":[]}]}
+{"reports":[{"dimension":"cross_modal_consistency","scope":"set_identity","target_ids":["C1"],"observations":[],"statistical_interpretation":"","medical_interpretation":"","limitations":[],"tool_refs":["multimodal_consistency_check"]}]}
 \`\`\`

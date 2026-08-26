@@ -49,6 +49,20 @@ def fake_registry():
 
 
 def reports_for_requests(requests):
+    if isinstance(requests, dict):
+        return {"reports": [
+            {
+                "dimension": item["dimension"],
+                "scope": item["scope"],
+                "target_ids": item["target_ids"],
+                "observations": [],
+                "statistical_interpretation": "computed",
+                "medical_interpretation": "computed",
+                "limitations": [],
+                "tool_refs": item["tool_names"],
+            }
+            for item in requests["required_reports"]
+        ]}
     reports = []
     dimensions = sorted({TOOL_REGISTRY[item["tool_name"]]["dimension"] for item in requests})
     for dimension in dimensions:
@@ -184,7 +198,7 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
                         for item in payload["tool_requests"]
                     ]
                 }
-            return reports_for_requests(payload["tool_requests"])
+            return reports_for_requests(payload)
 
     class Router:
         def __init__(self):
@@ -464,7 +478,7 @@ def test_verifier_failure_retries_the_same_stage():
                     {"name": item["tool_name"], "id": item["tool_name"]}
                     for item in payload["tool_requests"]
                 ]}
-            return reports_for_requests(payload["tool_requests"])
+            return reports_for_requests(payload)
 
     class Router:
         def invoke(self, payload):
@@ -510,7 +524,7 @@ def test_round_ten_need_evidence_runs_extra_tool_then_stops_without_round_eleven
                     {"name": item["tool_name"], "id": item["tool_name"]}
                     for item in payload["tool_requests"]
                 ]}
-            return reports_for_requests(payload["tool_requests"])
+            return reports_for_requests(payload)
 
     class Router:
         calls = 0

@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
 from agents.subtype_review.llm import parse_json_content, parse_revision_plan, parse_router_plan
-from agents.subtype_review.llm_summary import summarize_evidence, summarize_reports
+from agents.subtype_review.llm_summary import summarize_reports
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
     EvidenceReportBatch,
@@ -56,6 +56,41 @@ def current_sets(state: Mapping[str, Any]) -> list[dict[str, Any]]:
         [dict(item) for item in dict(state.get("partition", {}) or {}).get("sets", []) or []],
         key=set_id,
     )
+
+
+def compact_partition_for_llm(state: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "sets": [
+            {"set_id": set_id(item), "member_n": len(item.get("member_ids", []) or [])}
+            for item in current_sets(state)
+        ]
+    }
+
+
+def required_reports_for_round(
+    state: Mapping[str, Any], runtime: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    tools = registry(runtime)
+    sets = [set_id(item) for item in current_sets(state)]
+    grouped: dict[tuple[str, str, str], set[str]] = {}
+    for request in state["control"].get("pending_tools", []) or []:
+        metadata = tools[request["tool_name"]]
+        if metadata["scope"] == "partition":
+            key = (metadata["dimension"], "partition", "")
+            grouped.setdefault(key, set()).add(request["tool_name"])
+            continue
+        for target in request.get("target_ids", []) or sets:
+            key = (metadata["dimension"], "set_identity", str(target))
+            grouped.setdefault(key, set()).add(request["tool_name"])
+    return [
+        {
+            "dimension": dimension,
+            "scope": scope,
+            "target_ids": [] if not target else [target],
+            "tool_names": sorted(tool_names),
+        }
+        for (dimension, scope, target), tool_names in sorted(grouped.items())
+    ]
 
 
 def context_values(runtime: Any) -> dict[str, Any]:
@@ -288,21 +323,29 @@ def execute_tool_calls(
             if str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", "")) == name
         )
         call_id = str(call.get("id", name) if isinstance(call, Mapping) else getattr(call, "id", name))
+        tool_message_payload = {
+            "tool_name": name,
+            "dimension": metadata["dimension"],
+            "scope": metadata["scope"],
+            "target_ids": list(request.get("target_ids", []) or []),
+            "status": compact["status"],
+            "metrics": compact["metrics"],
+            "warnings": list(compact.get("warnings", []) or []),
+            "missing_reason": compact.get("missing_reason", ""),
+            "errors": list(compact.get("errors", []) or []),
+        }
         try:
             from langchain_core.messages import ToolMessage
 
             messages.append(ToolMessage(
-                content=json.dumps(
-                    {key: value for key, value in compact.items() if key != "full_metrics"},
-                    ensure_ascii=False,
-                ),
+                content=json.dumps(tool_message_payload, ensure_ascii=False),
                 tool_call_id=call_id,
             ))
         except Exception:
             messages.append({
                 "role": "tool",
                 "name": name,
-                "content": {key: value for key, value in compact.items() if key != "full_metrics"},
+                "content": json.dumps(tool_message_payload, ensure_ascii=False),
             })
     state["round_evidence"] = results
     state["messages"] = messages
@@ -318,6 +361,38 @@ def raw_metric_refs(rows: list[Mapping[str, Any]]) -> set[str]:
         for row in rows
         for ref in row.get("metric_refs", []) or []
     }
+
+
+def metric_blocks_for_report(
+    report: Any, state: Mapping[str, Any]
+) -> list[str]:
+    rows = {
+        str(row.get("tool_name", "")): row
+        for row in state.get("round_evidence", []) or []
+    }
+    target = next(iter(report.target_ids), "")
+    refs = []
+    for tool_name in report.tool_refs:
+        metrics = rows.get(tool_name, {}).get("metrics", {}) or {}
+        base = f"tool_results.{tool_name}.metrics"
+        if report.scope == "partition":
+            refs.extend(f"{base}.{key}" for key in sorted(metrics))
+            continue
+        for key, value in metrics.items():
+            if not isinstance(value, Mapping):
+                continue
+            if key == "cross_modal_consistency":
+                if target in value.get("per_set", {}):
+                    refs.append(f"{base}.{key}.per_set.{target}")
+                if "partition" in value:
+                    refs.append(f"{base}.{key}.partition")
+            elif key == "sets" and target in value:
+                refs.append(f"{base}.{key}.{target}")
+            elif target in value:
+                refs.append(f"{base}.{key}.{target}")
+            elif f"{target}_vs_rest" in value:
+                refs.append(f"{base}.{key}.{target}_vs_rest")
+    return sorted(set(refs))
 
 
 def expected_report_keys(state: Mapping[str, Any], runtime: Mapping[str, Any]) -> set[tuple[str, str, str]]:
@@ -374,17 +449,13 @@ def validate_reports(
         }
         if set(report.tool_refs) != allowed:
             raise ValueError("Evidence Report tool_refs do not exactly account for this target")
-        refs = raw_metric_refs([raw_by_name[name] for name in report.tool_refs])
-        observation_refs = {
-            ref for observation in report.observations for ref in observation.metric_refs
-        }
-        if not set(report.metric_refs).union(observation_refs).issubset(refs):
-            raise ValueError("Evidence Report references unavailable metrics")
         reported.add(key)
     if reported != expected:
         raise ValueError(f"Evidence Reports must cover exactly current targets: {expected - reported}")
     if set().union(*(set(report.tool_refs) for report in batch.reports)) != requested_names:
         raise ValueError("Evidence Reports must account for every requested tool")
+    for report in batch.reports:
+        report.metric_refs = metric_blocks_for_report(report, state)
 
 
 def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
@@ -404,14 +475,30 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             return state
         if control.get("next") != "verifier_audit":
             raise ValueError(f"Unexpected Verifier state: {control.get('next')}")
-        result = values["verifier_model"].invoke({
+        audit_payload = {
             "mode": "audit",
-            "partition": state["partition"],
-            "tool_requests": control["pending_tools"],
-            "round_evidence": summarize_evidence(state["round_evidence"]),
+            "partition": compact_partition_for_llm(state),
+            "required_reports": required_reports_for_round(state, values),
             "tool_messages": list(state.get("messages", [])),
             "round": control["round"],
+        }
+        append_trace(state, {
+            "node": "verifier",
+            "event": "audit_payload_size",
+            "request_chars": len(json.dumps(
+                {key: value for key, value in audit_payload.items() if key != "tool_messages"},
+                ensure_ascii=False,
+            )),
+            "history_chars": sum(
+                len(str(getattr(message, "content", message)))
+                for message in audit_payload["tool_messages"]
+            ),
+            "tool_message_chars": [
+                len(str(getattr(message, "content", message)))
+                for message in audit_payload["tool_messages"]
+            ],
         })
+        result = values["verifier_model"].invoke(audit_payload)
         data = result if isinstance(result, Mapping) else parse_json_content(getattr(result, "content", result))
         batch = EvidenceReportBatch.model_validate(data)
         validate_reports(batch, state, values)
@@ -830,14 +917,11 @@ def evidence_for_set(state: Mapping[str, Any], target: str) -> list[dict[str, An
 
 
 def metric_refs_for_reports(reports: list[Mapping[str, Any]]) -> list[str]:
-    refs = set()
-    for report in reports:
-        refs.update(report.get("metric_refs", []) or [])
-        refs.update(
-            ref for observation in report.get("observations", []) or []
-            for ref in observation.get("metric_refs", []) or []
-        )
-    return sorted(refs)
+    return sorted({
+        ref
+        for report in reports
+        for ref in report.get("metric_refs", []) or []
+    })
 
 
 def final_actions(state: Mapping[str, Any]) -> dict[str, str]:
