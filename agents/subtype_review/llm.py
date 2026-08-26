@@ -146,6 +146,7 @@ class JsonStructuredModel:
                     model=str(self.config["model_name"]),
                     messages=messages,
                     temperature=float(self.config.get("temperature", 0.0)),
+                    max_tokens=int(self.config["max_new_tokens"]),
                     response_format={"type": "json_object"},
                     extra_body={"thinking": {"type": "disabled"}},
                 )
@@ -418,6 +419,7 @@ def build_default_verifier(
         base_url=str(cfg["base_url"]),
         api_key=resolve_api_key(cfg),
         temperature=float(cfg.get("temperature", 0.0)),
+        max_tokens=int(cfg["max_new_tokens"]),
         timeout=float(cfg.get("timeout", 120)),
         extra_body={"thinking": {"type": "disabled"}},
     )

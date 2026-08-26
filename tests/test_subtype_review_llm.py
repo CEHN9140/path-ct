@@ -8,14 +8,104 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.subtype_review.llm import (
+    JsonStructuredModel,
     LLMUsageTracker,
     LocalVerifierModel,
     VerifierChatModel,
+    build_default_verifier,
     build_default_reviser,
     build_default_router,
 )
 from agents.subtype_review.schemas import EvidenceReportBatch, RevisionPlan, RouterPlan
-from utils.llm_utils import resolve_api_key
+from utils.llm_utils import LocalLLMClient, load_yaml_file, resolve_api_key
+
+
+def test_subtype_review_config_declares_project_generation_limit():
+    config = load_yaml_file("configs/subtype_review.yaml")
+    assert config["llm"]["max_new_tokens"] == 32768
+
+
+def test_local_openai_compatible_client_maps_project_limit_to_max_tokens(monkeypatch):
+    captured = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="{}", tool_calls=[]))]
+            )
+
+    monkeypatch.setattr("utils.llm_utils.local_llm_server_available", lambda url: True)
+    monkeypatch.setattr(
+        "openai.OpenAI",
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+    )
+    client = LocalLLMClient({
+        "base_url": "http://local",
+        "model_name": "hf-chat",
+        "api_key": "test",
+        "temperature": 0,
+        "max_new_tokens": 32768,
+    })
+    client.chat([{"role": "user", "content": "test"}])
+    assert captured["max_tokens"] == 32768
+
+
+def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(monkeypatch):
+    captured = {}
+
+    class Completions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"actions":[{"action":"drop","target_ids":["C1"]}]}'))]
+            )
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    monkeypatch.setattr(
+        "openai.OpenAI",
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+    )
+    model = JsonStructuredModel(
+        {
+            "api_key_env": "TEST_KEY",
+            "base_url": "http://test",
+            "model_name": "deepseek-v4-flash",
+            "temperature": 0,
+            "max_new_tokens": 32768,
+        },
+        RouterPlan,
+        "prompt",
+    )
+    model.invoke({})
+    assert captured["max_tokens"] == 32768
+
+
+def test_chatopenai_verifier_receives_project_limit_as_max_tokens(monkeypatch):
+    captured = {}
+
+    def fake_chat_openai(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "langchain_openai",
+        SimpleNamespace(ChatOpenAI=fake_chat_openai),
+    )
+    config = {
+        "llm": {
+            "api_key_env": "TEST_KEY",
+            "base_url": "http://test",
+            "model_name": "deepseek-v4-flash",
+            "temperature": 0,
+            "max_new_tokens": 32768,
+        },
+        "prompt_dir": "agents/subtype_review/prompts",
+    }
+    build_default_verifier(config, "/data/qijun/path-ct/configs")
+    assert captured["max_tokens"] == 32768
 
 
 class BoundModel:

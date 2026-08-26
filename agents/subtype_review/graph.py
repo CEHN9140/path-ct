@@ -111,13 +111,24 @@ def append_trace(state: dict[str, Any], event: dict[str, Any]) -> None:
     state["control"] = control
 
 
-def mark_failure(state: dict[str, Any], node: str, exc: Exception) -> None:
+def is_length_finish_error(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if type(current).__name__ == "LengthFinishReasonError":
+            return True
+        current = current.__cause__ or current.__context__
+    return "LengthFinishReasonError" in str(exc)
+
+
+def mark_failure(
+    state: dict[str, Any], node: str, exc: Exception, immediate: bool = False
+) -> None:
     control = dict(state.get("control", {}) or {})
     control["failures"] = int(control.get("failures", 0)) + 1
     control["error"] = f"{type(exc).__name__}: {exc}"
     if node != "verifier":
         control["next"] = node
-    if control["failures"] >= int(control.get("max_failures", 3)):
+    if immediate or control["failures"] >= int(control.get("max_failures", 3)):
         control["status"] = "review_unavailable"
         control["next"] = "end"
     state["control"] = control
@@ -513,7 +524,7 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             control["next"] = "router"
         state["control"] = control
     except Exception as exc:
-        mark_failure(state, "verifier", exc)
+        mark_failure(state, "verifier", exc, is_length_finish_error(exc))
     return state
 
 
@@ -619,7 +630,7 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         plan = parse_router_plan(values["router_model"].invoke(payload))
         validate_router_plan(plan, state, values)
     except Exception as exc:
-        mark_failure(state, "router", exc)
+        mark_failure(state, "router", exc, is_length_finish_error(exc))
         return state
     control["round"] = int(control.get("round", 0)) + 1
     control["error"] = None
@@ -845,7 +856,7 @@ def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             control["next"] = "prepare_round"
         state["control"] = control
     except Exception as exc:
-        mark_failure(state, "reviser", exc)
+        mark_failure(state, "reviser", exc, is_length_finish_error(exc))
     return state
 
 

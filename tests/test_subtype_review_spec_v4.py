@@ -495,6 +495,30 @@ def test_verifier_failure_retries_the_same_stage():
     assert result["control"]["status"] == "complete"
 
 
+def test_length_finish_reason_error_ends_review_without_retry():
+    class LengthFinishReasonError(RuntimeError):
+        pass
+
+    class Verifier:
+        def __init__(self):
+            self.calls = 0
+
+        def invoke(self, payload):
+            self.calls += 1
+            raise LengthFinishReasonError("completion limit reached")
+
+    verifier = Verifier()
+    runtime = {
+        "data_root": "/tmp", "artifact_root": "/tmp", "config_dir": "configs",
+        "patient_states_by_id": {}, "tool_registry": fake_registry(),
+        "verifier_model": verifier, "router_model": object(), "reviser_model": object(),
+    }
+    result = build_review_graph().invoke(make_state(("C1", ["P1"])), context=runtime)
+    assert verifier.calls == 1
+    assert result["control"]["status"] == "review_unavailable"
+    assert result["control"]["next"] == "end"
+
+
 def test_round_ten_accept_drop_decision_completes_without_round_eleven():
     state = make_state(("C1", ["P1"]))
     state["control"]["round"] = 9
