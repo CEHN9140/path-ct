@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -152,3 +153,15 @@ def test_default_agent_prompts_use_new_contracts(monkeypatch):
     assert prompts[1][0] is RevisionPlan
     assert prompts[0][1].startswith("# Router")
     assert prompts[1][1].startswith("# Reviser")
+
+
+def test_review_prompts_constrain_internal_evidence_and_medical_claims():
+    router = (Path("agents/subtype_review/prompts/router.md")).read_text(encoding="utf-8")
+    verifier = (Path("agents/subtype_review/prompts/verifier.md")).read_text(encoding="utf-8")
+
+    assert "not independent validation" in router
+    assert "one discovery modality" in router.lower()
+    assert "set_available_n + rest_available_n" in verifier
+    assert "do not call these metrics" in verifier.lower()
+    assert "prognosis" in verifier
+    assert "nonsignificant trends" in verifier

@@ -13,63 +13,23 @@ In audit mode, use the exact ToolMessages and write one detailed Evidence Report
 - limitations;
 - exact \`tool_refs\`.
 
-Do not output \`metric_refs\`. Python attaches deterministic block-level metric
-references after validation. Use ToolMessages as the sole source of scientific
-metric values. Do not enumerate every feature, patient, modality, or set pair;
-summarize the strongest decision-relevant patterns already present.
+Do not output \`metric_refs\`. Python attaches deterministic block-level metric references after validation. Use ToolMessages as the sole source of scientific metric values. Do not enumerate every feature, patient, modality, or set pair; summarize the strongest decision-relevant patterns already present.
 
-For every set-level report, \`tool_refs\` must include every tool from this round
-with the same dimension whose request actually targeted that set, and must not
-include tools that targeted other sets only. Partition-level reports must account
-for every partition-scope tool of that dimension executed in this round.
+For every set-level report, \`tool_refs\` must include every tool from this round with the same dimension whose request actually targeted that set, and must not include tools that targeted other sets only. Partition-level reports must account for every partition-scope tool of that dimension executed in this round.
 
 Dimension-specific interpretation requirements:
 
-- For \`biological_support\`, interpret RNA Hallmark ssGSEA using pathway SMD,
-  direction, medians, availability, and BH-q; WXS mutation rows using set/rest
-  mutation frequency, frequency difference, odds ratio with 95% CI, Fisher p,
-  and BH-q; and CNV using continuous Cliff's delta/direction/q or gain/loss
-  frequency difference/odds ratio/95% CI/q. Explain effect size, uncertainty,
-  FDR, and coherence across RNA, WXS, and CNV. Do not decide from a count of
-  significant features, and do not treat optional clinical characterization as
-  molecular biological support.
-- For \`confounder_exclusion\`, interpret TSS, CT phase, manufacturer, scanner
-  model, reconstruction kernel, slice thickness, z-spacing, and pixel spacing.
-  Global categorical reports use Cramer's V and q; global numeric reports use
-  epsilon-squared and q. Per-set reports use categorical frequency difference /
-  odds ratio / q and numeric Cliff's delta / q. A technical association is a
-  limitation or alternative explanation to weigh, not an automatic invalidation
-  or Drop decision.
-- For \`known_label_echo\`, the assessable labels are only independent stage and
-  grade comparisons. Interpret ARI, homogeneity, and completeness continuously;
-  AMI and optimal mapping accuracy are audit metrics. Low stage/grade overlap
-  means only that the partition is not a simple stage/grade echo. The current
-  data do not evaluate published molecular ccRCC subtype taxonomies.
+- For \`biological_support\`, interpret RNA Hallmark ssGSEA using pathway SMD, direction, medians, availability, and BH-q; WXS mutation rows using set/rest mutation frequency, frequency difference, odds ratio with 95% CI, Fisher p, and BH-q; and CNV using continuous Cliff's delta/direction/q or gain/loss frequency difference/odds ratio/95% CI/q. Explain effect size, uncertainty, FDR, and coherence across RNA, WXS, and CNV. Here set_available_n and rest_available_n are availability counts for the target set and its complement; whole-comparison availability is set_available_n + rest_available_n. Do not interpret set_available_n alone as whole-cohort availability or claim missingness without comparing both counts with their corresponding population sizes. Do not decide from a count of significant features, and do not treat optional clinical characterization as molecular biological support.
+- For \`confounder_exclusion\`, interpret TSS, CT phase, manufacturer, scanner model, reconstruction kernel, slice thickness, z-spacing, and pixel spacing. Global categorical reports use Cramer's V and q; global numeric reports use epsilon-squared and q. Per-set reports use categorical frequency difference / odds ratio / q and numeric Cliff's delta / q. A technical association is a limitation or alternative explanation to weigh, not an automatic invalidation or Drop decision.
+- For \`known_label_echo\`, the assessable labels are only stage and grade comparisons. Interpret ARI, homogeneity, and completeness continuously; AMI and optimal mapping accuracy are audit metrics. Do not call these metrics statistical independence; say low overlap or low concordance instead. Low stage/grade overlap means only that the partition is not a simple stage/grade echo. The current data do not evaluate published molecular ccRCC subtype taxonomies.
 
-- For \`cross_modal_consistency\`, first interpret the fixed-membership
-  per-set median silhouette in CT, WSI, RNA, and genomic affinity spaces.
-  Then interpret the patient membership support profile (positive and negative
-  modalities and descriptive support_count), followed by partition PERMANOVA
-  R2 and PERMDISP. Also interpret each current set's actual-SNF binary internal
-  probe using child sizes, normalized cut, fused fixed-probe silhouette, and
-  resampling metrics (median ARI, consensus separation, PAC, and degenerate
-  fraction), followed by the same fixed probe evaluated in available
-  modality-specific affinity networks contributing to SNF. For each set,
-  summarize the most relevant or weakest pairwise boundaries rather than
-  enumerating every pairwise metric.
-  These are current-partition structural characterization metrics, not independent
-  validation. Do not require all modalities to be equally strong. A weak modality,
-  support_count, significant PERMANOVA, or significant PERMDISP is not by itself
-  an Accept/Drop rule. PERMANOVA is not independent validation, PERMDISP is not
-  automatic invalidation, and cross-modal evidence cannot directly produce Split
-  or Merge. Missing or non-estimable structural metrics are limitations, not
-  negative evidence.
+- For \`cross_modal_consistency\`, first interpret the fixed-membership per-set median silhouette in CT, WSI, RNA, and genomic affinity spaces. Then interpret the patient membership support profile (positive and negative modalities and descriptive support_count), followed by partition PERMANOVA R2 and PERMDISP. Also interpret each current set's actual-SNF binary internal probe using child sizes, normalized cut, fused fixed-probe silhouette, and resampling metrics (median ARI, consensus separation, PAC, and degenerate fraction), followed by the same fixed probe evaluated in available modality-specific affinity networks contributing to SNF. For each set, summarize the most relevant or weakest pairwise boundaries rather than enumerating every pairwise metric. These are current-partition structural characterization metrics, not independent validation. Do not require all modalities to be equally strong. A weak modality, support_count, significant PERMANOVA, or significant PERMDISP is not by itself an Accept/Drop rule. PERMANOVA is not independent validation, PERMDISP is not automatic invalidation, and cross-modal evidence cannot directly produce Split or Merge. Missing or non-estimable structural metrics are limitations, not negative evidence.
 
 The four dimensions are parallel: \`biological_support\`, \`cross_modal_consistency\`, \`confounder_exclusion\`, and \`known_label_echo\`. Do not replace an explanation with a one-word label such as supporting, mixed, or conflicting. Do not output Accept, Drop, Split, Merge, or Need Evidence.
 
-For RNA, WXS, and CNV, summarize the dominant coherent pattern and at most
-1–3 representative findings per modality when needed; do not reproduce every
-Top5 row.
+Medical interpretation must not introduce prognosis, aggressiveness, treatment response, or specific mechanistic claims unless they are directly supported by the supplied metrics or a separately cited knowledge source. Keep nonsignificant trends exploratory.
+
+For RNA, WXS, and CNV, summarize the dominant coherent pattern and at most 1–3 representative findings per modality when needed; do not reproduce every Top5 row.
 
 Return only:
 
