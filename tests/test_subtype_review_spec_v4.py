@@ -15,9 +15,12 @@ from agents.subtype_review.graph import (
     router_node,
     save_review_outputs,
     completed_tool_keys,
+    expected_tool_refs_for_round,
+    required_reports_for_round,
     validate_reports,
     validate_tool_request,
     validate_router_plan,
+    verifier_node,
 )
 from agents.subtype_review.llm import LLMOutputLengthError, LLMUsageTracker
 from agents.subtype_review.schemas import EvidenceReport, EvidenceReportBatch, MergePlan, RouterAction, RouterPlan, ToolRequest
@@ -321,6 +324,105 @@ def test_reports_must_account_for_all_tools_used_for_each_set():
     ]})
     with pytest.raises(ValueError, match="account|tool_refs"):
         validate_reports(batch, state, fake_registry())
+
+
+def make_audit_state_with_clinical_extra():
+    state = make_state(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    tools = fake_registry()
+    state["control"]["pending_tools"] = [
+        {"tool_name": name, "target_ids": [] if metadata["scope"] == "partition" else ["C1", "C2"]}
+        for name, metadata in tools.items()
+        if metadata["default_every_round"]
+    ] + [{"tool_name": "clinical_characterization", "target_ids": ["C1"]}]
+    state["control"]["next"] = "verifier_audit"
+    signature = partition_signature(state["partition"]["sets"])
+    state["round_evidence"] = [
+        {
+            "tool_name": request["tool_name"],
+            "dimension": tools[request["tool_name"]]["dimension"],
+            "scope": tools[request["tool_name"]]["scope"],
+            "target_ids": request["target_ids"],
+            "status": "success",
+            "metrics": {},
+            "metric_refs": [],
+            "partition_signature": signature,
+        }
+        for request in state["control"]["pending_tools"]
+    ]
+    return state, tools
+
+
+def test_expected_tool_refs_preserve_clinical_targeting():
+    state, tools = make_audit_state_with_clinical_extra()
+    expected = expected_tool_refs_for_round(state, {"tool_registry": tools})
+    assert expected[("biological_support", "set_identity", "C1")] == [
+        "clinical_characterization", "cnv_characterization",
+        "mutation_enrichment", "pathway_enrichment",
+    ]
+    assert expected[("biological_support", "set_identity", "C2")] == [
+        "cnv_characterization", "mutation_enrichment", "pathway_enrichment",
+    ]
+
+
+@pytest.mark.parametrize("returned_refs", [[], ["wrong_tool"]])
+def test_verifier_overwrites_llm_tool_refs_before_strict_validation(returned_refs):
+    state, tools = make_audit_state_with_clinical_extra()
+
+    class Verifier:
+        def invoke(self, payload):
+            reports = reports_for_requests(payload)["reports"]
+            for report in reports:
+                report["tool_refs"] = returned_refs
+            return {"reports": reports}
+
+    state = verifier_node(state, {"tool_registry": tools, "verifier_model": Verifier()})
+    assert state["control"]["next"] == "router"
+    biology = {
+        tuple(report["target_ids"]): report["tool_refs"]
+        for report in state["reports"]
+        if report["dimension"] == "biological_support"
+    }
+    assert biology[("C1",)] == [
+        "clinical_characterization", "cnv_characterization",
+        "mutation_enrichment", "pathway_enrichment",
+    ]
+    assert biology[("C2",)] == [
+        "cnv_characterization", "mutation_enrichment", "pathway_enrichment",
+    ]
+
+
+def test_validate_reports_remains_strict_after_python_attachment():
+    state, tools = make_audit_state_with_clinical_extra()
+    reports = reports_for_requests({
+        "required_reports": required_reports_for_round(state, tools),
+    })["reports"]
+    reports[0]["tool_refs"] = ["wrong_tool"]
+    with pytest.raises(ValueError, match="tool_refs mismatch|unrequested tool"):
+        validate_reports(EvidenceReportBatch.model_validate({"reports": reports}), state, tools)
+
+
+def test_validate_reports_failure_does_not_repeat_audit():
+    state = make_state(("C1", ["P1", "P2"]))
+    calls = {"audit": 0}
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                return {"tool_calls": [
+                    {"name": item["tool_name"], "id": item["tool_name"]}
+                    for item in payload["tool_requests"]
+                ]}
+            calls["audit"] += 1
+            reports = reports_for_requests(payload)["reports"]
+            return {"reports": reports[:-1]}
+
+    result = build_review_graph().invoke(state, context={
+        "data_root": "/tmp", "artifact_root": "/tmp", "config_dir": "configs",
+        "patient_states_by_id": {}, "tool_registry": fake_registry(),
+        "verifier_model": Verifier(), "router_model": object(), "reviser_model": object(),
+    })
+    assert calls["audit"] == 1
+    assert result["control"]["status"] == "review_unavailable"
 
 
 def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch, tmp_path):

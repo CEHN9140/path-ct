@@ -93,6 +93,19 @@ def required_reports_for_round(
     ]
 
 
+def expected_tool_refs_for_round(
+    state: Mapping[str, Any], runtime: Mapping[str, Any]
+) -> dict[tuple[str, str, str], list[str]]:
+    return {
+        (
+            request["dimension"],
+            request["scope"],
+            next(iter(request["target_ids"]), ""),
+        ): list(request["tool_names"])
+        for request in required_reports_for_round(state, runtime)
+    }
+
+
 def context_values(runtime: Any) -> dict[str, Any]:
     if hasattr(runtime, "context"):
         return dict(runtime.context or {})
@@ -459,7 +472,10 @@ def validate_reports(
             )
         }
         if set(report.tool_refs) != allowed:
-            raise ValueError("Evidence Report tool_refs do not exactly account for this target")
+            raise ValueError(
+                f"Evidence Report tool_refs mismatch for {key}: "
+                f"expected={sorted(allowed)} got={sorted(report.tool_refs)}"
+            )
         reported.add(key)
     if reported != expected:
         raise ValueError(f"Evidence Reports must cover exactly current targets: {expected - reported}")
@@ -512,7 +528,19 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         result = values["verifier_model"].invoke(audit_payload)
         data = result if isinstance(result, Mapping) else parse_json_content(getattr(result, "content", result))
         batch = EvidenceReportBatch.model_validate(data)
-        validate_reports(batch, state, values)
+        expected_refs = expected_tool_refs_for_round(state, values)
+        for report in batch.reports:
+            key = (
+                report.dimension,
+                report.scope,
+                next(iter(report.target_ids), ""),
+            )
+            report.tool_refs = expected_refs.get(key, [])
+        try:
+            validate_reports(batch, state, values)
+        except Exception as exc:
+            mark_failure(state, "verifier", exc, immediate=True)
+            return state
         state["reports"] = [report.model_dump() for report in batch.reports]
         mark_success(state)
         append_trace(state, {"node": "verifier", "event": "reports", "count": len(batch.reports)})

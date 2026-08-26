@@ -11,11 +11,11 @@ In audit mode, use the exact ToolMessages and write one detailed Evidence Report
 - \`statistical_interpretation\`;
 - \`medical_interpretation\`;
 - limitations;
-- exact \`tool_refs\`.
+- \`tool_refs\`, which must always be \`[]\`; Python deterministically attaches the exact references for the report target.
 
 Do not output \`metric_refs\`. Python attaches deterministic block-level metric references after validation. Use ToolMessages as the sole source of scientific metric values. Do not enumerate every feature, patient, modality, or set pair; summarize the strongest decision-relevant patterns already present.
 
-For every set-level report, \`tool_refs\` must include every tool from this round with the same dimension whose request actually targeted that set, and must not include tools that targeted other sets only. Partition-level reports must account for every partition-scope tool of that dimension executed in this round.
+When \`clinical_characterization\` is supplied for a target, interpret it only as auxiliary clinical context. Do not count it as molecular biological support and do not substitute it for RNA/WXS/CNV evidence.
 
 Dimension-specific interpretation requirements:
 
@@ -105,11 +105,7 @@ Example of the required JSON shape:
       "limitations": [
         "State concrete limitations supported by the supplied data."
       ],
-      "tool_refs": [
-        "pathway_enrichment",
-        "mutation_enrichment",
-        "cnv_characterization"
-      ]
+      "tool_refs": []
     },
     {
       "dimension": "known_label_echo",
@@ -130,9 +126,7 @@ Example of the required JSON shape:
       "limitations": [
         "Only the supplied assessable known labels are evaluated."
       ],
-      "tool_refs": [
-        "known_label_echo_test"
-      ]
+      "tool_refs": []
     }
   ]
 }
