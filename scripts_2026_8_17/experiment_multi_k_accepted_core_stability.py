@@ -637,9 +637,11 @@ def core_recurrence(
     member_ids: Sequence[str], runs: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     recovered_by_k: Counter[int] = Counter()
+    runs_by_k: dict[int, list[Mapping[str, Any]]] = {}
     all_accepted = 0
     same_set = 0
     for run in runs:
+        runs_by_k.setdefault(int(run["initial_k"]), []).append(run)
         assignments = dict(run["assignments"])
         labels = [assignments.get(patient_id) for patient_id in member_ids]
         if labels and None not in labels:
@@ -647,12 +649,44 @@ def core_recurrence(
         if labels and None not in labels and len(set(labels)) == 1:
             same_set += 1
             recovered_by_k[int(run["initial_k"])] += 1
+    accepted_fraction_by_k = {}
+    same_set_fraction_by_k = {}
+    conditional_fraction_by_k = {}
+    for initial_k, k_runs in sorted(runs_by_k.items()):
+        accepted = 0
+        same = 0
+        for run in k_runs:
+            labels = [dict(run["assignments"]).get(patient_id) for patient_id in member_ids]
+            if labels and None not in labels:
+                accepted += 1
+                if len(set(labels)) == 1:
+                    same += 1
+        accepted_fraction_by_k[initial_k] = accepted / len(k_runs)
+        same_set_fraction_by_k[initial_k] = same / len(k_runs)
+        conditional_fraction_by_k[initial_k] = same / accepted if accepted else None
+    conditional_values = [
+        value for value in conditional_fraction_by_k.values() if value is not None
+    ]
     return {
         "all_members_accepted_run_count": all_accepted,
         "all_members_accepted_run_fraction": all_accepted / len(runs) if runs else 0.0,
         "same_set_run_count": same_set,
         "same_set_run_fraction": same_set / len(runs) if runs else 0.0,
         "conditional_same_set_fraction": same_set / all_accepted if all_accepted else 0.0,
+        "all_members_accepted_fraction_by_k": accepted_fraction_by_k,
+        "same_set_fraction_by_k": same_set_fraction_by_k,
+        "conditional_same_set_fraction_by_k": conditional_fraction_by_k,
+        "mean_all_members_accepted_fraction_across_k": (
+            float(np.mean(list(accepted_fraction_by_k.values())))
+            if accepted_fraction_by_k else 0.0
+        ),
+        "mean_same_set_fraction_across_k": (
+            float(np.mean(list(same_set_fraction_by_k.values())))
+            if same_set_fraction_by_k else 0.0
+        ),
+        "mean_conditional_same_set_fraction_across_k": (
+            float(np.mean(conditional_values)) if conditional_values else None
+        ),
         "k_coverage_any": sum(count >= 1 for count in recovered_by_k.values()),
         "k_coverage_majority": sum(count >= 2 for count in recovered_by_k.values()),
         "recovered_runs_by_k": dict(sorted(recovered_by_k.items())),
@@ -874,17 +908,22 @@ def analyze(
         outside_joint = joint[np.ix_(indices, outside_indices)].ravel()
         outside_values = conditional[np.ix_(indices, outside_indices)].ravel()
         recurrence = core_recurrence(members, primary_runs)
+        recurrence_output = dict(recurrence)
+        for key in (
+            "all_members_accepted_fraction_by_k",
+            "same_set_fraction_by_k",
+            "conditional_same_set_fraction_by_k",
+            "recovered_runs_by_k",
+        ):
+            recurrence_output[key] = json.dumps(
+                recurrence[key], ensure_ascii=False, sort_keys=True
+            )
         core_rows.append(
             {
                 "core_id": core_id,
                 "core_size": len(members),
                 "recurrence_denominator": "primary_eligible_runs",
-                **{
-                    **recurrence,
-                    "recovered_runs_by_k": json.dumps(
-                        recurrence["recovered_runs_by_k"], ensure_ascii=False
-                    ),
-                },
+                **recurrence_output,
                 "mean_within_joint_coassignment": float(joint_values.mean()),
                 "min_within_joint_coassignment": float(joint_values.min()),
                 "mean_within_conditional_coassignment": float(within_values.mean()),

@@ -185,6 +185,20 @@ def test_primary_core_recurrence_excludes_exploratory_k(tmp_path):
     assert summary["primary_cores"][0]["all_members_accepted_run_count"] == 4
 
 
+def test_core_recurrence_reports_k_equal_primary_metrics():
+    runs = [
+        {"initial_k": 2, "assignments": {"p1": "A", "p2": "A"}},
+        {"initial_k": 2, "assignments": {"p1": "A", "p2": "A"}},
+        {"initial_k": 2, "assignments": {"p1": "A", "p2": "A"}},
+        {"initial_k": 3, "assignments": {"p1": "A", "p2": "A"}},
+        {"initial_k": 3, "assignments": {"p1": "A", "p2": "B"}},
+    ]
+    result = experiment.core_recurrence(["p1", "p2"], runs)
+    assert result["same_set_run_fraction"] == pytest.approx(4 / 5)
+    assert result["same_set_fraction_by_k"] == {2: 1.0, 3: 0.5}
+    assert result["mean_same_set_fraction_across_k"] == pytest.approx(0.75)
+
+
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
     result = experiment.compare_runs({}, {})
     assert result["both_empty"] is True
