@@ -160,6 +160,31 @@ def test_primary_families_exclude_k_with_only_one_valid_repeat(tmp_path):
     assert {item["initial_k"] for item in exploratory_catalog["sets"]} == {4, 5}
 
 
+def test_primary_core_recurrence_excludes_exploratory_k(tmp_path):
+    assignments = {
+        (2, 1): [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+        (2, 2): [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+        (3, 1): [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+        (3, 2): [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+        (4, 1): [
+            {"set_id": "A", "member_ids": ["p1"]},
+            {"set_id": "B", "member_ids": ["p2"]},
+        ],
+    }
+    for (initial_k, repeat), accepted_sets in assignments.items():
+        run_root = tmp_path / f"run{repeat}" / f"K{initial_k}"
+        run_root.mkdir(parents=True)
+        (run_root / "run_metadata.json").write_text("{}")
+        (run_root / "final_review_summary.json").write_text(json.dumps({
+            "status": "review_complete",
+            "raw_control_status": "complete",
+            "accepted_subtype_sets": accepted_sets,
+        }))
+    summary = experiment.analyze(tmp_path, ["p1", "p2"], [2, 3, 4], [1, 2, 3], 2)
+    assert summary["primary_cores"][0]["same_set_run_fraction"] == 1.0
+    assert summary["primary_cores"][0]["all_members_accepted_run_count"] == 4
+
+
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
     result = experiment.compare_runs({}, {})
     assert result["both_empty"] is True

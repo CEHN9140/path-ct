@@ -736,6 +736,9 @@ def analyze(
         for level in k_levels
         if level["primary_eligible"]
     }
+    primary_runs = [
+        run for run in runs if int(run["initial_k"]) in primary_ks
+    ]
     strict_ks = {
         int(level["initial_k"])
         for level in k_levels
@@ -870,11 +873,12 @@ def analyze(
         outside_indices = [index for index in range(len(patient_ids)) if index not in indices]
         outside_joint = joint[np.ix_(indices, outside_indices)].ravel()
         outside_values = conditional[np.ix_(indices, outside_indices)].ravel()
-        recurrence = core_recurrence(members, runs)
+        recurrence = core_recurrence(members, primary_runs)
         core_rows.append(
             {
                 "core_id": core_id,
                 "core_size": len(members),
+                "recurrence_denominator": "primary_eligible_runs",
                 **{
                     **recurrence,
                     "recovered_runs_by_k": json.dumps(
