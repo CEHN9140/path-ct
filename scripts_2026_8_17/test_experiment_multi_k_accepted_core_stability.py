@@ -30,6 +30,21 @@ def test_compare_runs_uses_shared_accepted_patients():
     assert result["adjusted_mutual_information"] == 1.0
     assert result["matched_mean_jaccard"] == pytest.approx(0.5)
     assert result["matched_mean_dice"] == pytest.approx(0.5)
+    assert result["matched_set_pairs"][0]["overlap"] == pytest.approx(1.0)
+
+
+def test_set_family_catalog_reports_overlap_and_cross_run_family():
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "repeat": 1, "assignments": {"p1": "A", "p2": "A", "p3": "B"}},
+        {"run_id": "run1_K3", "initial_k": 3, "repeat": 1, "assignments": {"p1": "X", "p2": "X", "p3": "Y"}},
+    ]
+    catalog = experiment.accepted_set_catalog(runs)
+    similarities = experiment.accepted_set_similarity(catalog)
+    families = experiment.accepted_set_families(catalog, similarities, jaccard_threshold=0.5, overlap_threshold=1.0)
+    assert similarities[0]["jaccard"] == pytest.approx(2 / 2)
+    assert similarities[0]["overlap"] == pytest.approx(1.0)
+    assert families[0]["node_ids"] == ["run1_K2::A", "run1_K3::X"]
+    assert families[0]["k_coverage"] == 2
 
 
 def test_compare_runs_does_not_treat_two_empty_results_as_perfect_agreement():
@@ -57,7 +72,19 @@ def test_stability_matrices_separate_acceptance_and_conditional_membership():
     assert acceptance.tolist() == pytest.approx([1.0, 2 / 3, 2 / 3])
 
 
-def test_extract_cores_uses_complete_linkage():
+def test_aggregate_k_levels_gives_each_available_k_equal_weight():
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "assignments": {"p1": "A"}},
+        {"run_id": "run2_K2", "initial_k": 2, "assignments": {"p1": "A"}},
+        {"run_id": "run1_K3", "initial_k": 3, "assignments": {}},
+    ]
+    levels, matrices = experiment.aggregate_k_levels(runs, ["p1"], [2, 3], 2)
+    assert [level["status"] for level in levels] == ["complete", "low_confidence"]
+    assert len(matrices) == 2
+    assert [matrix[3][0] for matrix in matrices] == [1.0, 0.0]
+
+
+def test_extract_cores_uses_joint_recurrence_and_complete_linkage():
     patients = ["a1", "a2", "a3", "b1", "b2"]
     matrix = np.array(
         [
@@ -68,13 +95,18 @@ def test_extract_cores_uses_complete_linkage():
             [0.1, 0.1, 0.1, 0.9, 1],
         ]
     )
-    cores = experiment.extract_cores(
-        matrix, matrix, np.ones(5), patients, threshold=0.8, min_size=2
-    )
+    cores = experiment.extract_cores(matrix, np.ones(5), patients, threshold=0.8, min_size=2)
     assert [row["member_ids"] for row in cores] == [
         ["a1", "a2", "a3"],
         ["b1", "b2"],
     ]
+
+
+def test_extract_cores_does_not_replace_joint_with_conditional_metrics():
+    patients = ["a1", "a2"]
+    joint = np.array([[1.0, 0.64], [0.64, 1.0]])
+    acceptance = np.ones(2)
+    assert experiment.extract_cores(joint, acceptance, patients, threshold=2 / 3, min_size=2) == []
 
 
 def test_core_recurrence_reports_run_and_k_coverage():
