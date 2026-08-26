@@ -4,9 +4,11 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.subtype_review.llm import (
     LLMUsageTracker,
+    LocalVerifierModel,
     VerifierChatModel,
     build_default_reviser,
     build_default_router,
@@ -77,6 +79,64 @@ def test_verifier_audit_accepts_report_batch_without_status():
     verifier = VerifierChatModel(model, "prompt", [])
     response = verifier.invoke({"mode": "audit", "reports": []})
     assert json.loads(response.content) == {"reports": []}
+
+
+def test_verifier_chat_audit_serializes_tool_history_without_dropping_evidence():
+    model = BoundModel([json.dumps({"reports": []})])
+    verifier = VerifierChatModel(model, "prompt", [])
+    verifier.invoke({
+        "mode": "audit",
+        "round_evidence": [{"tool_name": "pathway_enrichment", "status": "success"}],
+        "tool_messages": [
+            AIMessage(content="", tool_calls=[{
+                "name": "pathway_enrichment", "args": {}, "id": "call-1", "type": "tool_call"
+            }]),
+            ToolMessage(content='{"status":"success"}', tool_call_id="call-1"),
+        ],
+    })
+    history = model.requests[0]
+    assert history[1]["role"] == "assistant"
+    assert history[2]["role"] == "tool"
+    request = json.loads(history[3]["content"])
+    assert request["round_evidence"][0]["tool_name"] == "pathway_enrichment"
+    assert "tool_messages" not in request
+
+
+def test_local_verifier_audit_serializes_tool_history_without_dropping_evidence(monkeypatch):
+    monkeypatch.setattr("agents.subtype_review.llm.resolve_api_key", lambda config: "test")
+    monkeypatch.setattr("agents.subtype_review.llm.local_llm_server_available", lambda url: True)
+    verifier = LocalVerifierModel(
+        {
+            "base_url": "http://local",
+            "model_name": "local",
+            "temperature": 0,
+            "max_new_tokens": 256,
+            "json_retries": 1,
+        },
+        "prompt",
+        [],
+    )
+    requests = []
+
+    def chat(messages, tools=None):
+        requests.append(messages)
+        return {"content": json.dumps({"reports": []})}
+
+    verifier.client.chat = chat
+    verifier.invoke({
+        "mode": "audit",
+        "round_evidence": [{"tool_name": "pathway_enrichment", "status": "success"}],
+        "tool_messages": [
+            AIMessage(content="assistant tool call"),
+            ToolMessage(content="tool result", tool_call_id="call-1"),
+        ],
+    })
+    history = requests[0]
+    assert history[1]["role"] == "assistant"
+    assert history[2]["role"] == "tool"
+    request = json.loads(history[3]["content"])
+    assert request["round_evidence"][0]["status"] == "success"
+    assert "tool_messages" not in request
 
 
 def test_default_agent_prompts_use_new_contracts(monkeypatch):
