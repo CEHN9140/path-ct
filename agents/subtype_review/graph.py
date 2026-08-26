@@ -679,6 +679,7 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         payload = {
             "partition": state["partition"],
             "evidence_reports": summarize_reports(state.get("reports", [])),
+            "structural_index": compact_structural_index(state),
             "tool_registry": registry_payload,
             "available_extra_evidence": available_extra_evidence(state, values),
             "round": int(control.get("round", 0)) + 1,
@@ -756,6 +757,76 @@ def revision_metrics(state: Mapping[str, Any]) -> dict[str, Any]:
         "structural_characterization": dict(
             dict(row.get("full_metrics", {}) or {}).get("structural_characterization", {}) or {}
         ),
+    }
+
+
+def compact_structural_index(state: Mapping[str, Any]) -> dict[str, Any]:
+    row = next(
+        (
+            item for item in state.get("round_evidence", []) or []
+            if item.get("tool_name") == "multimodal_consistency_check"
+        ),
+        {},
+    )
+    structural = dict(
+        dict(row.get("full_metrics", {}) or {}).get("structural_characterization", {}) or {}
+    )
+    per_set = {}
+    for item in current_sets(state):
+        target = set_id(item)
+        metrics = dict(structural.get("internal_structure_by_set", {}).get(target, {}) or {})
+        probe = dict(metrics.get("fused_binary_probe", {}) or {})
+        resampling = dict(probe.get("resampling", {}) or {})
+        modality_probe = dict(metrics.get("probe_support_by_modality", {}) or {})
+        per_set[target] = {
+            "member_n": len(item.get("member_ids", []) or []),
+            "binary_probe": {
+                "child_sizes": probe.get("child_sizes"),
+                "fused_silhouette": probe.get("median_silhouette"),
+                "normalized_cut": probe.get("normalized_cut"),
+                "median_ari": resampling.get("median_resample_ari"),
+                "consensus_separation": resampling.get("consensus_separation"),
+                "pac": resampling.get("pac"),
+                "degenerate_fraction": resampling.get("degenerate_resample_fraction"),
+                "modality_probe_silhouettes": {
+                    name: dict(modality_probe.get(name, {}) or {}).get("median_silhouette")
+                    for name in ("ct", "wsi", "rna", "genomic")
+                },
+            },
+        }
+    boundaries = []
+    for pair_key, pair_metrics in sorted(
+        dict(structural.get("boundary_by_pair", {}) or {}).items()
+    ):
+        pair = dict(pair_metrics or {})
+        targets = list(pair.get("targets", []) or [])
+        if len(targets) != 2:
+            targets = str(pair_key).split("+", 1)
+        fused = dict(pair.get("fused", {}) or {})
+        boundaries.append({
+            "pair": sorted(str(target) for target in targets),
+            "fused": {
+                key: fused.get(key)
+                for key in (
+                    "pair_median_silhouette", "left_median_margin", "right_median_margin",
+                    "left_boundary_separation", "right_boundary_separation",
+                )
+            },
+            "modalities": {
+                name: {
+                    key: dict(pair.get("modalities", {}).get(name, {}) or {}).get(key)
+                    for key in (
+                        "pair_median_silhouette", "left_median_margin", "right_median_margin",
+                        "left_boundary_separation", "right_boundary_separation",
+                    )
+                }
+                for name in ("ct", "wsi", "rna", "genomic")
+            },
+        })
+    return {
+        "per_set": per_set,
+        "boundary_by_pair": boundaries,
+        "limitations": list(structural.get("limitations", []) or []),
     }
 
 

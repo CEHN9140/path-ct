@@ -15,6 +15,7 @@ from agents.subtype_review.graph import (
     router_node,
     save_review_outputs,
     completed_tool_keys,
+    compact_structural_index,
     expected_tool_refs_for_round,
     available_extra_evidence,
     required_reports_for_round,
@@ -1066,3 +1067,49 @@ def test_router_payload_uses_reports_not_raw_structural_metrics():
 
     router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})
     assert "raw_structural_metrics" not in captured
+
+
+def test_router_payload_contains_compact_structural_index_without_action_flags():
+    state = make_state(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    state["round_evidence"] = [{
+        "tool_name": "multimodal_consistency_check",
+        "full_metrics": {"structural_characterization": {
+            "internal_structure_by_set": {
+                "C1": {"member_n": 2, "fused_binary_probe": {
+                    "child_sizes": [1, 1], "median_silhouette": 0.01,
+                    "normalized_cut": 0.5, "resampling": {
+                        "median_resample_ari": 0.8,
+                        "consensus_separation": 0.7,
+                        "pac": 0.2,
+                        "degenerate_resample_fraction": 0.0,
+                    }}, "probe_support_by_modality": {
+                        name: {"median_silhouette": 0.1}
+                        for name in ("ct", "wsi", "rna", "genomic")
+                    }},
+                "C2": {"member_n": 2},
+            },
+            "boundary_by_pair": {"C1+C2": {"fused": {
+                "pair_median_silhouette": 0.02,
+                "left_median_margin": 0.1,
+                "right_median_margin": 0.2,
+                "left_boundary_separation": 0.3,
+                "right_boundary_separation": 0.4,
+            }, "modalities": {}}},
+        }},
+    }]
+    captured = {}
+
+    class Router:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [
+                {"action": "drop", "target_ids": ["C1"]},
+                {"action": "drop", "target_ids": ["C2"]},
+            ]}
+
+    router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})
+    index = captured["structural_index"]
+    assert index["per_set"]["C1"]["binary_probe"]["median_ari"] == 0.8
+    assert index["boundary_by_pair"][0]["pair"] == ["C1", "C2"]
+    assert "split_candidate" not in json.dumps(index)
+    assert "merge_candidate" not in json.dumps(index)
