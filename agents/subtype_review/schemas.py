@@ -75,18 +75,26 @@ class ToolRequest(BaseModel):
     def unique_targets(cls, values: list[str]) -> list[str]:
         return sorted({str(value) for value in values if str(value)})
 
-
 class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
     tool_requests: list[ToolRequest] = Field(default_factory=list)
+    support_sources: list[str]
+    corroboration_satisfied: bool
+    active_contradiction: bool
+    dominant_confounder: bool
     reason: str = ""
 
     @field_validator("target_ids")
     @classmethod
     def unique_targets(cls, values: list[str]) -> list[str]:
+        return sorted({str(value) for value in values if str(value)})
+
+    @field_validator("support_sources")
+    @classmethod
+    def unique_sources(cls, values: list[str]) -> list[str]:
         return sorted({str(value) for value in values if str(value)})
 
     @model_validator(mode="after")

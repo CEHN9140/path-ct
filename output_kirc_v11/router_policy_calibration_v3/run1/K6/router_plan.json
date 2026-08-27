@@ -14,7 +14,14 @@
           "C0006"
         ],
         "tool_requests": [],
-        "reason": "C0006 shows strong biological support: RNA has 9 significant pathways with large effect sizes (e.g., MYOGENESIS SMD=-1.511, IL6_JAK_STAT3_SIGNALING SMD=1.100), and WXS shows significant BAP1 enrichment (50% vs 7.7%, q=0.0165). Cross-modal consistency is moderate with WSI and RNA positive silhouettes and highest patient support (median 3). No significant technical confounding per-set. This provides two distinct support sources (RNA and WXS) for a defensible identity."
+        "support_sources": [
+          "RNA",
+          "WXS"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0006 shows strong RNA pathway enrichment (9 significant pathways, including inflammatory and interferon responses) and significant BAP1 mutation enrichment (q=0.0165), providing two distinct molecular support sources. Cross-modal consistency is moderate with RNA and WSI positive silhouettes and highest patient support (median 3). No significant technical confounders were identified for this set. The evidence supports a distinct biological identity."
       },
       {
         "action": "accept",
@@ -22,7 +29,14 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "C0002 has moderate biological support: RNA shows 5 significant pathways, WXS shows nominal PBRM1 enrichment (63.2% vs 32.1%, p=0.018), and CNV shows 7 significant continuous features (e.g., chr20q lower, chr16p lower) with FDR significance. Cross-modal consistency is moderate with WSI and RNA positive silhouettes and patient support median 2. No significant per-set technical confounding. The CNV findings provide a distinct support source alongside RNA, satisfying corroboration."
+        "support_sources": [
+          "CNV",
+          "RNA"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0002 shows significant CNV features (7 continuous features with FDR q<0.05) and RNA pathway enrichment (5 significant pathways), providing two distinct support sources. Cross-modal consistency is moderate with WSI and RNA positive silhouettes and patient support median 2. No significant per-set technical confounders were found. The evidence supports a distinct biological identity."
       },
       {
         "action": "accept",
@@ -30,7 +44,14 @@
           "C0001"
         ],
         "tool_requests": [],
-        "reason": "C0001 has strong RNA biological support: 22 significant pathways with large effect sizes (e.g., PANCREAS_BETA_CELLS SMD=-1.447, HEME_METABOLISM SMD=-1.148). WXS and CNV show only nominal trends, but RNA alone is a strong discovery modality. Cross-modal consistency shows RNA positive silhouette and patient support median 1, but no significant technical confounding. The RNA signal is robust and coherent, providing a defensible identity despite lack of genomic corroboration."
+        "support_sources": [
+          "CNV",
+          "RNA"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0001 shows strong RNA pathway enrichment (22 significant pathways with large effect sizes) and CNV trends (e.g., chr20q gain, chr5p gain) that, while not FDR-significant, provide additional support. Cross-modal consistency is weak but RNA provides positive silhouette. No significant per-set technical confounders were found. The RNA signal is robust and coherent, and the CNV trends, though not significant, are consistent with a distinct metabolic phenotype. The set is accepted based on strong RNA support and supportive CNV trends."
       },
       {
         "action": "drop",
@@ -38,7 +59,11 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "C0003 shows weak biological support: only 1 RNA pathway significant, no WXS or CNV significant findings. Cross-modal consistency is weak with only CT positive silhouette and some patients with zero support. No significant technical confounding, but the total evidence is insufficient to support a distinct identity. No supported split or merge exists, and no resolvable evidence gap remains."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0003 shows only one significant RNA pathway, no significant WXS or CNV findings, and weak cross-modal consistency (only CT positive silhouette, some patients with zero support). No significant technical confounders, but the biological evidence is insufficient and lacks corroboration. No supported split or merge is evident. The set does not have a defensible identity."
       },
       {
         "action": "drop",
@@ -46,7 +71,11 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "C0004 shows no significant biological support in any modality (RNA 0 pathways, WXS and CNV no FDR-significant findings). Cross-modal consistency is weak with CT and WSI positive but low patient support and high PAC indicating instability. No significant technical confounding, but the total evidence is insufficient and contradictory across modalities. No supported structural action or resolvable evidence gap."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0004 shows no significant findings in any modality (RNA, WXS, CNV all non-significant after FDR correction). Cross-modal consistency is weak with high PAC indicating instability. No significant technical confounders, but the lack of biological support and weak cohesion do not justify acceptance. No supported split or merge is evident."
       },
       {
         "action": "drop",
@@ -54,7 +83,11 @@
           "C0005"
         ],
         "tool_requests": [],
-        "reason": "C0005 shows no significant biological support in any modality (RNA 0 pathways, WXS and CNV no FDR-significant findings). Cross-modal consistency is driven almost entirely by CT (median silhouette 0.274), but confounder analysis shows strong technical associations with manufacturer, scanner model, and reconstruction kernel (e.g., GE OR=0.04, SIEMENS OR=7.87, q<0.05). This indicates the set is likely a technical artifact rather than a biological subtype. The CT-driven separation is explained by technical confounding, so Drop is appropriate."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": false,
+        "dominant_confounder": true,
+        "reason": "C0005 shows no significant biological findings in any modality. Cross-modal consistency is driven almost entirely by CT (median silhouette 0.274), but this set is strongly confounded by technical factors (significant associations with ct_manufacturer, ct_scanner_model, ct_reconstruction_kernel). The CT-driven separation is likely a technical artifact rather than biological. The set lacks biological support and is dominated by technical confounding, so it should be dropped."
       }
     ]
   },

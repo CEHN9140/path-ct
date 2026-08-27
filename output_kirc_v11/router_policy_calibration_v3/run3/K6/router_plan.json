@@ -14,7 +14,14 @@
           "C0006"
         ],
         "tool_requests": [],
-        "reason": "C0006 has strong biological support from RNA (9 significant pathways, large effect sizes) and WXS (BAP1 mutation enrichment significant at q=0.0165), providing two distinct support sources. Cross-modal consistency shows positive WSI and RNA silhouettes with highest patient support (median 3). No significant technical confounding. No better structural action or resolvable evidence gap."
+        "support_sources": [
+          "RNA",
+          "WXS"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0006 shows strong RNA pathway enrichment (9 significant pathways, including inflammatory and interferon responses) and significant BAP1 mutation enrichment (q=0.0165), providing two distinct support sources. Cross-modal consistency shows positive RNA and WSI silhouettes with high patient support (median 3). No significant technical confounders were identified. The evidence supports a distinct biological identity."
       },
       {
         "action": "accept",
@@ -22,15 +29,29 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "C0002 has moderate biological support from CNV (7 significant continuous features) and RNA (5 significant pathways), providing two distinct support sources. Cross-modal consistency shows positive WSI and RNA silhouettes with moderate patient support (median 2). No significant technical confounding. No better structural action or resolvable evidence gap."
+        "support_sources": [
+          "CNV",
+          "RNA"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0002 shows significant CNV features (7 continuous features at q<0.05) and RNA pathway enrichment (5 significant pathways), providing two distinct support sources. Cross-modal consistency shows positive WSI and RNA silhouettes with moderate patient support (median 2). No significant per-set technical confounders were identified. The evidence supports a distinct biological identity."
       },
       {
-        "action": "drop",
+        "action": "accept",
         "target_ids": [
           "C0001"
         ],
         "tool_requests": [],
-        "reason": "C0001 has strong RNA pathway support but no significant WXS or CNV findings, providing only one support source. Cross-modal consistency is weak (only RNA positive, low patient support). No supported split or merge. No available extra evidence to resolve the gap. Drop is appropriate."
+        "support_sources": [
+          "CNV",
+          "RNA"
+        ],
+        "corroboration_satisfied": true,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0001 shows strong RNA pathway enrichment (22 significant pathways with large effect sizes) and CNV trends (e.g., chr20q gain, chr5p gain) that, while not FDR-significant, provide some support. Cross-modal consistency shows positive RNA silhouette and moderate patient support (median 1). No significant per-set technical confounders were identified. The RNA signal is robust and provides a defensible identity."
       },
       {
         "action": "drop",
@@ -38,7 +59,11 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "C0003 has weak biological support (only one RNA pathway significant, no WXS/CNV significance). Cross-modal consistency is weak (only CT positive, some patients with zero support). No supported split or merge. No available extra evidence. Drop is appropriate."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0003 shows weak biological support: only one RNA pathway significant, no WXS or CNV significant findings. Cross-modal consistency is weak with only CT positive silhouette and some patients with zero support. No significant technical confounders, but the lack of coherent molecular evidence and weak multimodal cohesion do not support a distinct identity. No supported split or merge exists."
       },
       {
         "action": "drop",
@@ -46,7 +71,11 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "C0004 has no significant biological findings in any modality. Cross-modal consistency is weak (CT and WSI positive but low patient support, high PAC). No supported split or merge. No available extra evidence. Drop is appropriate."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": false,
+        "dominant_confounder": false,
+        "reason": "C0004 shows no significant findings in any modality (RNA, WXS, CNV). Cross-modal consistency is weak with high PAC indicating instability. No significant technical confounders, but the absence of molecular support and weak cohesion do not justify retaining this set. No supported split or merge exists."
       },
       {
         "action": "drop",
@@ -54,7 +83,11 @@
           "C0005"
         ],
         "tool_requests": [],
-        "reason": "C0005 has no significant biological findings in any modality. Cross-modal consistency is driven by CT, but confounder analysis shows strong technical associations (manufacturer, scanner, kernel) indicating technical artifact. No supported split or merge. Drop is appropriate."
+        "support_sources": [],
+        "corroboration_satisfied": false,
+        "active_contradiction": true,
+        "dominant_confounder": true,
+        "reason": "C0005 is heavily confounded by technical factors: significant associations with ct_manufacturer, ct_scanner_model, and ct_reconstruction_kernel. The strong CT-driven silhouette (0.274) is likely a technical artifact rather than biological signal. RNA, WXS, and CNV show no significant findings. The dominant technical confounder and lack of biological support make this set unsuitable for retention."
       }
     ]
   },

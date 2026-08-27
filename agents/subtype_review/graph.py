@@ -621,6 +621,13 @@ def validate_action_contract(
     known = {set_id(item) for item in current_sets(state)}
     if not set(action.target_ids).issubset(known):
         raise ValueError("Router referenced a non-current set")
+    if action.action == "accept":
+        if not action.corroboration_satisfied:
+            raise ValueError("Accept requires corroboration_satisfied=true")
+        if action.active_contradiction:
+            raise ValueError("Accept cannot have active_contradiction=true")
+        if action.dominant_confounder:
+            raise ValueError("Accept cannot have dominant_confounder=true")
     if action.action == "need_more_evidence":
         seen = set()
         for request in action.tool_requests:

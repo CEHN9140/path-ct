@@ -37,6 +37,15 @@ def make_state(*groups):
     ])
 
 
+def decision_fields(corroboration=False):
+    return {
+        "support_sources": ["CNV", "RNA"] if corroboration else [],
+        "corroboration_satisfied": corroboration,
+        "active_contradiction": False,
+        "dominant_confounder": False,
+    }
+
+
 def fake_registry():
     registry = {}
     for name, metadata in TOOL_REGISTRY.items():
@@ -189,6 +198,7 @@ def test_need_evidence_for_empty_availability_is_rejected():
     plan = RouterPlan.model_validate({
         "actions": [{
             "action": "need_more_evidence", "target_ids": ["C1"],
+            **decision_fields(),
             "tool_requests": [{
                 "tool_name": "clinical_characterization", "target_ids": ["C1"],
             }],
@@ -215,11 +225,12 @@ def test_router_validation_uses_one_correction_retry_only():
             if len(self.calls) == 1:
                 return {"actions": [{
                     "action": "need_more_evidence", "target_ids": ["C1"],
+                    **decision_fields(),
                     "tool_requests": [{
                         "tool_name": "clinical_characterization", "target_ids": ["C1"],
                     }],
                 }]}
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"], **decision_fields()}]}
 
     router = Router()
     router_node(state, {"tool_registry": fake_registry(), "router_model": router})
@@ -248,6 +259,7 @@ def test_router_second_validation_failure_fails_fast_without_third_call():
             self.calls += 1
             return {"actions": [{
                 "action": "need_more_evidence", "target_ids": ["C1"],
+                **decision_fields(),
                 "tool_requests": [{
                     "tool_name": "clinical_characterization", "target_ids": ["C1"],
                 }],
@@ -263,9 +275,54 @@ def test_router_second_validation_failure_fails_fast_without_third_call():
 def test_router_requires_complete_nonoverlapping_coverage():
     state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
     plan = RouterPlan.model_validate({
-        "actions": [{"action": "accept", "target_ids": ["C1"]}],
+        "actions": [{"action": "accept", "target_ids": ["C1"], **decision_fields(True)}],
     })
     with pytest.raises(ValueError, match="cover every current set"):
+        validate_router_plan(plan, state, fake_registry())
+
+
+def test_router_action_contains_explicit_decision_state():
+    action = RouterAction(
+        action="accept",
+        target_ids=["C1"],
+        support_sources=["RNA", "CNV"],
+        corroboration_satisfied=True,
+        active_contradiction=False,
+        dominant_confounder=False,
+    )
+    assert action.support_sources == ["CNV", "RNA"]
+    assert action.corroboration_satisfied is True
+    assert action.active_contradiction is False
+    assert action.dominant_confounder is False
+
+
+def test_accept_rejects_inconsistent_router_decision_state():
+    state = make_state(("C1", ["P1", "P2"]))
+    plan = RouterPlan.model_validate({
+        "actions": [{
+            "action": "accept",
+            "target_ids": ["C1"],
+            "support_sources": ["RNA"],
+            "corroboration_satisfied": False,
+            "active_contradiction": False,
+            "dominant_confounder": False,
+        }]
+    })
+    with pytest.raises(ValueError, match="corroboration_satisfied"):
+        validate_router_plan(plan, state, fake_registry())
+
+
+@pytest.mark.parametrize("field", ["active_contradiction", "dominant_confounder"])
+def test_accept_rejects_contradictory_router_decision_state(field):
+    state = make_state(("C1", ["P1", "P2"]))
+    values = {
+        **decision_fields(True),
+        field: True,
+    }
+    plan = RouterPlan.model_validate({
+        "actions": [{"action": "accept", "target_ids": ["C1"], **values}]
+    })
+    with pytest.raises(ValueError, match=field):
         validate_router_plan(plan, state, fake_registry())
 
 
@@ -278,12 +335,13 @@ def test_need_evidence_is_highest_priority_and_other_actions_do_not_execute():
                 {
                     "action": "need_more_evidence",
                     "target_ids": ["C1"],
+                    **decision_fields(),
                     "tool_requests": [{
                         "tool_name": "clinical_characterization",
                         "target_ids": ["C1"],
                     }],
                 },
-                {"action": "accept", "target_ids": ["C2"]},
+                {"action": "accept", "target_ids": ["C2"], **decision_fields(True)},
             ]}
 
     router_node(state, {
@@ -328,16 +386,17 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
                     {
                         "action": "need_more_evidence",
                         "target_ids": ["C1"],
+                        **decision_fields(),
                         "tool_requests": [{
                             "tool_name": "clinical_characterization",
                             "target_ids": ["C1"],
                         }],
                     },
-                    {"action": "drop", "target_ids": ["C2"]},
+                    {"action": "drop", "target_ids": ["C2"], **decision_fields()},
                 ]}
             return {"actions": [
-                {"action": "drop", "target_ids": ["C1"]},
-                {"action": "drop", "target_ids": ["C2"]},
+                {"action": "drop", "target_ids": ["C1"], **decision_fields()},
+                {"action": "drop", "target_ids": ["C2"], **decision_fields()},
             ]}
 
     verifier = Verifier()
@@ -551,7 +610,7 @@ def test_split_with_singleton_child_is_rejected_before_new_partition(monkeypatch
     )
     state = make_state(("C1", ["P1", "P2", "P3"]))
     state["router_plan"] = {
-        "actions": [{"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""}]
+        "actions": [{"action": "split", "target_ids": ["C1"], **decision_fields(), "tool_requests": [], "reason": ""}]
     }
     state["round_evidence"] = [{
         "tool_name": "multimodal_consistency_check",
@@ -589,7 +648,7 @@ def test_reviser_retry_uses_error_feedback_and_accepts_corrected_plan(monkeypatc
     monkeypatch.setattr(cross_modal_structure, "execute_split_membership", split_membership)
     state = make_state(("C1", ["P1", "P2", "P3", "P4"]))
     state["router_plan"] = {
-        "actions": [{"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""}]
+        "actions": [{"action": "split", "target_ids": ["C1"], **decision_fields(), "tool_requests": [], "reason": ""}]
     }
     state["history"] = [{"revision_plan": None, "revision_result": None}]
     state["control"]["history_index"] = 0
@@ -656,6 +715,7 @@ def test_same_set_level_extra_tool_requests_are_merged_before_verifier_call():
                 {
                     "action": "need_more_evidence",
                     "target_ids": ["C1"],
+                    **decision_fields(),
                     "tool_requests": [{
                         "tool_name": "clinical_characterization",
                         "target_ids": ["C1"],
@@ -664,6 +724,7 @@ def test_same_set_level_extra_tool_requests_are_merged_before_verifier_call():
                 {
                     "action": "need_more_evidence",
                     "target_ids": ["C2"],
+                    **decision_fields(),
                     "tool_requests": [{
                         "tool_name": "clinical_characterization",
                         "target_ids": ["C2"],
@@ -701,7 +762,7 @@ def test_verifier_failure_retries_the_same_stage():
 
     class Router:
         def invoke(self, payload):
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"], **decision_fields()}]}
 
     verifier = Verifier()
     runtime = {
@@ -748,7 +809,7 @@ def test_round_ten_accept_drop_decision_completes_without_round_eleven():
 
     class Router:
         def invoke(self, payload):
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"], **decision_fields()}]}
 
     router_node(state, {
         "tool_registry": fake_registry(),
@@ -782,12 +843,13 @@ def test_round_ten_need_evidence_runs_extra_tool_then_stops_without_round_eleven
                 {
                     "action": "need_more_evidence",
                     "target_ids": ["C1"],
+                    **decision_fields(),
                     "tool_requests": [{
                         "tool_name": "clinical_characterization",
                         "target_ids": ["C1"],
                     }],
                 },
-                {"action": "drop", "target_ids": ["C2"]},
+                {"action": "drop", "target_ids": ["C2"], **decision_fields()},
             ]}
 
     verifier, router = Verifier(), Router()
@@ -849,14 +911,14 @@ def test_structural_actions_are_not_python_gated_and_merge_is_pairwise():
     state = make_state(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     validate_router_plan(
         RouterPlan(actions=[
-            {"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""},
-            {"action": "accept", "target_ids": ["C2"], "tool_requests": [], "reason": ""},
+            {"action": "split", "target_ids": ["C1"], **decision_fields(), "tool_requests": [], "reason": ""},
+            {"action": "accept", "target_ids": ["C2"], **decision_fields(True), "tool_requests": [], "reason": ""},
         ]),
         state,
         fake_registry(),
     )
     with pytest.raises(ValueError, match="exactly two"):
-        RouterAction(action="merge", target_ids=["C1", "C2", "C3"], reason="")
+        RouterAction(action="merge", target_ids=["C1", "C2", "C3"], **decision_fields(), reason="")
     with pytest.raises(ValueError):
         MergePlan(target_ids=["C1", "C2", "C3"])
 
@@ -874,8 +936,8 @@ def test_reviser_is_called_once_for_whole_partition_and_parent_is_removed(tmp_pa
     state = make_state(("C1", ids), ("C2", ["P6", "P7"]))
     state["router_plan"] = {
         "actions": [
-            {"action": "split", "target_ids": ["C1"], "tool_requests": [], "reason": ""},
-            {"action": "drop", "target_ids": ["C2"], "tool_requests": [], "reason": ""},
+            {"action": "split", "target_ids": ["C1"], **decision_fields(), "tool_requests": [], "reason": ""},
+            {"action": "drop", "target_ids": ["C2"], **decision_fields(), "tool_requests": [], "reason": ""},
         ]
     }
     state["round_evidence"] = [{
@@ -918,8 +980,8 @@ def test_accept_only_final_report_and_drop_ledger(tmp_path):
     state = make_state(("C1", ["P1"]), ("C2", ["P2"]))
     state["router_plan"] = {
         "actions": [
-            {"action": "accept", "target_ids": ["C1"], "tool_requests": [], "reason": "accepted"},
-            {"action": "drop", "target_ids": ["C2"], "tool_requests": [], "reason": "excluded"},
+            {"action": "accept", "target_ids": ["C1"], **decision_fields(True), "tool_requests": [], "reason": "accepted"},
+            {"action": "drop", "target_ids": ["C2"], **decision_fields(), "tool_requests": [], "reason": "excluded"},
         ]
     }
     state["reports"] = [{
@@ -980,7 +1042,7 @@ def test_runtime_tool_failure_stops_before_router_and_is_not_scientific_drop():
 
         def invoke(self, payload):
             self.calls += 1
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"], **decision_fields()}]}
 
     router = Router()
     runtime = {
@@ -1063,7 +1125,7 @@ def test_router_payload_uses_reports_not_raw_structural_metrics():
     class Router:
         def invoke(self, payload):
             captured.update(payload)
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{"action": "drop", "target_ids": ["C1"], **decision_fields()}]}
 
     router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})
     assert "raw_structural_metrics" not in captured
@@ -1103,8 +1165,8 @@ def test_router_payload_contains_compact_structural_index_without_action_flags()
         def invoke(self, payload):
             captured.update(payload)
             return {"actions": [
-                {"action": "drop", "target_ids": ["C1"]},
-                {"action": "drop", "target_ids": ["C2"]},
+                {"action": "drop", "target_ids": ["C1"], **decision_fields()},
+                {"action": "drop", "target_ids": ["C2"], **decision_fields()},
             ]}
 
     router_node(state, {"tool_registry": fake_registry(), "router_model": Router()})

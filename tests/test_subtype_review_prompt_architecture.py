@@ -74,3 +74,16 @@ def test_router_requires_corroboration_for_single_discovery_modality():
     assert "do not require a third source" in router
     assert "absence of contradiction from other sources does not count as corroboration" in router
     assert "do not count the number of significant features within one modality as multiple support sources" in router
+
+
+def test_router_must_report_decision_state_for_contract_validation():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
+
+    for field in (
+        "support_sources",
+        "corroboration_satisfied",
+        "active_contradiction",
+        "dominant_confounder",
+    ):
+        assert field in router
+    assert "python only checks" in router.lower()
