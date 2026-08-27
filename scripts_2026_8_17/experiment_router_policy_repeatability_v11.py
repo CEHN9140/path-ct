@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import copy
 import hashlib
 import json
 import sys
@@ -32,6 +33,7 @@ from scripts_2026_8_17.experiment_structural_index_router_replay import (  # noq
 from utils.llm_utils import load_yaml_file  # noqa: E402
 
 INITIAL_KS = tuple(range(2, 9))
+SOURCE_REPEATS = (1, 2, 3)
 
 
 def json_hash(value: Any) -> str:
@@ -99,9 +101,10 @@ def calibrate(
         payload = state = None
         if entry is not None:
             payload, state = replay_payload(entry)
-        payload_hash = json_hash(payload) if payload is not None else None
         entry_hash = json_hash(entry) if entry is not None else None
         for replay_number in range(1, replay_count + 1):
+            replay_payload_instance = copy.deepcopy(payload) if payload is not None else None
+            payload_hash = json_hash(replay_payload_instance) if replay_payload_instance is not None else None
             result = {
                 "initial_k": initial_k,
                 "replay": replay_number,
@@ -115,12 +118,16 @@ def calibrate(
                 result["error"] = error
             else:
                 try:
-                    raw_plan = router.invoke(payload)
+                    raw_plan = router.invoke(replay_payload_instance)
                     plan = parse_router_plan(raw_plan)
                     validate_router_plan(plan, state, {"tool_registry": TOOL_REGISTRY})
                     result.update({"status": "success", "plan": plan.model_dump()})
                 except Exception as exc:
                     result.update({"status": "router_error", "error": f"{type(exc).__name__}: {exc}"})
+                finally:
+                    result["payload_unchanged_after_invoke"] = (
+                        payload_hash == json_hash(replay_payload_instance)
+                    )
             results[(initial_k, replay_number)] = result
             run_output = output_root / f"run{replay_number}" / f"K{initial_k}"
             run_output.mkdir(parents=True, exist_ok=True)
@@ -139,7 +146,15 @@ def calibrate(
             if str(item.get("set_id") or item.get("cluster_id") or "")
         })
         payload_hashes = [results[(initial_k, replay)]["router_payload_hash"] for replay in range(1, replay_count + 1)]
-        identical_payload = bool(payload_hashes and len(set(payload_hashes)) == 1 and None not in payload_hashes)
+        identical_payload = bool(
+            payload_hashes
+            and len(set(payload_hashes)) == 1
+            and None not in payload_hashes
+            and all(
+                results[(initial_k, replay)].get("payload_unchanged_after_invoke") is True
+                for replay in range(1, replay_count + 1)
+            )
+        )
         signatures = [plan_signature(result["plan"]) for result in successful]
         pair_count = len(signatures) * (len(signatures) - 1) // 2
         partition_rows.append({
@@ -181,6 +196,8 @@ def calibrate(
             writer.writeheader()
             writer.writerows(set_rows)
     discordant = [row for row in set_rows if row["decision_discordant"]]
+    valid_discordant = [row for row in discordant if not row["invalid_for_repeatability"]]
+    invalid_set_count = sum(row["invalid_for_repeatability"] for row in set_rows)
     if discordant:
         with (output_root / "router_discordant_cases.csv").open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(discordant[0]))
@@ -198,6 +215,8 @@ def calibrate(
         "missing_run_count": sum(result["status"] == "missing" for result in results.values()),
         "set_row_count": len(set_rows),
         "discordant_set_count": len(discordant),
+        "valid_discordant_set_count": len(valid_discordant),
+        "invalid_set_count": invalid_set_count,
         "identical_payload_all_replays": {
             f"K{row['initial_k']}": row["identical_payload_all_replays"] for row in partition_rows
         },
@@ -221,7 +240,7 @@ def main() -> None:
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v11" / "router_policy_calibration")
     parser.add_argument("--initial-k", type=int, choices=INITIAL_KS, action="append")
-    parser.add_argument("--source-repeat", type=int, default=2)
+    parser.add_argument("--source-repeat", type=int, choices=SOURCE_REPEATS, default=2)
     parser.add_argument("--replay-count", type=int, default=3)
     args = parser.parse_args()
     print(json.dumps(calibrate(
