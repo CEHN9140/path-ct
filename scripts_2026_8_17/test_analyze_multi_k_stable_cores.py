@@ -51,10 +51,70 @@ def test_affinity_metrics_use_fixed_membership_and_core_distance():
     assert result["distance_matrix"]["CORE01"]["CORE02"] > 0
 
 
-def test_png_only_writer_never_creates_pdf(tmp_path):
-    path = analysis.write_png(tmp_path / "figure.png", 20, 20, lambda canvas: canvas.rectangle(0, 0, 19, 19, (255, 0, 0)))
-    assert path.suffix == ".png" and path.exists()
-    assert not list(tmp_path.glob("*.pdf"))
+def test_matplotlib_writer_creates_png_only(tmp_path):
+    import matplotlib.pyplot as plt
+
+    figure = plt.figure()
+    analysis.save_figure(figure, tmp_path / "figure")
+    assert (tmp_path / "figure.png").exists()
+    assert not (tmp_path / "figure.pdf").exists()
+
+
+def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():
+    rows = [
+        {"pathway": "A", "core_id": "CORE01", "q_value": 0.01, "smd": 0.1},
+        {"pathway": "A", "core_id": "CORE02", "q_value": 0.8, "smd": 0.2},
+        {"pathway": "B", "core_id": "CORE01", "q_value": 0.8, "smd": 0.9},
+        {"pathway": "B", "core_id": "CORE02", "q_value": 0.8, "smd": 0.8},
+        {"pathway": "C", "core_id": "CORE01", "q_value": 0.8, "smd": 0.7},
+    ]
+    assert analysis.select_pathways(rows, 2) == ["A", "B"]
+
+
+def test_cnv_pairwise_fdr_is_scoped_to_current_pair():
+    table = {case: {"chr1": value} for case, value in {"a": -1, "b": -1, "c": 1, "d": 1, "e": 0, "f": 0}.items()}
+    _, _, _, rows = analysis.cnv_analysis(table, ["chr1"], {"CORE01": ["a", "b"], "CORE02": ["c", "d"], "CORE03": ["e", "f"]}, list(table))
+    assert {row["core_a"] + row["core_b"] for row in rows} == {"CORE01CORE02", "CORE01CORE03", "CORE02CORE03"}
+    assert all("q_value" in row for row in rows)
+
+
+def test_pairwise_cnv_count_uses_only_the_current_pair():
+    rows = [{"core_a": "CORE01", "core_b": "CORE02"}]
+    cnv = [
+        {"core_a": "CORE01", "core_b": "CORE02", "q_value": 0.01},
+        {"core_a": "CORE01", "core_b": "CORE03", "q_value": 0.01},
+    ]
+    result = analysis.update_pairwise_similarity(rows, [], [], cnv)
+    assert result[0]["cnv_pairwise_fdr_feature_count"] == 1
+
+
+def test_pairwise_distances_are_named_as_mean_between_core_distances():
+    result = analysis.pairwise_similarity(
+        {"CORE01": ["a"], "CORE02": ["b"]}, [], [], [],
+        {modality: {"CORE01": {"CORE02": 0.5}} for modality in analysis.MODALITIES}, [], [],
+    )[0]
+    assert result["ct_mean_between_core_distance"] == 0.5
+    assert "ct_centroid_distance" not in result
+
+
+def test_cnv_heatmap_selection_is_unique_and_significance_first():
+    rows = [
+        {"feature": "chr1", "core_id": "CORE01", "q_value": 0.8, "cliffs_delta": 0.99},
+        {"feature": "chr1", "core_id": "CORE02", "q_value": 0.01, "cliffs_delta": 0.1},
+        {"feature": "chr2", "core_id": "CORE01", "q_value": 0.8, "cliffs_delta": 0.8},
+    ]
+    assert analysis.select_cnv_heatmap_features(rows, 1) == ["chr1"]
+
+
+def test_cooccurrence_does_not_turn_unassignable_into_different_parent():
+    rows, by_k = analysis.cooccurrence_from_runs(
+        [{"run_id": "run1_K2", "initial_k": 2, "sets": {"C1": {"a"}}}],
+        {"CORE01": ["a", "b"], "CORE02": ["c", "d"]},
+    )
+    assert rows[0]["valid_assignment"] == 0
+    assert rows[0]["same_parent_set"] is None
+    assert by_k[0]["conditional_same_parent_fraction"] is None
+    assert by_k[0]["unconditional_same_parent_fraction"] == 0
 
 
 def test_run_summary_has_non_core_and_manifest_hash(tmp_path):
