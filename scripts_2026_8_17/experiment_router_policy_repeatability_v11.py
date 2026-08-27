@@ -48,10 +48,6 @@ def plan_signature(plan: Mapping[str, Any]) -> str:
         actions.append({
             "action": action.get("action"),
             "target_ids": sorted(action.get("target_ids", []) or []),
-            "support_sources": sorted(action.get("support_sources", []) or []),
-            "corroboration_satisfied": action.get("corroboration_satisfied"),
-            "active_contradiction": action.get("active_contradiction"),
-            "dominant_confounder": action.get("dominant_confounder"),
             "tool_requests": sorted(
                 (
                     request.get("tool_name"),

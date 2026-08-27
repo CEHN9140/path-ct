@@ -76,14 +76,14 @@ def test_router_requires_corroboration_for_single_discovery_modality():
     assert "do not count the number of significant features within one modality as multiple support sources" in router
 
 
-def test_router_must_report_decision_state_for_contract_validation():
+def test_router_does_not_require_decision_state_fields():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
 
     for field in (
-        "support_sources",
-        "corroboration_satisfied",
-        "active_contradiction",
-        "dominant_confounder",
+        '"support_sources"',
+        '"corroboration_satisfied"',
+        '"active_contradiction"',
+        '"dominant_confounder"',
     ):
-        assert field in router
-    assert "python only checks" in router.lower()
+        assert field not in router
+    assert "python only checks" not in router.lower()
