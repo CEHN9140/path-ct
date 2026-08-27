@@ -69,7 +69,8 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
 def test_router_requires_corroboration_for_single_discovery_modality():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
 
-    assert "absence of corroboration is not the same as active contradiction" in router
-    assert "absence of contradiction is also not sufficient for accept" in router
-    assert "another distinct evidence source provides meaningful corroboration" in router
-    assert "if such corroboration is absent" in router
+    assert "two or more distinct sources meaningfully support the same identity" in router
+    assert "the corroboration requirement is satisfied" in router
+    assert "do not require a third source" in router
+    assert "absence of contradiction from other sources does not count as corroboration" in router
+    assert "do not count the number of significant features within one modality as multiple support sources" in router
