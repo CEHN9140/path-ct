@@ -106,6 +106,33 @@ def test_cnv_heatmap_selection_is_unique_and_significance_first():
     assert analysis.select_cnv_heatmap_features(rows, 1) == ["chr1"]
 
 
+def test_radiomics_analysis_reports_core_rest_and_pairwise_effects():
+    table = {case: {"original_shape_Sphericity": value, "original_glcm_Contrast": value * 2} for case, value in {"a": 1, "b": 2, "c": 8, "d": 9}.items()}
+    rows, pair_rows = analysis.radiomics_analysis(
+        table, list(table["a"]), {"CORE01": ["a", "b"], "CORE02": ["c", "d"]}, list(table)
+    )
+    assert len(rows) == 4 and len(pair_rows) == 2
+    assert {row["feature_family"] for row in rows} == {"shape", "glcm"}
+    assert all(row["effect_size"] == row["smd"] for row in rows)
+    assert all("medical_imaging_domain" in row for row in pair_rows)
+
+
+def test_clinical_analysis_reports_stage_grade_metastasis_and_survival():
+    records = {
+        "a": {"stage_group": "I", "grade": "G2", "m_stage": "M0", "os_time": 100, "os_event": 0},
+        "b": {"stage_group": "I", "grade": "G2", "m_stage": "M0", "os_time": 200, "os_event": 0},
+        "c": {"stage_group": "IV", "grade": "G4", "m_stage": "M1", "os_time": 50, "os_event": 1},
+        "d": {"stage_group": "IV", "grade": "G4", "m_stage": "M1", "os_time": 80, "os_event": 1},
+    }
+    rows, pair_rows, survival = analysis.clinical_analysis(
+        records, {"CORE01": ["a", "b"], "CORE02": ["c", "d"]}, list(records)
+    )
+    assert {row["clinical_variable"] for row in rows} == {"stage_group", "grade", "m_stage"}
+    assert {row["clinical_variable"] for row in survival} == {"overall_survival"}
+    assert {row["clinical_variable"] for row in pair_rows} == {"stage_group", "grade", "m_stage", "overall_survival"}
+    assert all("q_value" in row for row in rows + pair_rows + survival)
+
+
 def test_cooccurrence_does_not_turn_unassignable_into_different_parent():
     rows, by_k = analysis.cooccurrence_from_runs(
         [{"run_id": "run1_K2", "initial_k": 2, "sets": {"C1": {"a"}}}],
