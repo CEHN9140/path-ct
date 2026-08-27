@@ -775,13 +775,21 @@ def analyze(
             writer.writeheader()
             writer.writerows(execution_rows)
     write_json(experiment_root / "run_execution_status.json", {"runs": execution_rows})
+    missing_run_count = sum(
+        row["raw_control_status"] == "missing" for row in execution_rows
+    )
+    failed_run_count = sum(
+        not row["valid_for_analysis"] and row["raw_control_status"] != "missing"
+        for row in execution_rows
+    )
     if not runs:
         summary = {
             "experiment": "multi_k_accepted_core_stability",
             "analysis_status": "unavailable",
             "expected_run_count": len(initial_ks) * len(repeats),
             "valid_run_count": 0,
-            "invalid_run_count": len(execution_rows),
+            "missing_run_count": missing_run_count,
+            "failed_run_count": failed_run_count,
             "interpretation": "No scientifically complete Review run is available.",
         }
         write_json(experiment_root / "summary.json", summary)
@@ -926,7 +934,8 @@ def analyze(
             "review_repeats": list(repeats),
             "expected_run_count": len(initial_ks) * len(repeats),
             "valid_run_count": len(runs),
-            "invalid_run_count": len(execution_rows) - len(runs),
+            "missing_run_count": missing_run_count,
+            "failed_run_count": failed_run_count,
             "k_level_summary": k_levels,
             "primary_family_k_values": [],
             "strict_family_k_values": [],
@@ -1216,7 +1225,8 @@ def analyze(
         "review_repeats": list(repeats),
         "expected_run_count": len(initial_ks) * len(repeats),
         "valid_run_count": len(runs),
-        "invalid_run_count": len(execution_rows) - len(runs),
+        "missing_run_count": missing_run_count,
+        "failed_run_count": failed_run_count,
         "valid_k_count": valid_k_count,
         "exploratory_k_count": exploratory_k_count,
         "strict_k_count": strict_k_count,

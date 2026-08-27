@@ -339,7 +339,8 @@ def test_analyze_excludes_incomplete_and_unavailable_runs(tmp_path):
 
     assert summary["analysis_status"] == "primary_unavailable"
     assert summary["valid_run_count"] == 1
-    assert summary["invalid_run_count"] == 20
+    assert summary["missing_run_count"] == 18
+    assert summary["failed_run_count"] == 2
     assert summary["expected_run_count"] == 21
     assert summary["review_repeats"] == [1, 2, 3]
     with (tmp_path / "patient_acceptance_frequency.csv").open() as handle:
@@ -362,6 +363,8 @@ def test_single_repeat_analysis_is_exploratory_only(tmp_path):
     assert summary["expected_run_count"] == 21
     assert summary["valid_run_count"] == 1
     assert summary["analysis_status"] == "primary_unavailable"
+    assert summary["missing_run_count"] == 20
+    assert summary["failed_run_count"] == 0
     assert summary["k_level_summary"][0]["expected_repeat_count"] == 3
     assert summary["k_level_summary"][0]["primary_eligible"] is False
     assert summary["k_level_summary"][0]["strict_eligible"] is False
