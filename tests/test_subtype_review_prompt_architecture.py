@@ -64,3 +64,12 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
 
     changed_config = {**config, "cross_modal": {"permanova_permutations": 1000}}
     assert review_signature_manifest(changed_config, "/data/qijun/path-ct/configs")["review_signature"] != base["review_signature"]
+
+
+def test_router_requires_corroboration_for_single_discovery_modality():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+
+    assert "absence of corroboration is not the same as active contradiction" in router
+    assert "absence of contradiction is also not sufficient for accept" in router
+    assert "another distinct evidence source provides meaningful corroboration" in router
+    assert "if such corroboration is absent" in router
