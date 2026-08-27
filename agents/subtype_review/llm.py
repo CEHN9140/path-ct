@@ -82,7 +82,7 @@ def prompt_dir(config: Mapping[str, Any], config_dir: str | Path) -> Path:
 def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path) -> dict[str, Any]:
     directory = prompt_dir(config, config_dir)
     prompt_hashes = {
-        name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
+        f"{name[:-3]}_prompt_sha256": hashlib.sha256((directory / name).read_bytes()).hexdigest()
         for name in ("verifier.md", "router.md", "reviser.md")
     }
     review_config = dict(config)

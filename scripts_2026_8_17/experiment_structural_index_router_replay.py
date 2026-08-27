@@ -30,7 +30,7 @@ def action_summary(plan: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def replay_entry(entry: Mapping[str, Any], router_model: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+def replay_payload(entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     state = {
         "partition": entry["partition"],
         "round_evidence": entry.get("round_evidence", []),
@@ -50,6 +50,11 @@ def replay_entry(entry: Mapping[str, Any], router_model: Any) -> tuple[dict[str,
         "round": entry.get("round", 1),
         "instruction": "Router-only replay: use saved evidence and structural_index; do not request new evidence.",
     }
+    return payload, state
+
+
+def replay_entry(entry: Mapping[str, Any], router_model: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload, state = replay_payload(entry)
     raw_plan = router_model.invoke(payload)
     plan = parse_router_plan(raw_plan)
     validate_router_plan(plan, state, {"tool_registry": TOOL_REGISTRY})

@@ -43,6 +43,12 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
         "cross_modal": {"permanova_permutations": 999},
     }
     base = review_signature_manifest(config, "/data/qijun/path-ct/configs")
+    assert set(base) == {
+        "verifier_prompt_sha256",
+        "router_prompt_sha256",
+        "reviser_prompt_sha256",
+        "review_signature",
+    }
 
     execution_only = {**config, "repeat": 3, "output_root": str(tmp_path / "run3")}
     assert review_signature_manifest(execution_only, "/data/qijun/path-ct/configs")["review_signature"] == base["review_signature"]
@@ -58,4 +64,3 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
 
     changed_config = {**config, "cross_modal": {"permanova_permutations": 1000}}
     assert review_signature_manifest(changed_config, "/data/qijun/path-ct/configs")["review_signature"] != base["review_signature"]
-
