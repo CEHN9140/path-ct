@@ -11,26 +11,10 @@
       {
         "action": "accept",
         "target_ids": [
-          "C0005"
+          "C0001"
         ],
         "tool_requests": [],
-        "reason": "Strong biological support: RNA shows FDR-significant upregulation of interferon/inflammatory pathways with large effect sizes, and WXS shows significant BAP1 enrichment (q=0.0044). Cross-modal consistency is moderate with median support count 3 and positive RNA/WSI silhouettes. Confounder exclusion shows a significant site enrichment (CJ) but this is a single technical factor and does not override the coherent biological signal. No better-supported structural action or resolvable evidence gap exists."
-      },
-      {
-        "action": "drop",
-        "target_ids": [
-          "C0003"
-        ],
-        "tool_requests": [],
-        "reason": "Biological support is absent across all modalities (no significant RNA, WXS, or CNV findings). Cross-modal consistency is driven almost entirely by CT (median silhouette 0.276) with no support from other modalities, and confounder exclusion reveals strong technical associations with CT manufacturer/scanner/kernel (q<0.05). The set appears to be a technical artifact rather than a biological subtype. No structural split or merge is supported, and no available evidence can resolve this."
-      },
-      {
-        "action": "drop",
-        "target_ids": [
-          "C0004"
-        ],
-        "tool_requests": [],
-        "reason": "Biological support is absent across all modalities (no significant RNA, WXS, or CNV findings). Cross-modal consistency is weak with near-zero silhouettes in most modalities and only slight WSI support. Confounder exclusion shows no significant technical associations, but the lack of any biological distinction and weak structural cohesion do not justify acceptance. No structural split or merge is supported, and no available evidence can resolve this."
+        "reason": "C0001 has a coherent RNA-defined biological identity with strong, FDR-significant pathway enrichment (coagulation, EMT up; metabolic/secretory down) and large effect sizes. WXS and CNV show only nominal trends, but the RNA signal is substantial and biologically interpretable. Measured technical factors do not provide a dominant explanation (no per-set significant confounders), and structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
       },
       {
         "action": "accept",
@@ -38,15 +22,31 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "Biological support is strong: RNA shows 25 significant pathways with coherent downregulation of immune signaling and upregulation of heme metabolism, and CNV shows significant lower copy-number on multiple arms (q<0.05). Cross-modal consistency is moderate with positive WSI and RNA silhouettes and high resampling ARI (0.561). Confounder exclusion shows no significant per-set technical associations. The set has a defensible identity with no dominant technical explanation."
+        "reason": "C0002 has a coherent biological identity supported by strong RNA pathway enrichment (immune down, heme metabolism up) and consistent CNV losses on multiple arms, both FDR-significant. WXS shows only a nominal BAP1 depletion, but the RNA and CNV signals are coherent and not dominated by technical factors (no per-set significant confounders). Structural evidence does not positively support Split or Merge. Retaining C0002 is better supported than Drop."
+      },
+      {
+        "action": "drop",
+        "target_ids": [
+          "C0003"
+        ],
+        "tool_requests": [],
+        "reason": "C0003 lacks a coherent biological identity: no RNA, WXS, or CNV features reached significance, with all effect sizes small and q-values near 1.0. The set is strongly confounded by CT manufacturer and scanner model (FDR-significant per-set associations), and its only strong structural signal is CT-driven, suggesting the identity may be primarily technical. No positive structural evidence supports Split or Merge, and no extra evidence is available to resolve the uncertainty. Dropping C0003 is better supported than retaining it."
+      },
+      {
+        "action": "drop",
+        "target_ids": [
+          "C0004"
+        ],
+        "tool_requests": [],
+        "reason": "C0004 lacks a coherent biological identity: no RNA, WXS, or CNV features reached significance, with all effect sizes moderate but q-values high. The set shows no significant technical confounders, but the absence of any FDR-significant biological signal across all modalities leaves no defensible molecular identity. Structural evidence does not positively support Split or Merge, and no extra evidence is available. Dropping C0004 is better supported than retaining it."
       },
       {
         "action": "accept",
         "target_ids": [
-          "C0001"
+          "C0005"
         ],
         "tool_requests": [],
-        "reason": "Biological support is moderate: RNA shows 18 significant pathways with coherent upregulation of coagulation/EMT and downregulation of metabolic pathways, though WXS and CNV are not significant. Cross-modal consistency is weak but RNA provides some support (median silhouette 0.021). Confounder exclusion shows no significant per-set technical associations. The transcriptional profile provides a defensible identity, and no better-supported structural action or resolvable evidence gap exists."
+        "reason": "C0005 has a coherent biological identity supported by strong RNA pathway enrichment (interferon and inflammatory pathways up) and significant BAP1 mutation enrichment, both FDR-significant with large effect sizes. The strong tissue-source-site association (CJ) provides a measured alternative explanation, but the molecular signal is robust and coherent across RNA and WXS, and the site association does not fully explain the biological findings. Structural evidence does not positively support Split or Merge. Retaining C0005 for downstream validation is better supported than Drop."
       }
     ]
   },

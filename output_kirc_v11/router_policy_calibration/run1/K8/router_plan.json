@@ -9,12 +9,12 @@
   "plan": {
     "actions": [
       {
-        "action": "drop",
+        "action": "accept",
         "target_ids": [
           "C0001"
         ],
         "tool_requests": [],
-        "reason": "RNA pathway enrichment is strong but WXS and CNV show no significant findings, and cross-modal consistency is weak with low silhouettes and support counts. The set lacks robust multimodal corroboration and does not show a defensible biological identity beyond transcriptomic trends."
+        "reason": "C0001 has a coherent RNA-defined biological identity with substantial pathway effect sizes (e.g., HEME_METABOLISM SMD=-1.35, q=0.0003) and FDR-adjusted significance. WXS and CNV are not significant but do not actively contradict the identity. Measured technical factors do not provide a dominant explanation for the RNA signal, and structural evidence does not positively support Split or Merge. Retaining C0001 as a discovery-stage candidate is better supported than Drop."
       },
       {
         "action": "drop",
@@ -22,7 +22,7 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "No significant biological findings across RNA, WXS, or CNV; cross-modal consistency is moderate but overall silhouettes are low. The set does not exhibit a distinct molecular identity and lacks sufficient evidence for acceptance."
+        "reason": "C0002 lacks coherent biological identity: no significant RNA pathways, no significant mutations, and no significant CNV features. The evidence is broadly weak and does not define a meaningful subtype. Structural evidence shows low cross-modal support and no positive support for Split or Merge. The candidate is not sufficiently defensible for downstream validation."
       },
       {
         "action": "accept",
@@ -30,7 +30,7 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "RNA shows significant pathway enrichment (PANCREAS_BETA_CELLS, HEME_METABOLISM), CNV shows significant chr20q alteration, and PBRM1 mutation enrichment is strong (65% vs 31.3%, OR=4.07) though not FDR-significant. Cross-modal consistency is moderate with WSI and RNA support, and no significant technical confounding. The evidence supports a distinct PBRM1-driven subtype."
+        "reason": "C0003 shows a coherent biological identity with significant RNA pathways (PANCREAS_BETA_CELLS, HEME_METABOLISM), a strong PBRM1 mutation enrichment trend (OR=4.07, p=0.009), and a significant CNV feature (chr20q). Although mutation enrichment does not survive FDR, the combined evidence is coherent and not dominated by technical factors. Structural evidence does not positively support Split or Merge. Retaining C0003 is better supported than Drop."
       },
       {
         "action": "accept",
@@ -38,7 +38,7 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong significant downregulation of immune and inflammatory pathways (16 pathways, q<0.05), and cross-modal consistency shows moderate internal structure. No significant technical confounding. Although WXS and CNV are not significant, the transcriptomic profile is coherent and defensible."
+        "reason": "C0004 has a strong RNA-defined identity with 16 significant pathways, including downregulation of immune and inflammatory pathways (e.g., ALLOGRAFT_REJECTION SMD=-1.21, q=0.015). WXS and CNV are not significant but do not contradict the identity. Measured technical factors do not provide a dominant explanation, and structural evidence does not positively support Split or Merge. Retaining C0004 is better supported than Drop."
       },
       {
         "action": "drop",
@@ -46,7 +46,7 @@
           "C0005"
         ],
         "tool_requests": [],
-        "reason": "No significant biological findings in RNA or CNV, and WXS shows only nominal FLG enrichment. The set is heavily confounded by technical factors (multiple significant associations with site, manufacturer, scanner, and reconstruction kernel), compromising any biological interpretation. Cross-modal support is limited to CT."
+        "reason": "C0005 is heavily confounded by technical factors: multiple set-level technical associations reach FDR significance (e.g., tissue_source_site B8 OR=7.5, q=0.006; ct_manufacturer SIEMENS OR=10.4, q=0.0006; ct_phase NEPH OR=20.75, q=0.003). The biological evidence is weak (no significant RNA or CNV, only nominal FLG mutation enrichment). The measured technical factors provide a substantial alternative explanation for the set's identity, and no evidence sufficiently separates biological identity from this confound. Dropping is better supported than retaining."
       },
       {
         "action": "drop",
@@ -54,7 +54,7 @@
           "C0006"
         ],
         "tool_requests": [],
-        "reason": "Only one RNA pathway is significant (EMT), and WXS shows nominal BAP1/TTN enrichment but not FDR-significant. Cross-modal consistency is weak with low silhouettes, and the set is small (n=9). The evidence is insufficient to establish a distinct biological identity."
+        "reason": "C0006 has only one significant RNA pathway (EMT) and no significant WXS or CNV findings after FDR correction. The set is small (n=9) and lacks coherent multi-modal support. Structural evidence shows low cross-modal consistency and no positive support for Split or Merge. The evidence is too weak to justify downstream validation."
       },
       {
         "action": "accept",
@@ -62,7 +62,7 @@
           "C0007"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong significant pathway enrichment (14 pathways, including MYOGENESIS and WNT_BETA_CATENIN_SIGNALING), and BAP1 mutation enrichment is strong (45.5% vs 8.7%, OR=8.75, q=0.097) just above threshold. Cross-modal consistency shows RNA support, and no significant technical confounding. The evidence supports a distinct inflammatory subtype."
+        "reason": "C0007 has a strong RNA-defined identity with 14 significant pathways, including downregulation of MYOGENESIS and WNT signaling and upregulation of inflammatory pathways. BAP1 mutation enrichment is nominal (q=0.097) but does not contradict the RNA signal. Measured technical factors do not provide a dominant explanation, and structural evidence does not positively support Split or Merge. Retaining C0007 is better supported than Drop."
       },
       {
         "action": "drop",
@@ -70,7 +70,7 @@
           "C0008"
         ],
         "tool_requests": [],
-        "reason": "Set size of 2 makes all analyses underpowered and unreliable. No significant findings in any modality, and internal structure cannot be estimated. The set does not meet the criteria for acceptance or structural correction."
+        "reason": "C0008 has only 2 members, making all analyses underpowered and unreliable. No significant findings in any modality, and internal structure cannot be estimated. The candidate lacks sufficient evidence to justify downstream validation. Dropping is better supported than retaining."
       }
     ]
   },

@@ -11,26 +11,10 @@
       {
         "action": "accept",
         "target_ids": [
-          "C0005"
+          "C0001"
         ],
         "tool_requests": [],
-        "reason": "Strong biological support: RNA shows FDR-significant upregulation of interferon/inflammatory pathways with large effect sizes, and WXS shows significant BAP1 enrichment (q=0.0044). Cross-modal consistency is moderate with median support count 3 and positive RNA/WSI silhouettes. Confounder exclusion shows a significant site enrichment (CJ) but this is a single technical factor and does not override the coherent biological signal. No better-supported structural action or resolvable evidence gap exists."
-      },
-      {
-        "action": "drop",
-        "target_ids": [
-          "C0003"
-        ],
-        "tool_requests": [],
-        "reason": "No significant biological enrichment across RNA, WXS, or CNV; all q-values near 1.0. Strong technical confounding with CT manufacturer/scanner/kernel associations (q<0.05) suggests the set is defined by technical factors rather than biology. Cross-modal consistency shows CT is the only driver (median silhouette 0.276) with weak support from other modalities. The set lacks a defensible biological identity and is better dropped than retained."
-      },
-      {
-        "action": "drop",
-        "target_ids": [
-          "C0004"
-        ],
-        "tool_requests": [],
-        "reason": "No significant biological enrichment across any modality; all q-values high. Cross-modal consistency is weak with near-zero silhouettes in most modalities and only modest WSI support. No significant technical confounders, but the absence of biological signal and lack of structural cohesion indicate the set is not a distinct biological entity. No supported structural action or resolvable evidence gap exists."
+        "reason": "C0001 has a coherent RNA-defined biological identity with strong FDR-significant pathway enrichment (coagulation, EMT up; metabolic/secretory down) and large effect sizes. WXS and CNV show only nominal trends, but the transcriptional signal is substantial and biologically interpretable. Measured technical factors do not provide a dominant alternative explanation (no per-set FDR-significant confounders). Structural evidence shows weak cohesion but RNA provides some separation, and no positive support for Split or Merge. Retaining for downstream validation is better supported than Drop."
       },
       {
         "action": "accept",
@@ -38,15 +22,31 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "Biological support is coherent: RNA shows extensive FDR-significant pathway enrichment (25/50) with large effect sizes, and CNV shows significant lower copy-number on multiple arms (q<0.05). Cross-modal consistency is moderate with positive WSI and RNA silhouettes and high resampling ARI (0.561). No significant technical confounders after correction. The set has a defensible identity with corroborating evidence across modalities."
+        "reason": "C0002 has a coherent biological identity supported by strong RNA pathway enrichment (downregulation of immune pathways, upregulation of heme metabolism) and consistent CNV losses on multiple arms with FDR significance. WXS shows only a nominal BAP1 depletion, but the RNA and CNV signals are coherent and not dominated by technical factors (no per-set FDR-significant confounders). Structural evidence shows moderate cluster stability (resampling ARI=0.561, PAC=0.480) and no positive support for Split or Merge. Accept is better supported than Drop."
+      },
+      {
+        "action": "drop",
+        "target_ids": [
+          "C0003"
+        ],
+        "tool_requests": [],
+        "reason": "C0003 lacks a coherent biological identity: no RNA pathway, mutation, or CNV feature reached FDR significance, and effect sizes are small with q-values near 1.0. The set is strongly confounded by CT manufacturer and scanner model (FDR-significant per-set associations), and its structural identity is primarily CT-driven (median silhouette=0.276) with no cross-modal support. The measured technical factors provide a substantial alternative explanation for the set's definition, and there is no positive evidence for Split or Merge. Drop is better supported than Accept."
       },
       {
         "action": "accept",
         "target_ids": [
-          "C0001"
+          "C0004"
         ],
         "tool_requests": [],
-        "reason": "Biological support is primarily transcriptional with strong RNA pathway enrichment (18/50 FDR-significant, large effect sizes) and coherent directionality. WXS and CNV show only nominal trends, but the RNA signal is robust. Cross-modal consistency shows RNA as the main driver with moderate patient support. No significant technical confounders after correction. The set has a defensible identity based on RNA, and no better-supported structural action or resolvable gap exists."
+        "reason": "C0004 does not show strong biological enrichment, but the absence of significant findings is not active contradiction, and the set has moderate structural stability (resampling ARI=0.749, consensus separation=0.571). No per-set technical confounders are significant, and the set is not a known-label echo. While the biological identity is weak, there is no positive support for Split or Merge, and the structural evidence does not clearly invalidate the current membership. Given the limited power (n=20) and the lack of dominant alternative explanations, retaining for downstream validation is defensible."
+      },
+      {
+        "action": "accept",
+        "target_ids": [
+          "C0005"
+        ],
+        "tool_requests": [],
+        "reason": "C0005 has a coherent biological identity with strong RNA interferon/inflammatory pathway enrichment and significant BAP1 mutation enrichment (FDR q=0.0044, large OR). The strong tissue-source-site association (CJ enrichment) is a measured alternative explanation, but the molecular signal is substantial and coherent across RNA and WXS, and the site association does not fully explain the BAP1 and pathway findings. Structural evidence shows moderate cluster stability (resampling ARI=0.636) and no positive support for Split or Merge. Accept is better supported than Drop."
       }
     ]
   },

@@ -9,12 +9,12 @@
   "plan": {
     "actions": [
       {
-        "action": "drop",
+        "action": "accept",
         "target_ids": [
           "C0001"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong pathway differences, but WXS and CNV provide no significant support, and cross-modal consistency is weak (median support count 1, low silhouettes). No technical confounding is significant, but the biological identity is not corroborated across modalities. No available extra evidence can resolve this gap, and no structural split or merge is supported. Drop is preferred over accept because the evidence is insufficient and contradictory across modalities."
+        "reason": "C0001 has a coherent RNA-defined biological identity with substantial pathway effect sizes (e.g., HEME_METABOLISM SMD=-1.35, q=0.0003) and FDR-adjusted significance. WXS and CNV are not significant but do not actively contradict the identity. Technical confounders are not significantly enriched at set level. Structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
       },
       {
         "action": "drop",
@@ -22,7 +22,7 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "No significant biological findings in any modality, weak cross-modal consistency (median support count 2 but low silhouettes), and no technical confounding. The set lacks a defensible molecular identity. No structural action is supported. Drop is appropriate because the total evidence is insufficient."
+        "reason": "C0002 lacks coherent biological identity: no significant RNA pathways, no significant mutations, and no significant CNV features. Effect sizes are moderate but confidence intervals are wide and q-values are high. Technical confounders are not significant, but the absence of any robust molecular signal and weak cross-modal support (median support count 2 but low silhouettes) do not justify retention. No positive structural evidence supports Split or Merge, and no extra evidence is available. Drop is better supported than Accept."
       },
       {
         "action": "accept",
@@ -30,7 +30,7 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "RNA shows significant pathway enrichment (PANCREAS_BETA_CELLS, HEME_METABOLISM), CNV shows significant chr20q alteration, and PBRM1 mutation enrichment is strong (OR=4.07, p=0.009) though not FDR-significant. Cross-modal consistency is moderate with WSI and RNA support. No significant technical confounding. The evidence supports a PBRM1-driven subtype with distinct copy-number changes, and no better-supported structural action or resolvable gap exists."
+        "reason": "C0003 shows a coherent biological identity with significant RNA pathways (PANCREAS_BETA_CELLS, HEME_METABOLISM), a strong PBRM1 mutation enrichment trend (OR=4.07, p=0.009, q=0.20), and a significant CNV feature (chr20q, q=0.026). Technical confounders are not significantly enriched. Structural evidence does not positively support Split or Merge. The mixed but coherent evidence supports retaining C0003 for downstream validation."
       },
       {
         "action": "accept",
@@ -38,7 +38,7 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong, significant downregulation of immune and inflammatory pathways (16 pathways, q<0.05), providing a coherent transcriptomic identity. WXS and CNV are not significant, but the RNA signal is robust and not contradicted by other evidence. Cross-modal consistency is weak but not contradictory. No technical confounding is significant. Accept is justified by the strong RNA evidence and absence of dominant technical explanation."
+        "reason": "C0004 has a strong RNA-defined identity with 16 significant pathways, including downregulation of immune/inflammatory pathways (e.g., ALLOGRAFT_REJECTION SMD=-1.21, q=0.015) and upregulation of HEME_METABOLISM. WXS and CNV are not significant but do not contradict. Technical confounders are not significantly enriched. Structural evidence does not positively support Split or Merge. Retaining C0004 is better supported than Drop."
       },
       {
         "action": "drop",
@@ -46,7 +46,7 @@
           "C0005"
         ],
         "tool_requests": [],
-        "reason": "No significant biological findings in RNA or CNV, and WXS shows only nominal FLG enrichment. Critically, the set has strong and significant technical confounding across multiple acquisition parameters (site, manufacturer, scanner, kernel, slice thickness), indicating that observed differences are likely technical artifacts. Cross-modal consistency is driven by CT alone. Drop is appropriate because the biological identity is compromised by technical confounding."
+        "reason": "C0005 has no significant biological findings in RNA, WXS, or CNV (all q>0.05). More importantly, it shows strong and significant technical associations with multiple acquisition parameters (e.g., ct_manufacturer SIEMENS OR=10.4, q=0.0006; ct_phase NEPH OR=20.75, q=0.003; tissue_source_site B8 OR=7.5, q=0.006). These measured technical factors provide a substantial alternative explanation for the set's identity, and the biological evidence is weak. Drop is better supported than Accept, and no structural correction or extra evidence is available."
       },
       {
         "action": "drop",
@@ -54,7 +54,7 @@
           "C0006"
         ],
         "tool_requests": [],
-        "reason": "RNA shows only one significant pathway (EMT), WXS shows nominal BAP1 and TTN enrichment but not FDR-significant, and CNV is not significant. Cross-modal consistency is weak (median support count 1, low silhouettes). No technical confounding is significant. The evidence is insufficient to establish a distinct biological identity, and no structural action is supported. Drop is preferred over accept due to lack of robust corroboration."
+        "reason": "C0006 has only one significant RNA pathway (EMT, q=0.008) and no significant WXS or CNV findings. The set is small (n=9) and cross-modal support is weak. Technical confounders are not significant, but the biological evidence is too sparse and not coherent enough to justify retention. No positive structural evidence supports Split or Merge, and no extra evidence is available. Drop is better supported than Accept."
       },
       {
         "action": "accept",
@@ -62,7 +62,7 @@
           "C0007"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong, significant pathway differences (14 pathways, including MYOGENESIS, WNT, IL6_JAK_STAT3, INFLAMMATORY_RESPONSE), and WXS shows BAP1 enrichment with q=0.097, just above threshold, suggesting a possible BAP1-driven inflammatory subtype. Cross-modal consistency is moderate with RNA support. No significant technical confounding. The evidence supports a distinct biological identity, and no better-supported structural action or resolvable gap exists."
+        "reason": "C0007 has a strong RNA-defined identity with 14 significant pathways, including downregulation of MYOGENESIS (SMD=-1.79, q=0.00035) and WNT_BETA_CATENIN_SIGNALING, and upregulation of inflammatory pathways. WXS shows a nominal BAP1 enrichment (OR=8.75, p=0.004, q=0.097) that is close to significance. Technical confounders are not significantly enriched. Structural evidence does not positively support Split or Merge. Retaining C0007 is better supported than Drop."
       },
       {
         "action": "drop",
@@ -70,7 +70,7 @@
           "C0008"
         ],
         "tool_requests": [],
-        "reason": "The set has only 2 members, making all analyses underpowered and unreliable. No significant findings in any modality, and internal structure cannot be estimated. Cross-modal support is limited to RNA. No technical confounding is significant, but the set is too small to support a defensible identity. Drop is appropriate because the evidence is insufficient and no structural action is possible."
+        "reason": "C0008 has only 2 members, making all biological analyses underpowered and unreliable. No significant findings in any modality, and internal structure cannot be estimated. The set lacks sufficient evidence to justify downstream validation. No positive structural evidence supports Split or Merge, and no extra evidence is available. Drop is better supported than Accept."
       }
     ]
   },

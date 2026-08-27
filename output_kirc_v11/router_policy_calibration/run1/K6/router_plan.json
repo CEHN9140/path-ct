@@ -9,12 +9,12 @@
   "plan": {
     "actions": [
       {
-        "action": "drop",
+        "action": "accept",
         "target_ids": [
           "C0001"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong metabolic downregulation, but WXS and CNV are not significant, and cross-modal consistency is weak (only RNA positive silhouette, low patient support). No technical confounding is significant, but the set lacks robust multimodal support and genomic corroboration. No available extra evidence can resolve this gap, so Drop is preferred over Accept or structural actions."
+        "reason": "C0001 has a coherent RNA-defined biological identity with strong, FDR-significant downregulation of metabolic pathways (large effect sizes). WXS and CNV are not significant but do not actively contradict the RNA signal. Measured technical factors do not show per-set significant associations, and structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
       },
       {
         "action": "accept",
@@ -22,7 +22,7 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "CNV shows significant coherent copy-number losses, WXS shows strong PBRM1 trend, and RNA shows moderate pathway enrichment. Cross-modal consistency is moderate with WSI and RNA positive, patient support median 2, and internal structure has low PAC. No significant technical confounding. The evidence supports a defensible biological identity."
+        "reason": "C0002 shows moderate cross-modal support: CNV has multiple FDR-significant continuous features, WXS shows a strong nominal PBRM1 trend, and RNA has several FDR-significant pathways. Patient support is moderate (median 2). Technical confounding is not significant per-set. Structural evidence does not support Split or Merge. The identity is sufficiently defensible for retention."
       },
       {
         "action": "drop",
@@ -30,7 +30,7 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "Biological support is weak: only one RNA pathway significant, no WXS or CNV significance. Cross-modal consistency is weak (only CT positive, some patients with zero support). No technical confounding is significant, but the set lacks coherent molecular evidence. No available extra evidence can resolve this, so Drop is appropriate."
+        "reason": "C0003 lacks coherent biological identity: only one RNA pathway is FDR-significant, WXS and CNV show no significant findings, and cross-modal consistency is weak (only CT positive, with some patients having zero support). No positive structural evidence supports Split or Merge, and no extra evidence is available to resolve the uncertainty. The candidate is not sufficiently defensible for downstream validation."
       },
       {
         "action": "drop",
@@ -38,7 +38,7 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "No significant findings in any modality after FDR correction. Cross-modal consistency is weak (CT and WSI positive but RNA and genomic negative, high PAC indicating instability). No technical confounding is significant. The set lacks a defensible biological identity, and no available extra evidence can resolve this gap."
+        "reason": "C0004 has no significant biological findings in any modality (RNA, WXS, CNV all lack FDR-significant features). Cross-modal consistency is weak, with high PAC indicating instability. Technical confounding is not significant but does not rescue the lack of biological identity. No positive structural evidence supports Split or Merge. The candidate is not sufficiently defensible."
       },
       {
         "action": "drop",
@@ -46,7 +46,7 @@
           "C0005"
         ],
         "tool_requests": [],
-        "reason": "Biological support is absent (no significant findings). Cross-modal consistency is driven almost entirely by CT (median silhouette 0.274), and confounder analysis shows strong technical associations with manufacturer, scanner, and kernel. The set is likely a technical artifact rather than a biological subtype. No available extra evidence can resolve this, so Drop is appropriate."
+        "reason": "C0005 is strongly confounded by technical factors: per-set tests show significant associations with CT manufacturer, scanner model, and reconstruction kernel, and the CT modality provides the dominant signal (median silhouette 0.274). The biological evidence is absent (no significant RNA, WXS, or CNV findings). The measured technical explanation plausibly dominates the identity, so Drop is better supported than Accept."
       },
       {
         "action": "accept",
@@ -54,7 +54,7 @@
           "C0006"
         ],
         "tool_requests": [],
-        "reason": "RNA shows strong inflammatory/interferon pathway enrichment, WXS shows significant BAP1 mutation enrichment, and cross-modal consistency is moderate with WSI and RNA positive and highest patient support (median 3). No significant technical confounding. The evidence supports a distinct molecular subtype."
+        "reason": "C0006 has strong biological support: RNA shows FDR-significant inflammatory/interferon upregulation and myogenesis downregulation with large effect sizes, and WXS shows significant BAP1 enrichment. Cross-modal consistency is moderate (WSI and RNA positive, highest patient support median 3). Technical confounding is not significant per-set. Structural evidence does not support Split or Merge. Retaining C0006 is better supported than Drop."
       }
     ]
   },
