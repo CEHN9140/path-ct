@@ -1,0 +1,809 @@
+[
+  {
+    "set_id": "C0003",
+    "membership": [
+      "TCGA-B0-5117",
+      "TCGA-B0-5706",
+      "TCGA-B8-4619",
+      "TCGA-B8-5165",
+      "TCGA-B8-5546",
+      "TCGA-BP-4782",
+      "TCGA-BP-4965",
+      "TCGA-BP-4970",
+      "TCGA-BP-4972",
+      "TCGA-BP-4994",
+      "TCGA-BP-4995",
+      "TCGA-BP-5174",
+      "TCGA-BP-5186",
+      "TCGA-BP-5189",
+      "TCGA-CZ-5468"
+    ],
+    "drop_reason": "C0003 lacks a coherent biological identity: only one RNA pathway is significant, WXS shows no enrichment, and CNV findings are rare and not statistically robust. Cross-modal consistency is weak with no dominant modality, and patient support is low. There is no positive evidence for a meaningful subtype, and no structural correction (Split or Merge) is positively supported. The evidence is insufficient to justify retention for downstream validation, so Drop is better supported than Accept.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "1 of 50 pathways significant at BH-q<0.05; top HALLMARK_PROTEIN_SECRETION SMD=0.88, q=0.022, set median 0.492 vs rest 0.457."
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "0 of 22 genes significant at BH-q<0.05; top PBRM1 mutation frequency 0.20 vs rest 0.41, OR=0.36, 95% CI [0.10,1.37], Fisher p=0.156, q=1.0."
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr4q Cliff's delta=0.359, q=0.281; gain/loss top chr1q loss frequency 0.20 vs rest 0.0, OR=49.56, 95% CI [2.41,1017.42], q=0.223."
+          }
+        ],
+        "statistical_interpretation": "RNA shows only one significant pathway (protein secretion) with moderate effect. WXS shows no significant enrichment. CNV shows no significant continuous features; gain/loss shows rare events (chr1q loss, chr17p loss, chr11p/q gain) with large ORs but very wide confidence intervals and non-significant q-values. The dominant pattern is weak and inconsistent across modalities.",
+        "medical_interpretation": "There is limited molecular evidence for a distinct biological identity; the rare CNV events are exploratory and not statistically robust.",
+        "limitations": [
+          "Very small set size (n=15) and rare events lead to unstable estimates.",
+          "RNA significance is minimal."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0003_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0003",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0003"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "Global categorical q_value",
+            "finding": "TSS q=0.008, V=0.246; CT manufacturer q=0.008, V=0.420; reconstruction kernel q=0.008, V=0.219; scanner model q=0.068, V=0.194; CT phase q=0.686, V=0.0."
+          },
+          {
+            "metric": "Global numeric q_value",
+            "finding": "Slice thickness q=0.441, epsilon^2=0.014; z-spacing q=0.442, epsilon^2=0.008; pixel spacing q=0.655, epsilon^2=0.0."
+          },
+          {
+            "metric": "Set-specific significant associations",
+            "finding": "No set-specific technical associations reached q<0.05; top scanner model LightSpeed16 frequency difference +0.272, q=1.0; pixel spacing Cliff's delta=0.228, q=1.0."
+          }
+        ],
+        "statistical_interpretation": "Global associations are present but set-specific tests for C0003 show no significant technical associations after FDR. All set-specific q-values are 1.0, indicating no evidence of confounding.",
+        "medical_interpretation": "Technical factors are not confounded with this set.",
+        "limitations": [
+          "Small set size (n=15) limits power.",
+          "Global associations are not specific to this set."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0003"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0003"
+        ],
+        "observations": [
+          {
+            "metric": "Modality median silhouettes",
+            "finding": "CT 0.003, WSI -0.007, RNA -0.006, genomic -0.0002."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count 2; distribution: 2 patients with 0, 3 with 1, 7 with 2, 2 with 3, 1 with 4; all_estimable_positive_fraction=0.067."
+          },
+          {
+            "metric": "Internal structure",
+            "finding": "Fused binary probe median silhouette 0.0005, resampling median ARI 0.667, consensus separation 0.694, PAC 0.448."
+          }
+        ],
+        "statistical_interpretation": "Median silhouettes are near zero or negative for all modalities except CT (slightly positive). Patient support is moderate (median 2) but two patients have no positive support. Internal structure shows a reproducible split (median resample ARI 0.667) with moderate consensus separation. The set is weakly supported across modalities.",
+        "medical_interpretation": "The set shows weak cross-modal consistency, with no dominant modality. This is structural characterization, not independent validation.",
+        "limitations": [
+          "Resampling was performed on existing SNF affinity subgraph; modality affinities were not re-estimated."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0003"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.021, homogeneity = 0.106, completeness = 0.069."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.011, homogeneity = 0.111, completeness = 0.064."
+          },
+          {
+            "metric": "Availability",
+            "finding": "Stage and grade available for all 103 patients; no missingness."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show very low ARI values (0.021 and 0.011), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low (around 0.1 and 0.07), suggesting that the clusters are not homogeneous with respect to stage or grade, and that stage/grade categories are not well captured within clusters. These metrics are not statistical independence tests but descriptive measures of overlap.",
+        "medical_interpretation": "The partition does not appear to be a simple echo of stage or grade. This does not prove molecular novelty, as other biological factors may drive the clustering.",
+        "limitations": [
+          "Only TCGA stage and grade were assessed.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 3018,
+        "history_chars": 217186,
+        "tool_message_chars": [
+          0,
+          15097,
+          20415,
+          31608,
+          82016,
+          66577,
+          1473
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 19
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "C0001 has a coherent RNA-defined biological identity with strong down-regulation of metabolic and secretory pathways (e.g., pancreas beta cells, fatty acid metabolism) with large effect sizes and low q-values. WXS and CNV do not provide significant support, but their absence is not active contradiction given limited power. Measured technical factors do not provide a dominant alternative explanation for the RNA signal, and structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "C0002 shows a moderately coherent RNA up-regulation of pancreas beta cells and other pathways, with CNV losses on several chromosomal arms. Although WXS and discrete CNV alterations are not FDR-significant, the RNA and continuous CNV signals are consistent in direction and biologically plausible. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (WSI and RNA) and no positive evidence for Split or Merge. Accepting C0002 is better supported than Drop."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "C0003 lacks a coherent biological identity: only one RNA pathway is significant, WXS shows no enrichment, and CNV findings are rare and not statistically robust. Cross-modal consistency is weak with no dominant modality, and patient support is low. There is no positive evidence for a meaningful subtype, and no structural correction (Split or Merge) is positively supported. The evidence is insufficient to justify retention for downstream validation, so Drop is better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "C0004 shows no significant RNA pathway enrichment, no FDR-significant WXS or CNV findings, and weak cross-modal consistency with no dominant modality. The nominally significant DST/MTOR mutations are not robust after multiple testing correction. There is no coherent biological identity, and structural evidence does not positively support Split or Merge. The absence of positive identity evidence makes Drop better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0005"
+              ],
+              "tool_requests": [],
+              "reason": "C0005 has no significant molecular signal across RNA, WXS, or CNV, with all q-values near 1.0. The strong CT silhouette is likely driven by significant technical confounds (CT manufacturer, scanner model, reconstruction kernel), providing a substantial alternative explanation for the set's identity. There is no coherent biological identity, and no structural correction is positively supported. Drop is better supported than Accept because the evidence is dominated by technical factors and lacks biological coherence."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0006"
+              ],
+              "tool_requests": [],
+              "reason": "C0006 has a strong, coherent RNA-defined inflammatory and interferon signature (e.g., IL6/JAK/STAT3, inflammatory response) with large effect sizes and low q-values, supported by significant BAP1 mutation enrichment (q=0.0165). CNV does not contribute, but its absence is not active contradiction. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (RNA and WSI) and no positive evidence for Split or Merge. Accepting C0006 for downstream validation is better supported than Drop."
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "set_id": "C0004",
+    "membership": [
+      "TCGA-B0-5696",
+      "TCGA-B0-5712",
+      "TCGA-B8-4151",
+      "TCGA-B8-4153",
+      "TCGA-B8-4622",
+      "TCGA-B8-5158",
+      "TCGA-B8-A54D",
+      "TCGA-BP-4164",
+      "TCGA-BP-4977",
+      "TCGA-BP-4992",
+      "TCGA-BP-5000",
+      "TCGA-BP-5001",
+      "TCGA-BP-5009",
+      "TCGA-BP-5183",
+      "TCGA-BP-5200",
+      "TCGA-CJ-4903",
+      "TCGA-CJ-6027",
+      "TCGA-CJ-6033",
+      "TCGA-CZ-4859",
+      "TCGA-CZ-5988",
+      "TCGA-G6-A5PC"
+    ],
+    "drop_reason": "C0004 shows no significant RNA pathway enrichment, no FDR-significant WXS or CNV findings, and weak cross-modal consistency with no dominant modality. The nominally significant DST/MTOR mutations are not robust after multiple testing correction. There is no coherent biological identity, and structural evidence does not positively support Split or Merge. The absence of positive identity evidence makes Drop better supported than Accept.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "0 of 50 pathways significant at BH-q<0.05; top HALLMARK_APICAL_SURFACE SMD=-0.73, q=0.133, set median 0.054 vs rest 0.094."
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "0 of 22 genes significant at BH-q<0.05; top DST mutation frequency 0.19 vs rest 0.02, OR=9.41, 95% CI [1.59,55.60], Fisher p=0.015, q=0.166."
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 continuous features significant at BH-q<0.05; top locus::VHL Cliff's delta=-0.315, q=0.777; gain/loss top chr8p loss frequency 0.43 vs rest 0.21, OR=2.87, 95% CI [1.04,7.92], q=0.777."
+          }
+        ],
+        "statistical_interpretation": "RNA shows no significant pathway enrichment; top pathways have moderate negative SMDs but q>0.13. WXS shows nominally significant DST and MTOR mutations (Fisher p=0.015) but not significant after FDR (q=0.166). CNV shows no significant features. The dominant pattern is weak and not coherent across modalities.",
+        "medical_interpretation": "There is no strong molecular evidence for a distinct biological identity; the DST/MTOR mutations are exploratory and not FDR-significant.",
+        "limitations": [
+          "Small set size (n=21) and multiple testing.",
+          "RNA and CNV show no significant signals."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0004_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0004",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0004"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "Global categorical q_value",
+            "finding": "TSS q=0.008, V=0.246; CT manufacturer q=0.008, V=0.420; reconstruction kernel q=0.008, V=0.219; scanner model q=0.068, V=0.194; CT phase q=0.686, V=0.0."
+          },
+          {
+            "metric": "Global numeric q_value",
+            "finding": "Slice thickness q=0.441, epsilon^2=0.014; z-spacing q=0.442, epsilon^2=0.008; pixel spacing q=0.655, epsilon^2=0.0."
+          },
+          {
+            "metric": "Set-specific significant associations",
+            "finding": "No set-specific technical associations reached q<0.05; top TSS B8 frequency difference +0.067, q=1.0; scanner model Sensation 64 +0.081, q=1.0."
+          }
+        ],
+        "statistical_interpretation": "Global associations are present but set-specific tests for C0004 show no significant technical associations after FDR. All set-specific q-values are 1.0, indicating no evidence of confounding.",
+        "medical_interpretation": "Technical factors are not confounded with this set.",
+        "limitations": [
+          "Small set size (n=21) limits power.",
+          "Global associations are not specific to this set."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0004"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0004"
+        ],
+        "observations": [
+          {
+            "metric": "Modality median silhouettes",
+            "finding": "CT 0.002, WSI 0.018, RNA -0.008, genomic -0.0003."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count 2; distribution: 1 patient with 0, 7 with 1, 10 with 2, 3 with 3; all_estimable_positive_fraction=0.0."
+          },
+          {
+            "metric": "Internal structure",
+            "finding": "Fused binary probe median silhouette 0.0005, resampling median ARI 0.532, consensus separation 0.447, PAC 0.738."
+          }
+        ],
+        "statistical_interpretation": "WSI shows a positive median silhouette, while CT is near zero and RNA/genomic are negative. Patient support is moderate (median 2) but no patient has support in all modalities. Internal structure shows a less reproducible split (median resample ARI 0.532) with lower consensus separation and higher PAC, indicating weaker internal structure.",
+        "medical_interpretation": "The set shows weak cross-modal consistency, with WSI providing the most support. This is structural characterization, not independent validation.",
+        "limitations": [
+          "Resampling was performed on existing SNF affinity subgraph; modality affinities were not re-estimated."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0004"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.021, homogeneity = 0.106, completeness = 0.069."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.011, homogeneity = 0.111, completeness = 0.064."
+          },
+          {
+            "metric": "Availability",
+            "finding": "Stage and grade available for all 103 patients; no missingness."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show very low ARI values (0.021 and 0.011), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low (around 0.1 and 0.07), suggesting that the clusters are not homogeneous with respect to stage or grade, and that stage/grade categories are not well captured within clusters. These metrics are not statistical independence tests but descriptive measures of overlap.",
+        "medical_interpretation": "The partition does not appear to be a simple echo of stage or grade. This does not prove molecular novelty, as other biological factors may drive the clustering.",
+        "limitations": [
+          "Only TCGA stage and grade were assessed.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 3018,
+        "history_chars": 217186,
+        "tool_message_chars": [
+          0,
+          15097,
+          20415,
+          31608,
+          82016,
+          66577,
+          1473
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 19
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "C0001 has a coherent RNA-defined biological identity with strong down-regulation of metabolic and secretory pathways (e.g., pancreas beta cells, fatty acid metabolism) with large effect sizes and low q-values. WXS and CNV do not provide significant support, but their absence is not active contradiction given limited power. Measured technical factors do not provide a dominant alternative explanation for the RNA signal, and structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "C0002 shows a moderately coherent RNA up-regulation of pancreas beta cells and other pathways, with CNV losses on several chromosomal arms. Although WXS and discrete CNV alterations are not FDR-significant, the RNA and continuous CNV signals are consistent in direction and biologically plausible. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (WSI and RNA) and no positive evidence for Split or Merge. Accepting C0002 is better supported than Drop."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "C0003 lacks a coherent biological identity: only one RNA pathway is significant, WXS shows no enrichment, and CNV findings are rare and not statistically robust. Cross-modal consistency is weak with no dominant modality, and patient support is low. There is no positive evidence for a meaningful subtype, and no structural correction (Split or Merge) is positively supported. The evidence is insufficient to justify retention for downstream validation, so Drop is better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "C0004 shows no significant RNA pathway enrichment, no FDR-significant WXS or CNV findings, and weak cross-modal consistency with no dominant modality. The nominally significant DST/MTOR mutations are not robust after multiple testing correction. There is no coherent biological identity, and structural evidence does not positively support Split or Merge. The absence of positive identity evidence makes Drop better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0005"
+              ],
+              "tool_requests": [],
+              "reason": "C0005 has no significant molecular signal across RNA, WXS, or CNV, with all q-values near 1.0. The strong CT silhouette is likely driven by significant technical confounds (CT manufacturer, scanner model, reconstruction kernel), providing a substantial alternative explanation for the set's identity. There is no coherent biological identity, and no structural correction is positively supported. Drop is better supported than Accept because the evidence is dominated by technical factors and lacks biological coherence."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0006"
+              ],
+              "tool_requests": [],
+              "reason": "C0006 has a strong, coherent RNA-defined inflammatory and interferon signature (e.g., IL6/JAK/STAT3, inflammatory response) with large effect sizes and low q-values, supported by significant BAP1 mutation enrichment (q=0.0165). CNV does not contribute, but its absence is not active contradiction. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (RNA and WSI) and no positive evidence for Split or Merge. Accepting C0006 for downstream validation is better supported than Drop."
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "set_id": "C0005",
+    "membership": [
+      "TCGA-B0-5702",
+      "TCGA-B8-4148",
+      "TCGA-B8-5159",
+      "TCGA-B8-5162",
+      "TCGA-B8-5164",
+      "TCGA-B8-5549",
+      "TCGA-B8-5553",
+      "TCGA-B8-A54F",
+      "TCGA-BP-4167",
+      "TCGA-BP-4967",
+      "TCGA-BP-4989",
+      "TCGA-CZ-4863",
+      "TCGA-CZ-4865",
+      "TCGA-CZ-5451",
+      "TCGA-CZ-5984",
+      "TCGA-G6-A8L7"
+    ],
+    "drop_reason": "C0005 has no significant molecular signal across RNA, WXS, or CNV, with all q-values near 1.0. The strong CT silhouette is likely driven by significant technical confounds (CT manufacturer, scanner model, reconstruction kernel), providing a substantial alternative explanation for the set's identity. There is no coherent biological identity, and no structural correction is positively supported. Drop is better supported than Accept because the evidence is dominated by technical factors and lacks biological coherence.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0005"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "0 of 50 pathways significant at BH-q<0.05; top HALLMARK_CHOLESTEROL_HOMEOSTASIS SMD=-0.45, q=0.987, set median 0.316 vs rest 0.323."
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "0 of 22 genes significant at BH-q<0.05; top PBRM1 mutation frequency 0.25 vs rest 0.40, OR=0.50, 95% CI [0.15,1.66], Fisher p=0.279, q=0.993."
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr2p Cliff's delta=0.383, q=1.0; gain/loss top chr5p gain frequency 0.375 vs rest 0.241, OR=1.89, 95% CI [0.61,5.81], q=1.0."
+          }
+        ],
+        "statistical_interpretation": "RNA shows no significant pathway enrichment; all q-values are near 1.0. WXS shows no significant enrichment. CNV shows no significant features; all q-values are 1.0. The dominant pattern is absence of any significant molecular signal across all modalities.",
+        "medical_interpretation": "There is no molecular evidence for a distinct biological identity in this set.",
+        "limitations": [
+          "Small set size (n=16) and lack of significant findings limit interpretability."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0005_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0005",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0005"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0005"
+        ],
+        "observations": [
+          {
+            "metric": "Global categorical q_value",
+            "finding": "TSS q=0.008, V=0.246; CT manufacturer q=0.008, V=0.420; reconstruction kernel q=0.008, V=0.219; scanner model q=0.068, V=0.194; CT phase q=0.686, V=0.0."
+          },
+          {
+            "metric": "Global numeric q_value",
+            "finding": "Slice thickness q=0.441, epsilon^2=0.014; z-spacing q=0.442, epsilon^2=0.008; pixel spacing q=0.655, epsilon^2=0.0."
+          },
+          {
+            "metric": "Set-specific significant associations",
+            "finding": "Significant set-specific associations: CT manufacturer GE q=4.6e-05, SIEMENS q=0.006, PHILIPS q=0.029; scanner model LightSpeed16 q=0.028; reconstruction kernel STANDARD q=0.0005; slice thickness q=0.112, z-spacing q=0.112."
+          }
+        ],
+        "statistical_interpretation": "C0005 shows significant set-specific technical associations with CT manufacturer (GE underrepresented, SIEMENS overrepresented), scanner model (LightSpeed16 absent), and reconstruction kernel (STANDARD underrepresented). These are global associations that are strongly aligned with this set, indicating a potential technical confound.",
+        "medical_interpretation": "The molecular pattern of C0005 may be influenced by technical factors, particularly CT acquisition parameters. This is a limitation and alternative explanation for the set's identity.",
+        "limitations": [
+          "The set is small (n=16) and the technical associations are strong.",
+          "These findings do not invalidate the set but warrant caution."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0005"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0005"
+        ],
+        "observations": [
+          {
+            "metric": "Modality median silhouettes",
+            "finding": "CT 0.274, WSI 0.007, RNA -0.016, genomic -0.0005."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count 2; distribution: 6 patients with 1, 8 with 2, 2 with 3; all_estimable_positive_fraction=0.0."
+          },
+          {
+            "metric": "Internal structure",
+            "finding": "Fused binary probe median silhouette 0.001, resampling median ARI 0.667, consensus separation 0.772, PAC 0.367."
+          }
+        ],
+        "statistical_interpretation": "CT shows a notably high median silhouette (0.274), while WSI is near zero and RNA/genomic are negative. Patient support is moderate (median 2) but no patient has support in all modalities. Internal structure shows a reproducible split (median resample ARI 0.667) with high consensus separation and low PAC. The set is strongly supported by CT but not by other modalities.",
+        "medical_interpretation": "The set shows strong CT-driven consistency, but this may be influenced by technical factors (see confounder analysis). This is structural characterization, not independent validation.",
+        "limitations": [
+          "Resampling was performed on existing SNF affinity subgraph; modality affinities were not re-estimated."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0005"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.021, homogeneity = 0.106, completeness = 0.069."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.011, homogeneity = 0.111, completeness = 0.064."
+          },
+          {
+            "metric": "Availability",
+            "finding": "Stage and grade available for all 103 patients; no missingness."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show very low ARI values (0.021 and 0.011), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low (around 0.1 and 0.07), suggesting that the clusters are not homogeneous with respect to stage or grade, and that stage/grade categories are not well captured within clusters. These metrics are not statistical independence tests but descriptive measures of overlap.",
+        "medical_interpretation": "The partition does not appear to be a simple echo of stage or grade. This does not prove molecular novelty, as other biological factors may drive the clustering.",
+        "limitations": [
+          "Only TCGA stage and grade were assessed.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 3018,
+        "history_chars": 217186,
+        "tool_message_chars": [
+          0,
+          15097,
+          20415,
+          31608,
+          82016,
+          66577,
+          1473
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 19
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "C0001 has a coherent RNA-defined biological identity with strong down-regulation of metabolic and secretory pathways (e.g., pancreas beta cells, fatty acid metabolism) with large effect sizes and low q-values. WXS and CNV do not provide significant support, but their absence is not active contradiction given limited power. Measured technical factors do not provide a dominant alternative explanation for the RNA signal, and structural evidence does not positively support Split or Merge. Retaining C0001 for downstream validation is better supported than Drop."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "C0002 shows a moderately coherent RNA up-regulation of pancreas beta cells and other pathways, with CNV losses on several chromosomal arms. Although WXS and discrete CNV alterations are not FDR-significant, the RNA and continuous CNV signals are consistent in direction and biologically plausible. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (WSI and RNA) and no positive evidence for Split or Merge. Accepting C0002 is better supported than Drop."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "C0003 lacks a coherent biological identity: only one RNA pathway is significant, WXS shows no enrichment, and CNV findings are rare and not statistically robust. Cross-modal consistency is weak with no dominant modality, and patient support is low. There is no positive evidence for a meaningful subtype, and no structural correction (Split or Merge) is positively supported. The evidence is insufficient to justify retention for downstream validation, so Drop is better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "C0004 shows no significant RNA pathway enrichment, no FDR-significant WXS or CNV findings, and weak cross-modal consistency with no dominant modality. The nominally significant DST/MTOR mutations are not robust after multiple testing correction. There is no coherent biological identity, and structural evidence does not positively support Split or Merge. The absence of positive identity evidence makes Drop better supported than Accept."
+            },
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0005"
+              ],
+              "tool_requests": [],
+              "reason": "C0005 has no significant molecular signal across RNA, WXS, or CNV, with all q-values near 1.0. The strong CT silhouette is likely driven by significant technical confounds (CT manufacturer, scanner model, reconstruction kernel), providing a substantial alternative explanation for the set's identity. There is no coherent biological identity, and no structural correction is positively supported. Drop is better supported than Accept because the evidence is dominated by technical factors and lacks biological coherence."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0006"
+              ],
+              "tool_requests": [],
+              "reason": "C0006 has a strong, coherent RNA-defined inflammatory and interferon signature (e.g., IL6/JAK/STAT3, inflammatory response) with large effect sizes and low q-values, supported by significant BAP1 mutation enrichment (q=0.0165). CNV does not contribute, but its absence is not active contradiction. Technical confounders are not strongly associated with this set. Structural evidence shows moderate cross-modal support (RNA and WSI) and no positive evidence for Split or Merge. Accepting C0006 for downstream validation is better supported than Drop."
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
