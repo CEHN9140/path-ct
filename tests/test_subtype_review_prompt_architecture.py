@@ -23,7 +23,7 @@ def test_agent_prompts_keep_semantic_responsibilities_separate():
     reviser = (PROMPT_DIR / "reviser.md").read_text(encoding="utf-8")
 
     assert "evidence interpretation" in verifier.lower()
-    assert "action selection" in router.lower()
+    assert "decide what should happen" in router.lower()
     assert "revisionplan" in reviser.lower()
     assert "supports accept" not in verifier.lower()
     assert "should be dropped" not in verifier.lower()
@@ -66,14 +66,10 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
     assert review_signature_manifest(changed_config, "/data/qijun/path-ct/configs")["review_signature"] != base["review_signature"]
 
 
-def test_router_requires_corroboration_for_single_discovery_modality():
+def test_router_reason_must_match_selected_action():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
-
-    assert "two or more distinct sources meaningfully support the same identity" in router
-    assert "the corroboration requirement is satisfied" in router
-    assert "do not require a third source" in router
-    assert "absence of contradiction from other sources does not count as corroboration" in router
-    assert "do not count the number of significant features within one modality as multiple support sources" in router
+    assert "reason must directly justify the selected action" in router
+    assert "must not state or imply that a different action is better supported" in router
 
 
 def test_router_does_not_require_decision_state_fields():

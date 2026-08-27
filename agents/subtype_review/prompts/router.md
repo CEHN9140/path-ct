@@ -263,6 +263,8 @@ Before selecting `split` or `merge`, require positive structural evidence for th
 
 Use the total evidence, but do not mechanically balance dimensions as equally weighted votes.
 
+The reason must directly justify the selected action. It must not state or imply that a different action is better supported than the action returned.
+
 A strong and directly relevant observation may matter more than several weak observations.
 
 Remain conservative about causal, clinical, novelty, and validation claims.

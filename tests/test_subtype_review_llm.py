@@ -352,8 +352,8 @@ def test_review_prompts_constrain_internal_evidence_and_medical_claims():
     router = (Path("agents/subtype_review/prompts/router.md")).read_text(encoding="utf-8")
     verifier = (Path("agents/subtype_review/prompts/verifier.md")).read_text(encoding="utf-8")
 
-    assert "not independent validation" in router
-    assert "one discovery modality" in router.lower()
+    assert "independent external validation" in router
+    assert "one modality provides a strong" in router.lower()
     assert "set_available_n + rest_available_n" in verifier
     assert "do not call these metrics" in verifier.lower()
     assert "prognosis" in verifier

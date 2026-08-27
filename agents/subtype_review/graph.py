@@ -632,82 +632,6 @@ def validate_action_contract(
         return
 
 
-def router_consensus_plan(
-    payload: dict[str, Any], state: Mapping[str, Any], runtime: Mapping[str, Any]
-) -> RouterPlan | None:
-    plans = []
-    errors = []
-    for _ in range(3):
-        try:
-            plan = parse_router_plan(runtime["router_model"].invoke(copy.deepcopy(payload)))
-            validate_router_plan(plan, state, runtime)
-            plans.append(plan)
-        except Exception as exc:
-            if is_length_finish_error(exc):
-                raise
-            errors.append(exc)
-    if not plans:
-        raise errors[0]
-    if len(plans) < 2:
-        return None
-
-    def action_key(action: RouterAction) -> tuple[Any, ...]:
-        return (
-            action.action,
-            tuple(action.target_ids),
-            tuple(sorted(
-                (request.tool_name, tuple(request.target_ids))
-                for request in action.tool_requests
-            )),
-        )
-
-    def plan_key(plan: RouterPlan) -> tuple[Any, ...]:
-        return tuple(sorted(action_key(action) for action in plan.actions))
-
-    keys = [plan_key(plan) for plan in plans]
-    for index, key in enumerate(keys):
-        if keys.count(key) >= 2:
-            return plans[index]
-
-    known = {set_id(item) for item in current_sets(state)}
-    winners: dict[str, RouterAction] = {}
-    for target in known:
-        target_actions = [
-            action for plan in plans for action in plan.actions if target in action.target_ids
-        ]
-        counts = {
-            action_key(action): sum(
-                action_key(item) == action_key(action) for item in target_actions
-            )
-            for action in target_actions
-        }
-        key, count = max(counts.items(), key=lambda item: item[1])
-        if count < 2:
-            return None
-        winners[target] = next(action for action in target_actions if action_key(action) == key)
-
-    merged: set[str] = set()
-    actions: list[RouterAction] = []
-    for target in sorted(known):
-        if target in merged:
-            continue
-        action = winners[target]
-        if action.action == "merge":
-            pair = tuple(action.target_ids)
-            if len(pair) != 2 or any(
-                winners[item].action != "merge" or tuple(winners[item].target_ids) != pair
-                for item in pair
-            ):
-                return None
-            actions.append(action)
-            merged.update(pair)
-        else:
-            actions.append(action)
-    plan = RouterPlan(actions=actions)
-    validate_router_plan(plan, state, runtime)
-    return plan
-
-
 def validate_router_plan(
     plan: RouterPlan, state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> None:
@@ -763,16 +687,10 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         if control.get("router_validation_error"):
             payload["validation_error"] = control["router_validation_error"]
             payload["instruction"] = "return a corrected RouterPlan only"
-        plan = router_consensus_plan(payload, state, values)
-        if plan is None:
-            control["status"] = "review_incomplete_due_to_router_consensus"
-            control["next"] = "end"
-            state["control"] = control
-            append_trace(state, {
-                "node": "router",
-                "event": "consensus_unavailable",
-            })
-            return state
+        plan = parse_router_plan(
+            values["router_model"].invoke(copy.deepcopy(payload))
+        )
+        validate_router_plan(plan, state, values)
     except Exception as exc:
         if is_length_finish_error(exc) or control.get("router_correction_attempted"):
             mark_failure(state, "router", exc, immediate=True)

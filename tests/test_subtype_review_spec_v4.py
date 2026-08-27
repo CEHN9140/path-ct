@@ -217,7 +217,7 @@ def test_router_validation_uses_one_correction_retry_only():
 
         def invoke(self, payload):
             self.calls.append(payload)
-            if len(self.calls) <= 3:
+            if len(self.calls) == 1:
                 return {"actions": [{
                     "action": "need_more_evidence", "target_ids": ["C1"],
                     **decision_fields(),
@@ -232,10 +232,10 @@ def test_router_validation_uses_one_correction_retry_only():
     assert state["control"]["round"] == 0
     assert state["control"]["router_correction_attempted"] is True
     router_node(state, {"tool_registry": fake_registry(), "router_model": router})
-    assert len(router.calls) == 6
-    assert router.calls[3]["validation_error"]
-    assert router.calls[3]["available_extra_evidence"] == []
-    assert router.calls[3]["instruction"] == "return a corrected RouterPlan only"
+    assert len(router.calls) == 2
+    assert router.calls[1]["validation_error"]
+    assert router.calls[1]["available_extra_evidence"] == []
+    assert router.calls[1]["instruction"] == "return a corrected RouterPlan only"
     assert state["control"]["status"] == "complete"
 
 
@@ -263,7 +263,7 @@ def test_router_second_validation_failure_fails_fast_without_third_call():
     router = Router()
     router_node(state, {"tool_registry": fake_registry(), "router_model": router})
     router_node(state, {"tool_registry": fake_registry(), "router_model": router})
-    assert router.calls == 6
+    assert router.calls == 2
     assert state["control"]["status"] == "review_unavailable"
 
 
@@ -331,7 +331,7 @@ def test_default_tools_recompute_and_extra_tool_runs_in_next_round():
 
         def invoke(self, payload):
             self.calls += 1
-            if self.calls <= 3:
+            if self.calls == 1:
                 return {"actions": [
                     {
                         "action": "need_more_evidence",
@@ -813,7 +813,7 @@ def test_round_ten_need_evidence_runs_extra_tool_then_stops_without_round_eleven
     result = build_review_graph().invoke(state, context=runtime)
     assert result["control"]["round"] == 1
     assert result["control"]["status"] == "review_incomplete_due_to_round_budget"
-    assert router.calls == 3
+    assert router.calls == 1
     assert len(verifier.acquisitions) == 2
     assert verifier.acquisitions[1] == ["clinical_characterization"]
 
