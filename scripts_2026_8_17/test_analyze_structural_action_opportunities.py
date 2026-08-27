@@ -70,7 +70,10 @@ def test_audit_exports_split_and_merge_metrics_with_report_mention(tmp_path):
     split_rows = json.loads((tmp_path / "audit" / "split_opportunities.json").read_text())
     merge_rows = json.loads((tmp_path / "audit" / "merge_opportunities.json").read_text())
     assert split_rows[0]["fused_probe_silhouette"] == 0.2
+    assert len(split_rows[0]["partition_id"]) == 12
+    assert "partition_signature" not in split_rows[0]
     assert merge_rows[0]["pair_metrics_available_in_raw_artifact"] is True
     assert merge_rows[0]["pair_mentioned_in_verifier_report"] is True
     assert summary["audited_set_count"] == 2
     assert summary["audited_pair_count"] == 1
+    assert summary["pair_metrics_by_k"]["2"]["fused_pair_silhouette"]["median"] == 0.05

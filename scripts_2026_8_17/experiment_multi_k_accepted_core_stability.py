@@ -563,11 +563,11 @@ def aggregate_k_levels(
     runs: Sequence[Mapping[str, Any]],
     patient_ids: Sequence[str],
     initial_ks: Sequence[int],
-    expected_repeat_count: int,
 ) -> tuple[list[dict[str, Any]], dict[str, list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]]]:
     levels = []
     matrices = {"primary": [], "strict": [], "exploratory": []}
-    primary_minimum = 2 if expected_repeat_count >= 2 else 1
+    expected_repeat_count = len(REPEATS)
+    primary_minimum = 2
     for initial_k in initial_ks:
         k_runs = [run for run in runs if int(run["initial_k"]) == int(initial_k)]
         level = {
@@ -771,7 +771,7 @@ def analyze(
         for run in runs
     ]
     k_levels, k_matrices = aggregate_k_levels(
-        runs, patient_ids, initial_ks, expected_repeat_count=len(repeats)
+        runs, patient_ids, initial_ks
     )
     primary_ks = {
         int(level["initial_k"])

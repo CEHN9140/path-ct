@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import csv
 import json
 from itertools import combinations
 from pathlib import Path
+from statistics import median
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,11 +66,12 @@ def audit_history(
         internal = structural.get("internal_structure_by_set", {}) or {}
         boundaries = structural.get("boundary_by_pair", {}) or {}
         reports = list(entry.get("evidence_reports", []) or [])
+        signature = str(entry.get("partition_signature", ""))
         partition_info = {
             "initial_k": initial_k,
             "repeat": repeat,
             "round": entry.get("round"),
-            "partition_signature": entry.get("partition_signature", ""),
+            "partition_id": hashlib.sha256(signature.encode("utf-8")).hexdigest()[:12],
             "review_status": review_status,
         }
         for item in sets:
@@ -177,11 +180,41 @@ def audit_experiment(
         "observed_split_action_count": sum(row["router_action"] == "split" for row in split_rows),
         "observed_merge_action_count": sum(row["action_a"] == "merge" and row["action_b"] == "merge" for row in merge_rows),
         "action_counts_by_k": action_counts,
+        "pair_metrics_by_k": {},
         "raw_pair_available_verifier_unmentioned_count": sum(
             row["pair_metrics_available_in_raw_artifact"] and not row["pair_mentioned_in_verifier_report"]
             for row in merge_rows
         ),
     }
+    for initial_k in summary["audited_k_values"]:
+        pairs = [row for row in merge_rows if row["initial_k"] == initial_k]
+        fused_silhouettes = [
+            row["fused_pair_silhouette"] for row in pairs
+            if isinstance(row["fused_pair_silhouette"], (int, float))
+        ]
+        fused_boundaries = [
+            row["fused_boundary_separation"] for row in pairs
+            if isinstance(row["fused_boundary_separation"], (int, float))
+        ]
+        summary["pair_metrics_by_k"][str(initial_k)] = {
+            "pair_count": len(pairs),
+            "verifier_mentioned_pair_count": sum(
+                row["pair_mentioned_in_verifier_report"] for row in pairs
+            ),
+            "verifier_unmentioned_pair_count": sum(
+                not row["pair_mentioned_in_verifier_report"] for row in pairs
+            ),
+            "fused_pair_silhouette": {
+                "min": min(fused_silhouettes) if fused_silhouettes else None,
+                "median": median(fused_silhouettes) if fused_silhouettes else None,
+                "max": max(fused_silhouettes) if fused_silhouettes else None,
+            },
+            "fused_boundary_separation": {
+                "min": min(fused_boundaries) if fused_boundaries else None,
+                "median": median(fused_boundaries) if fused_boundaries else None,
+                "max": max(fused_boundaries) if fused_boundaries else None,
+            },
+        }
     (output_root / "structural_action_audit_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )

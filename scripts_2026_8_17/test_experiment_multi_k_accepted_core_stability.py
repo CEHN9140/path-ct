@@ -233,14 +233,15 @@ def test_stability_matrices_separate_acceptance_and_conditional_membership():
     assert acceptance.tolist() == pytest.approx([1.0, 2 / 3, 2 / 3])
 
 
-def test_aggregate_k_levels_gives_each_available_k_equal_weight():
+def test_aggregate_k_levels_uses_fixed_three_repeat_denominator():
     runs = [
         {"run_id": "run1_K2", "initial_k": 2, "assignments": {"p1": "A"}},
         {"run_id": "run2_K2", "initial_k": 2, "assignments": {"p1": "A"}},
         {"run_id": "run1_K3", "initial_k": 3, "assignments": {}},
     ]
-    levels, matrices = experiment.aggregate_k_levels(runs, ["p1"], [2, 3], 2)
-    assert [level["status"] for level in levels] == ["complete", "low_confidence"]
+    levels, matrices = experiment.aggregate_k_levels(runs, ["p1"], [2, 3])
+    assert [level["status"] for level in levels] == ["low_confidence", "low_confidence"]
+    assert [level["expected_repeat_count"] for level in levels] == [3, 3]
     assert len(matrices["primary"]) == 1
     assert len(matrices["exploratory"]) == 2
     assert matrices["primary"][0][3][0] == 1.0
