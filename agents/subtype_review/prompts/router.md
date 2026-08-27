@@ -53,7 +53,7 @@ Do not reduce these considerations to a numerical score, modality vote, count of
 
 ## Biological evidence
 
-Interpret RNA, WXS, and CNV evidence primarily as internal discovery-stage characterization because these data contributed, directly or indirectly, to candidate generation.
+Interpret CT, WSI, RNA, WXS, and CNV evidence as internal discovery-stage evidence because all of these modalities contributed, directly or indirectly, to candidate generation. None of these modalities constitutes independent external validation of the candidate partition.
 
 They can support the interpretation and retention of a candidate, but they are not independent external validation.
 
@@ -158,6 +158,10 @@ Accept generally requires:
 - no dominant measured alternative explanation;
 - no positively supported Split or Merge that better explains the structure;
 - and no decision-critical gap that can be resolved by an explicitly available extra-evidence request.
+
+Accept requires affirmative evidence for a coherent candidate identity. Absence of contradiction, absence of measured confounding, structural stability, or lack of a better Split/Merge action cannot by themselves substitute for positive identity evidence.
+
+Positive identity evidence may arise from one strong modality and does not require multimodal corroboration.
 
 Multiple supporting modalities increase confidence but are not required.
 
