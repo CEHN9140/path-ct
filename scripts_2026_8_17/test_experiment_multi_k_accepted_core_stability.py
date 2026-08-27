@@ -365,3 +365,24 @@ def test_single_repeat_analysis_is_exploratory_only(tmp_path):
     assert summary["k_level_summary"][0]["expected_repeat_count"] == 3
     assert summary["k_level_summary"][0]["primary_eligible"] is False
     assert summary["k_level_summary"][0]["strict_eligible"] is False
+
+
+def test_analysis_removes_stale_primary_artifacts_when_primary_unavailable(tmp_path):
+    run_root = tmp_path / "run1" / "K2"
+    run_root.mkdir(parents=True)
+    (run_root / "run_metadata.json").write_text("{}")
+    (run_root / "final_review_summary.json").write_text(json.dumps({
+        "status": "review_complete",
+        "raw_control_status": "complete",
+        "accepted_subtype_sets": [{"set_id": "A", "member_ids": ["p1", "p2"]}],
+    }))
+    for name in ("accepted_set_catalog.csv", "stable_core_summary.csv", "coassignment_heatmap.png"):
+        (tmp_path / name).write_text("stale")
+
+    summary = experiment.analyze(tmp_path, ["p1", "p2"], [2], [1], 2)
+
+    assert summary["analysis_status"] == "primary_unavailable"
+    assert (tmp_path / "exploratory_accepted_set_catalog.csv").exists()
+    assert not (tmp_path / "accepted_set_catalog.csv").exists()
+    assert not (tmp_path / "stable_core_summary.csv").exists()
+    assert not (tmp_path / "coassignment_heatmap.png").exists()

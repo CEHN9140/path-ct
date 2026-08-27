@@ -46,6 +46,23 @@ FAMILY_THRESHOLD_GRID = (
     (0.75, 1.0),
 )
 MIN_CONCURRENT_ACCEPTED_RUNS_FOR_CONDITIONAL_PLOT = 2
+DERIVED_ANALYSIS_ARTIFACTS = (
+    "summary.json", "run_summary.csv", "run_summary.json", "run_execution_status.csv",
+    "run_execution_status.json", "accepted_set_catalog.csv", "accepted_set_catalog.json",
+    "accepted_set_similarity.csv", "accepted_set_relation_components.csv",
+    "accepted_set_relation_components.json", "accepted_set_families.csv",
+    "accepted_set_families.json", "accepted_set_family_threshold_sensitivity.csv",
+    "accepted_set_family_membership.csv", "accepted_set_family_patient_frequency.csv",
+    "exploratory_accepted_set_catalog.csv", "exploratory_accepted_set_catalog.json",
+    "exploratory_accepted_set_relation_components.json", "exploratory_accepted_set_families.csv",
+    "exploratory_accepted_set_families.json", "strict_accepted_set_catalog.json",
+    "strict_accepted_set_relation_components.json", "strict_accepted_set_families.json",
+    "stable_core_summary.csv", "stable_core_membership.csv", "threshold_sensitivity.csv",
+    "joint_accepted_coassignment_matrix.csv", "pairwise_coacceptance_matrix.csv",
+    "conditional_membership_coassignment_matrix.csv", "pairwise_partition_consistency.csv",
+    "k_level_summary.csv", "patient_acceptance_frequency.csv",
+    "coassignment_heatmap.png", "conditional_coassignment_heatmap.png",
+)
 DEFAULT_DATA_ROOT = ROOT / "output_kirc"
 DEFAULT_EXPERIMENT_ROOT = (
     ROOT / "output_kirc_v9" / "experiment_multi_k_accepted_core_stability"
@@ -710,6 +727,11 @@ def analyze(
 ) -> dict[str, Any]:
     initial_ks = list(INITIAL_KS)
     repeats = list(REPEATS)
+    experiment_root.mkdir(parents=True, exist_ok=True)
+    for name in DERIVED_ANALYSIS_ARTIFACTS:
+        path = experiment_root / name
+        if path.exists():
+            path.unlink()
     runs = []
     execution_rows = []
     for repeat in repeats:
@@ -747,7 +769,6 @@ def analyze(
             if valid_for_analysis:
                 runs.append({**row, "assignments": assignments})
 
-    experiment_root.mkdir(parents=True, exist_ok=True)
     with (experiment_root / "run_execution_status.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(execution_rows[0]) if execution_rows else [])
         if execution_rows:
