@@ -1,5 +1,742 @@
 [
   {
+    "set_id": "C0001",
+    "membership": [
+      "TCGA-B0-4712",
+      "TCGA-B0-4821",
+      "TCGA-B0-5081",
+      "TCGA-B0-5088",
+      "TCGA-B0-5106",
+      "TCGA-B0-5703",
+      "TCGA-B8-5550",
+      "TCGA-BP-4770",
+      "TCGA-BP-4960",
+      "TCGA-BP-4962",
+      "TCGA-BP-4971",
+      "TCGA-BP-4986",
+      "TCGA-BP-4988",
+      "TCGA-BP-5010",
+      "TCGA-BP-5175",
+      "TCGA-BP-5191",
+      "TCGA-BP-5196",
+      "TCGA-BP-5199",
+      "TCGA-CJ-4902",
+      "TCGA-CJ-4923"
+    ],
+    "revision_lineage": [],
+    "evidence_by_dimension": {
+      "biological_support": [
+        {
+          "dimension": "biological_support",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0001"
+          ],
+          "observations": [
+            {
+              "metric": "RNA Hallmark ssGSEA significant_q05",
+              "finding": "22 of 50 pathways significant at BH-q<0.05; top pathway HALLMARK_PANCREAS_BETA_CELLS SMD=-1.447, q=5e-05, set median 0.164 vs rest 0.280."
+            },
+            {
+              "metric": "WXS mutation enrichment significant_q05",
+              "finding": "0 of 22 genes significant at BH-q<0.05; top VHL mutation frequency 0.70 vs rest 0.506, OR=2.278, 95% CI [0.798,6.501], Fisher p=0.139, q=0.775."
+            },
+            {
+              "metric": "CNV continuous significant_q05",
+              "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr10q Cliff's delta=-0.396, q=0.542."
+            },
+            {
+              "metric": "CNV gain/loss significant_q05",
+              "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top chr20q gain frequency 0.35 vs rest 0.108, OR=4.427, 95% CI [1.402,13.986], q=0.542."
+            }
+          ],
+          "statistical_interpretation": "RNA shows a strong, coherent down-regulation of metabolic and secretory pathways (pancreas beta cells, fatty acid metabolism, adipogenesis, protein secretion) with large negative SMDs and low BH-q values. WXS and CNV show no significant enrichment after FDR correction; observed mutation and CNV differences have wide confidence intervals and are not statistically robust. The dominant coherent pattern is RNA-based metabolic down-regulation, but this is not corroborated by significant genomic alterations.",
+          "medical_interpretation": "The RNA pattern suggests reduced expression of metabolic and secretory programs in this set relative to the rest. This is a molecular phenotype observation; no clinical or prognostic claims are made. The lack of significant mutation or CNV enrichment limits the biological interpretation to transcriptomic activity.",
+          "limitations": [
+            "WXS and CNV analyses had limited power due to small set size (n=20) and multiple testing; confidence intervals for ORs are wide.",
+            "RNA pathway analysis is exploratory and not adjusted for potential confounders."
+          ],
+          "tool_refs": [
+            "cnv_characterization",
+            "mutation_enrichment",
+            "pathway_enrichment"
+          ],
+          "metric_refs": [
+            "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0001_vs_rest",
+            "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0001",
+            "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0001"
+          ]
+        }
+      ],
+      "cross_modal_consistency": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0001"
+          ],
+          "observations": [
+            {
+              "metric": "Modality median silhouettes",
+              "finding": "CT=-0.0097, WSI=-0.0077, RNA=0.0311, genomic=-0.0002."
+            },
+            {
+              "metric": "Patient membership support",
+              "finding": "Median support count=1.0; distribution: 0 support:0, 1:11, 2:8, 3:1, 4:0; all_estimable_positive_fraction=0.0."
+            },
+            {
+              "metric": "Internal structure fused binary probe",
+              "finding": "Median silhouette=0.0004, fraction positive=0.9, median resample ARI=0.749, consensus separation=0.585, PAC=0.611."
+            },
+            {
+              "metric": "Boundary to C0002 fused",
+              "finding": "Pair median silhouette=0.0009, left boundary separation=0.041, right=0.060."
+            }
+          ],
+          "statistical_interpretation": "Median silhouettes are near zero or negative for CT, WSI, and genomic, with RNA slightly positive. Patient support is low (median 1), indicating most patients are supported by only one modality. Internal structure shows a weak but non-degenerate split with moderate resample ARI. Boundaries to other sets are weak with small separations.",
+          "medical_interpretation": "The set shows weak cross-modal consistency, with RNA providing the most support. The low patient support suggests that the set is not strongly cohesive across modalities.",
+          "limitations": [
+            "Structural characterization is descriptive and not independent validation.",
+            "Negative PCoA eigenvalues were discarded."
+          ],
+          "tool_refs": [
+            "multimodal_consistency_check"
+          ],
+          "metric_refs": [
+            "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+            "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0001"
+          ]
+        }
+      ],
+      "confounder_exclusion": [
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0001"
+          ],
+          "observations": [
+            {
+              "metric": "Global categorical Cramer's V and q",
+              "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
+            },
+            {
+              "metric": "Global numeric epsilon-squared and q",
+              "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+            },
+            {
+              "metric": "Set-specific categorical associations",
+              "finding": "No set-specific categorical associations with q<0.05; top TSS B0 frequency diff=0.167, q=0.716; CT manufacturer GE frequency diff=0.336, q=0.137."
+            },
+            {
+              "metric": "Set-specific numeric associations",
+              "finding": "Slice thickness Cliff's delta=-0.146, q=1.0; z-spacing Cliff's delta=-0.143, q=1.0; pixel spacing Cliff's delta=0.091, q=1.0."
+            }
+          ],
+          "statistical_interpretation": "Global tests show significant associations for TSS, CT manufacturer, and reconstruction kernel, but Cramer's V values are below the 0.5 warning threshold. Set-specific tests show no significant associations after FDR. The global associations are not specific to this set.",
+          "medical_interpretation": "Technical factors such as TSS and CT manufacturer are globally associated with the partition, but not specifically enriched in C0001. These are potential confounders but not strong enough to explain the set's molecular pattern.",
+          "limitations": [
+            "Global associations are present but not set-specific; the analysis does not establish causality."
+          ],
+          "tool_refs": [
+            "confound_test"
+          ],
+          "metric_refs": [
+            "tool_results.confound_test.metrics.sets.C0001"
+          ]
+        }
+      ],
+      "known_label_echo": [
+        {
+          "dimension": "known_label_echo",
+          "scope": "partition",
+          "target_ids": [],
+          "observations": [
+            {
+              "metric": "Stage ARI",
+              "finding": "Adjusted Rand Index = 0.0209."
+            },
+            {
+              "metric": "Stage homogeneity and completeness",
+              "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+            },
+            {
+              "metric": "Grade ARI",
+              "finding": "Adjusted Rand Index = 0.0107."
+            },
+            {
+              "metric": "Grade homogeneity and completeness",
+              "finding": "Homogeneity = 0.1110, completeness = 0.0640."
+            }
+          ],
+          "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+          "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
+          "limitations": [
+            "Only TCGA stage and grade were assessed.",
+            "Published molecular ccRCC subtype taxonomies were not evaluated.",
+            "Low overlap does not establish molecular novelty."
+          ],
+          "tool_refs": [
+            "known_label_echo_test"
+          ],
+          "metric_refs": [
+            "tool_results.known_label_echo_test.metrics.assessable_labels",
+            "tool_results.known_label_echo_test.metrics.by_label",
+            "tool_results.known_label_echo_test.metrics.limitations"
+          ]
+        }
+      ]
+    },
+    "metric_refs": [
+      "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0001_vs_rest",
+      "tool_results.confound_test.metrics.sets.C0001",
+      "tool_results.known_label_echo_test.metrics.assessable_labels",
+      "tool_results.known_label_echo_test.metrics.by_label",
+      "tool_results.known_label_echo_test.metrics.limitations",
+      "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+      "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0001",
+      "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0001",
+      "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0001"
+    ],
+    "reports": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "22 of 50 pathways significant at BH-q<0.05; top pathway HALLMARK_PANCREAS_BETA_CELLS SMD=-1.447, q=5e-05, set median 0.164 vs rest 0.280."
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "0 of 22 genes significant at BH-q<0.05; top VHL mutation frequency 0.70 vs rest 0.506, OR=2.278, 95% CI [0.798,6.501], Fisher p=0.139, q=0.775."
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr10q Cliff's delta=-0.396, q=0.542."
+          },
+          {
+            "metric": "CNV gain/loss significant_q05",
+            "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top chr20q gain frequency 0.35 vs rest 0.108, OR=4.427, 95% CI [1.402,13.986], q=0.542."
+          }
+        ],
+        "statistical_interpretation": "RNA shows a strong, coherent down-regulation of metabolic and secretory pathways (pancreas beta cells, fatty acid metabolism, adipogenesis, protein secretion) with large negative SMDs and low BH-q values. WXS and CNV show no significant enrichment after FDR correction; observed mutation and CNV differences have wide confidence intervals and are not statistically robust. The dominant coherent pattern is RNA-based metabolic down-regulation, but this is not corroborated by significant genomic alterations.",
+        "medical_interpretation": "The RNA pattern suggests reduced expression of metabolic and secretory programs in this set relative to the rest. This is a molecular phenotype observation; no clinical or prognostic claims are made. The lack of significant mutation or CNV enrichment limits the biological interpretation to transcriptomic activity.",
+        "limitations": [
+          "WXS and CNV analyses had limited power due to small set size (n=20) and multiple testing; confidence intervals for ORs are wide.",
+          "RNA pathway analysis is exploratory and not adjusted for potential confounders."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0001_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0001",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0001"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "Global categorical Cramer's V and q",
+            "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
+          },
+          {
+            "metric": "Global numeric epsilon-squared and q",
+            "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+          },
+          {
+            "metric": "Set-specific categorical associations",
+            "finding": "No set-specific categorical associations with q<0.05; top TSS B0 frequency diff=0.167, q=0.716; CT manufacturer GE frequency diff=0.336, q=0.137."
+          },
+          {
+            "metric": "Set-specific numeric associations",
+            "finding": "Slice thickness Cliff's delta=-0.146, q=1.0; z-spacing Cliff's delta=-0.143, q=1.0; pixel spacing Cliff's delta=0.091, q=1.0."
+          }
+        ],
+        "statistical_interpretation": "Global tests show significant associations for TSS, CT manufacturer, and reconstruction kernel, but Cramer's V values are below the 0.5 warning threshold. Set-specific tests show no significant associations after FDR. The global associations are not specific to this set.",
+        "medical_interpretation": "Technical factors such as TSS and CT manufacturer are globally associated with the partition, but not specifically enriched in C0001. These are potential confounders but not strong enough to explain the set's molecular pattern.",
+        "limitations": [
+          "Global associations are present but not set-specific; the analysis does not establish causality."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0001"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "Modality median silhouettes",
+            "finding": "CT=-0.0097, WSI=-0.0077, RNA=0.0311, genomic=-0.0002."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count=1.0; distribution: 0 support:0, 1:11, 2:8, 3:1, 4:0; all_estimable_positive_fraction=0.0."
+          },
+          {
+            "metric": "Internal structure fused binary probe",
+            "finding": "Median silhouette=0.0004, fraction positive=0.9, median resample ARI=0.749, consensus separation=0.585, PAC=0.611."
+          },
+          {
+            "metric": "Boundary to C0002 fused",
+            "finding": "Pair median silhouette=0.0009, left boundary separation=0.041, right=0.060."
+          }
+        ],
+        "statistical_interpretation": "Median silhouettes are near zero or negative for CT, WSI, and genomic, with RNA slightly positive. Patient support is low (median 1), indicating most patients are supported by only one modality. Internal structure shows a weak but non-degenerate split with moderate resample ARI. Boundaries to other sets are weak with small separations.",
+        "medical_interpretation": "The set shows weak cross-modal consistency, with RNA providing the most support. The low patient support suggests that the set is not strongly cohesive across modalities.",
+        "limitations": [
+          "Structural characterization is descriptive and not independent validation.",
+          "Negative PCoA eigenvalues were discarded."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0001"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.0209."
+          },
+          {
+            "metric": "Stage homogeneity and completeness",
+            "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.0107."
+          },
+          {
+            "metric": "Grade homogeneity and completeness",
+            "finding": "Homogeneity = 0.1110, completeness = 0.0640."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+        "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
+        "limitations": [
+          "Only TCGA stage and grade were assessed.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "sections": [
+      "CT",
+      "WSI",
+      "RNA/pathway",
+      "WXS",
+      "CNV",
+      "clinical",
+      "cross-modal",
+      "confounder",
+      "known-label",
+      "statistics",
+      "medical_interpretation",
+      "limitations"
+    ]
+  },
+  {
+    "set_id": "C0002",
+    "membership": [
+      "TCGA-B0-5085",
+      "TCGA-B0-5115",
+      "TCGA-B0-5697",
+      "TCGA-B0-5698",
+      "TCGA-B0-5812",
+      "TCGA-BP-4976",
+      "TCGA-BP-4982",
+      "TCGA-BP-4999",
+      "TCGA-BP-5004",
+      "TCGA-BP-5006",
+      "TCGA-BP-5007",
+      "TCGA-BP-5181",
+      "TCGA-BP-5184",
+      "TCGA-BP-5187",
+      "TCGA-BP-5190",
+      "TCGA-BP-5192",
+      "TCGA-BP-5194",
+      "TCGA-BP-5195",
+      "TCGA-CJ-4904"
+    ],
+    "revision_lineage": [],
+    "evidence_by_dimension": {
+      "biological_support": [
+        {
+          "dimension": "biological_support",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0002"
+          ],
+          "observations": [
+            {
+              "metric": "RNA Hallmark ssGSEA significant_q05",
+              "finding": "5 of 50 pathways significant at BH-q<0.05; top HALLMARK_PANCREAS_BETA_CELLS SMD=0.819, q=0.035, set median 0.335 vs rest 0.244."
+            },
+            {
+              "metric": "WXS mutation enrichment significant_q05",
+              "finding": "0 of 22 genes significant at BH-q<0.05; top PBRM1 mutation frequency 0.632 vs rest 0.321, OR=3.619, 95% CI [1.281,10.224], Fisher p=0.0177, q=0.389."
+            },
+            {
+              "metric": "CNV continuous significant_q05",
+              "finding": "7 of 49 continuous features significant at BH-q<0.05; top chr20q Cliff's delta=-0.572, q=0.0145."
+            },
+            {
+              "metric": "CNV gain/loss significant_q05",
+              "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top CDKN2A loss frequency 0.0 vs rest 0.298, OR=0.0598, 95% CI [0.0035,1.029], q=0.0753."
+            }
+          ],
+          "statistical_interpretation": "RNA shows modest up-regulation of pancreas beta cells, heme metabolism, TGF-beta signaling, and UV response down, with moderate SMDs and q around 0.035. WXS shows a nominally significant PBRM1 enrichment (Fisher p=0.0177) but not significant after FDR (q=0.389). CNV continuous analysis shows significant lower copy number in several chromosomal regions (chr20q, chr16p, chr7p, chr12p, chr7q) with moderate Cliff's delta and q<0.05, but gain/loss frequency analysis does not reach significance. The dominant coherent pattern is a combination of RNA up-regulation and CNV loss, but the mutation enrichment is not FDR-significant.",
+          "medical_interpretation": "The set shows a transcriptomic signature of increased pancreatic beta cell and TGF-beta signaling, and a genomic pattern of copy number loss in multiple regions. PBRM1 mutation is enriched but not robust after multiple testing correction. These are molecular observations without clinical implications.",
+          "limitations": [
+            "The CNV continuous and gain/loss analyses show discordance in significance, possibly due to different statistical approaches.",
+            "WXS PBRM1 enrichment is not FDR-significant.",
+            "Small set size (n=19) limits precision."
+          ],
+          "tool_refs": [
+            "cnv_characterization",
+            "mutation_enrichment",
+            "pathway_enrichment"
+          ],
+          "metric_refs": [
+            "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0002_vs_rest",
+            "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0002",
+            "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0002"
+          ]
+        }
+      ],
+      "cross_modal_consistency": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0002"
+          ],
+          "observations": [
+            {
+              "metric": "Modality median silhouettes",
+              "finding": "CT=-0.0082, WSI=0.0526, RNA=0.0239, genomic=0.0003."
+            },
+            {
+              "metric": "Patient membership support",
+              "finding": "Median support count=2.0; distribution: 0:0, 1:1, 2:10, 3:7, 4:1; all_estimable_positive_fraction=0.053."
+            },
+            {
+              "metric": "Internal structure fused binary probe",
+              "finding": "Median silhouette=0.0011, fraction positive=0.947, median resample ARI=0.734, consensus separation=0.780, PAC=0.322."
+            },
+            {
+              "metric": "Boundary to C0001 fused",
+              "finding": "Pair median silhouette=0.0009, left boundary separation=0.041, right=0.060."
+            }
+          ],
+          "statistical_interpretation": "WSI and RNA show positive median silhouettes, while CT and genomic are near zero. Patient support is moderate (median 2). Internal structure shows a weak split with high resample ARI and consensus separation. Boundaries are weak.",
+          "medical_interpretation": "The set shows moderate cross-modal consistency, primarily driven by WSI and RNA. The internal structure suggests some cohesion, but boundaries to other sets are not strong.",
+          "limitations": [
+            "Structural characterization is descriptive and not independent validation."
+          ],
+          "tool_refs": [
+            "multimodal_consistency_check"
+          ],
+          "metric_refs": [
+            "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+            "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0002"
+          ]
+        }
+      ],
+      "confounder_exclusion": [
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set_identity",
+          "target_ids": [
+            "C0002"
+          ],
+          "observations": [
+            {
+              "metric": "Global categorical Cramer's V and q",
+              "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
+            },
+            {
+              "metric": "Global numeric epsilon-squared and q",
+              "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+            },
+            {
+              "metric": "Set-specific categorical associations",
+              "finding": "No set-specific categorical associations with q<0.05; top TSS BP frequency diff=0.303, q=0.196; CT manufacturer GE frequency diff=0.328, q=0.126."
+            },
+            {
+              "metric": "Set-specific numeric associations",
+              "finding": "Slice thickness Cliff's delta=-0.086, q=1.0; z-spacing Cliff's delta=-0.080, q=1.0; pixel spacing Cliff's delta=-0.091, q=1.0."
+            }
+          ],
+          "statistical_interpretation": "Global associations are present for TSS, manufacturer, and kernel, but set-specific tests show no significant associations. The set is not specifically enriched for any technical factor.",
+          "medical_interpretation": "Technical factors are not strongly associated with C0002 specifically, though global associations exist. These are not likely to explain the set's molecular pattern.",
+          "limitations": [
+            "Global associations are not set-specific; the analysis does not establish causality."
+          ],
+          "tool_refs": [
+            "confound_test"
+          ],
+          "metric_refs": [
+            "tool_results.confound_test.metrics.sets.C0002"
+          ]
+        }
+      ],
+      "known_label_echo": [
+        {
+          "dimension": "known_label_echo",
+          "scope": "partition",
+          "target_ids": [],
+          "observations": [
+            {
+              "metric": "Stage ARI",
+              "finding": "Adjusted Rand Index = 0.0209."
+            },
+            {
+              "metric": "Stage homogeneity and completeness",
+              "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+            },
+            {
+              "metric": "Grade ARI",
+              "finding": "Adjusted Rand Index = 0.0107."
+            },
+            {
+              "metric": "Grade homogeneity and completeness",
+              "finding": "Homogeneity = 0.1110, completeness = 0.0640."
+            }
+          ],
+          "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+          "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
+          "limitations": [
+            "Only TCGA stage and grade were assessed.",
+            "Published molecular ccRCC subtype taxonomies were not evaluated.",
+            "Low overlap does not establish molecular novelty."
+          ],
+          "tool_refs": [
+            "known_label_echo_test"
+          ],
+          "metric_refs": [
+            "tool_results.known_label_echo_test.metrics.assessable_labels",
+            "tool_results.known_label_echo_test.metrics.by_label",
+            "tool_results.known_label_echo_test.metrics.limitations"
+          ]
+        }
+      ]
+    },
+    "metric_refs": [
+      "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0002_vs_rest",
+      "tool_results.confound_test.metrics.sets.C0002",
+      "tool_results.known_label_echo_test.metrics.assessable_labels",
+      "tool_results.known_label_echo_test.metrics.by_label",
+      "tool_results.known_label_echo_test.metrics.limitations",
+      "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+      "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0002",
+      "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0002",
+      "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0002"
+    ],
+    "reports": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0002"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "5 of 50 pathways significant at BH-q<0.05; top HALLMARK_PANCREAS_BETA_CELLS SMD=0.819, q=0.035, set median 0.335 vs rest 0.244."
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "0 of 22 genes significant at BH-q<0.05; top PBRM1 mutation frequency 0.632 vs rest 0.321, OR=3.619, 95% CI [1.281,10.224], Fisher p=0.0177, q=0.389."
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "7 of 49 continuous features significant at BH-q<0.05; top chr20q Cliff's delta=-0.572, q=0.0145."
+          },
+          {
+            "metric": "CNV gain/loss significant_q05",
+            "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top CDKN2A loss frequency 0.0 vs rest 0.298, OR=0.0598, 95% CI [0.0035,1.029], q=0.0753."
+          }
+        ],
+        "statistical_interpretation": "RNA shows modest up-regulation of pancreas beta cells, heme metabolism, TGF-beta signaling, and UV response down, with moderate SMDs and q around 0.035. WXS shows a nominally significant PBRM1 enrichment (Fisher p=0.0177) but not significant after FDR (q=0.389). CNV continuous analysis shows significant lower copy number in several chromosomal regions (chr20q, chr16p, chr7p, chr12p, chr7q) with moderate Cliff's delta and q<0.05, but gain/loss frequency analysis does not reach significance. The dominant coherent pattern is a combination of RNA up-regulation and CNV loss, but the mutation enrichment is not FDR-significant.",
+        "medical_interpretation": "The set shows a transcriptomic signature of increased pancreatic beta cell and TGF-beta signaling, and a genomic pattern of copy number loss in multiple regions. PBRM1 mutation is enriched but not robust after multiple testing correction. These are molecular observations without clinical implications.",
+        "limitations": [
+          "The CNV continuous and gain/loss analyses show discordance in significance, possibly due to different statistical approaches.",
+          "WXS PBRM1 enrichment is not FDR-significant.",
+          "Small set size (n=19) limits precision."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0002_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0002",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0002"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0002"
+        ],
+        "observations": [
+          {
+            "metric": "Global categorical Cramer's V and q",
+            "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
+          },
+          {
+            "metric": "Global numeric epsilon-squared and q",
+            "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+          },
+          {
+            "metric": "Set-specific categorical associations",
+            "finding": "No set-specific categorical associations with q<0.05; top TSS BP frequency diff=0.303, q=0.196; CT manufacturer GE frequency diff=0.328, q=0.126."
+          },
+          {
+            "metric": "Set-specific numeric associations",
+            "finding": "Slice thickness Cliff's delta=-0.086, q=1.0; z-spacing Cliff's delta=-0.080, q=1.0; pixel spacing Cliff's delta=-0.091, q=1.0."
+          }
+        ],
+        "statistical_interpretation": "Global associations are present for TSS, manufacturer, and kernel, but set-specific tests show no significant associations. The set is not specifically enriched for any technical factor.",
+        "medical_interpretation": "Technical factors are not strongly associated with C0002 specifically, though global associations exist. These are not likely to explain the set's molecular pattern.",
+        "limitations": [
+          "Global associations are not set-specific; the analysis does not establish causality."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0002"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0002"
+        ],
+        "observations": [
+          {
+            "metric": "Modality median silhouettes",
+            "finding": "CT=-0.0082, WSI=0.0526, RNA=0.0239, genomic=0.0003."
+          },
+          {
+            "metric": "Patient membership support",
+            "finding": "Median support count=2.0; distribution: 0:0, 1:1, 2:10, 3:7, 4:1; all_estimable_positive_fraction=0.053."
+          },
+          {
+            "metric": "Internal structure fused binary probe",
+            "finding": "Median silhouette=0.0011, fraction positive=0.947, median resample ARI=0.734, consensus separation=0.780, PAC=0.322."
+          },
+          {
+            "metric": "Boundary to C0001 fused",
+            "finding": "Pair median silhouette=0.0009, left boundary separation=0.041, right=0.060."
+          }
+        ],
+        "statistical_interpretation": "WSI and RNA show positive median silhouettes, while CT and genomic are near zero. Patient support is moderate (median 2). Internal structure shows a weak split with high resample ARI and consensus separation. Boundaries are weak.",
+        "medical_interpretation": "The set shows moderate cross-modal consistency, primarily driven by WSI and RNA. The internal structure suggests some cohesion, but boundaries to other sets are not strong.",
+        "limitations": [
+          "Structural characterization is descriptive and not independent validation."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0002"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.0209."
+          },
+          {
+            "metric": "Stage homogeneity and completeness",
+            "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.0107."
+          },
+          {
+            "metric": "Grade homogeneity and completeness",
+            "finding": "Homogeneity = 0.1110, completeness = 0.0640."
+          }
+        ],
+        "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+        "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
+        "limitations": [
+          "Only TCGA stage and grade were assessed.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "sections": [
+      "CT",
+      "WSI",
+      "RNA/pathway",
+      "WXS",
+      "CNV",
+      "clinical",
+      "cross-modal",
+      "confounder",
+      "known-label",
+      "statistics",
+      "medical_interpretation",
+      "limitations"
+    ]
+  },
+  {
     "set_id": "C0006",
     "membership": [
       "TCGA-B0-5709",
@@ -26,24 +763,27 @@
           ],
           "observations": [
             {
-              "metric": "RNA Hallmark ssGSEA",
-              "finding": "9 of 50 pathways significant at BH-q<0.05 (min q=0.003); top pathway HALLMARK_MYOGENESIS SMD=-1.511 (down), set median 0.207 vs rest 0.266, q=0.003; IL6_JAK_STAT3_SIGNALING SMD=1.100 (up), q=0.003; INFLAMMATORY_RESPONSE SMD=1.021 (up), q=0.003; INTERFERON_GAMMA_RESPONSE SMD=1.183 (up), q=0.006; INTERFERON_ALPHA_RESPONSE SMD=1.189 (up), q=0.009."
+              "metric": "RNA Hallmark ssGSEA significant_q05",
+              "finding": "9 of 50 pathways significant at BH-q<0.05; top HALLMARK_MYOGENESIS SMD=-1.511, q=0.00337, set median 0.207 vs rest 0.266."
             },
             {
-              "metric": "WXS mutation enrichment",
-              "finding": "1 of 22 genes significant at BH-q<0.05 (min q=0.017); BAP1 mutation frequency 0.50 vs rest 0.077 (OR 12.0, 95% CI 3.05-47.19, Fisher p=0.00075, q=0.017); SPTA1 0.25 vs 0.033 (OR 9.78, 95% CI 1.71-55.77, p=0.020, q=0.222)."
+              "metric": "WXS mutation enrichment significant_q05",
+              "finding": "1 of 22 genes significant at BH-q<0.05; BAP1 mutation frequency 0.50 vs rest 0.077, OR=12.0, 95% CI [3.051,47.193], Fisher p=0.00075, q=0.0165."
             },
             {
-              "metric": "CNV characterization",
-              "finding": "No CNV feature significant at BH-q<0.05 (min q=0.487); continuous top chr1q Cliff's delta=0.527 (higher in set), chr19q delta=0.442, chr17q delta=0.414; gain/loss top chr5p::gain frequency 0.0 vs 0.297 (OR 0.094, 95% CI 0.005-1.64, q=0.936), chr9q::loss 0.417 vs 0.187 (OR 3.11, 95% CI 0.88-11.0, q=1.0)."
+              "metric": "CNV continuous significant_q05",
+              "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr1q Cliff's delta=0.527, q=0.487."
+            },
+            {
+              "metric": "CNV gain/loss significant_q05",
+              "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top chr5p gain frequency 0.0 vs rest 0.297, OR=0.0938, 95% CI [0.0054,1.641], q=0.936."
             }
           ],
-          "statistical_interpretation": "RNA shows a strong and coherent pattern with 9 significant pathways, including downregulation of MYOGENESIS (SMD=-1.511) and upregulation of inflammatory and interferon pathways (SMD 1.02-1.19) with q<0.009. WXS shows significant BAP1 mutation enrichment (OR 12.0, q=0.017), providing genomic confirmation. CNV shows no significant features, though chr1q gain trends higher (delta=0.527) but q=0.487. The biological support is strong and coherent across RNA and WXS, with CNV providing a non-significant but directionally consistent signal.",
-          "medical_interpretation": "The RNA profile suggests an inflammatory and interferon-driven tumor microenvironment with reduced myogenesis, and the significant BAP1 mutation enrichment is a known ccRCC driver. These findings together suggest a distinct molecular subtype with potential immune-related characteristics, though CNV evidence is not significant.",
+          "statistical_interpretation": "RNA shows a strong coherent pattern with down-regulation of myogenesis and WNT signaling and up-regulation of inflammatory and interferon pathways, with large SMDs and low q-values. WXS shows significant BAP1 mutation enrichment (q=0.0165) with a large OR. CNV shows no significant features. The dominant coherent pattern is RNA inflammatory/interferon up-regulation and BAP1 mutation enrichment, but CNV does not corroborate.",
+          "medical_interpretation": "The set exhibits a distinct molecular profile with BAP1 mutations and an inflammatory transcriptomic signature. This is a molecular observation; no clinical outcome claims are made.",
           "limitations": [
-            "CNV analysis had no significant features, limiting genomic confirmation.",
-            "BAP1 mutation enrichment is based on a small set (6 of 12 patients).",
-            "RNA pathway analysis is limited to Hallmark gene sets."
+            "CNV analysis did not show significant findings, possibly due to small set size (n=12).",
+            "BAP1 mutation enrichment is based on 6/12 cases, which is robust but still limited by sample size."
           ],
           "tool_refs": [
             "cnv_characterization",
@@ -66,32 +806,26 @@
           ],
           "observations": [
             {
-              "metric": "Modality-specific median silhouette",
-              "finding": "Per-set median silhouettes: CT 0.0001, WSI 0.0128, RNA 0.0271, genomic 0.0003; WSI and RNA show positive median silhouettes."
+              "metric": "Modality median silhouettes",
+              "finding": "CT=0.0001, WSI=0.0128, RNA=0.0271, genomic=0.0003."
             },
             {
               "metric": "Patient membership support",
-              "finding": "Median support count 3.0; 1 patient has support from 1 modality, 3 from 2, 7 from 3, 1 from 4; all_estimable_positive_fraction 0.083."
+              "finding": "Median support count=3.0; distribution: 0:0, 1:1, 2:3, 3:7, 4:1; all_estimable_positive_fraction=0.083."
             },
             {
-              "metric": "Internal structure (fused probe)",
-              "finding": "Fused binary probe: child sizes 6/6, normalized cut 1.059, median silhouette 0.0005, fraction positive 1.0; resampling median ARI 0.556, consensus separation 0.552, PAC 0.682, degenerate fraction 0.0."
+              "metric": "Internal structure fused binary probe",
+              "finding": "Median silhouette=0.0005, fraction positive=1.0, median resample ARI=0.556, consensus separation=0.552, PAC=0.682."
             },
             {
-              "metric": "Probe support by modality",
-              "finding": "Probe median silhouettes: CT -0.002, WSI 0.017, RNA 0.049, genomic -0.00005; RNA provides strongest support for the internal split."
-            },
-            {
-              "metric": "Boundary to other sets",
-              "finding": "Fused pair median silhouettes with other sets range 0.0007-0.0012; RNA shows strongest boundary separation (e.g., vs C0002: pair median silhouette 0.056, boundary separation 0.516/0.556); genomic shows weakest (pair median silhouette ~0.0002-0.0006)."
+              "metric": "Boundary to C0001 fused",
+              "finding": "Pair median silhouette=0.0007, left boundary separation=0.030, right=0.047."
             }
           ],
-          "statistical_interpretation": "C0006 shows moderate cross-modal consistency: WSI and RNA have positive median silhouettes, and patient support is higher (median 3 modalities). The internal structure is estimable with a fused probe median silhouette of 0.0005 and resampling showing moderate ARI (0.556) and consensus separation (0.552) with higher PAC (0.682). RNA provides the strongest support for the internal split and boundaries, while CT and genomic contribute little. The partition PERMANOVA R2 values are similar across CT, WSI, RNA (~0.09) but lower for genomic (0.049), and PERMDISP is significant for CT only (q=0.008).",
-          "medical_interpretation": "The set appears to be supported by both WSI and RNA, with RNA being the dominant modality. This suggests that C0006 may represent a subtype with both imaging and transcriptomic characteristics, consistent with its biological profile.",
+          "statistical_interpretation": "RNA and WSI show positive median silhouettes, while CT and genomic are near zero. Patient support is high (median 3), indicating most patients are supported by multiple modalities. Internal structure shows a weak split with moderate resample ARI. Boundaries are weak.",
+          "medical_interpretation": "The set shows moderate cross-modal consistency, with RNA and WSI providing support. The high patient support suggests better cohesion across modalities.",
           "limitations": [
-            "Resampling was performed on existing SNF affinity subgraph; modality affinities and SNF were not re-estimated.",
-            "Negative PCoA eigenvalues were discarded; PERMDISP is approximate.",
-            "Structural characterization does not independently validate biological subtype identity."
+            "Structural characterization is descriptive and not independent validation."
           ],
           "tool_refs": [
             "multimodal_consistency_check"
@@ -111,20 +845,26 @@
           ],
           "observations": [
             {
-              "metric": "Global technical associations",
-              "finding": "Global tests show significant associations for tissue_source_site (Cramer's V=0.246, q=0.008), ct_manufacturer (V=0.420, q=0.008), and ct_reconstruction_kernel (V=0.219, q=0.008); ct_phase, scanner model, and numeric fields not significant (q>0.05)."
+              "metric": "Global categorical Cramer's V and q",
+              "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
             },
             {
-              "metric": "Per-set technical associations",
-              "finding": "For C0006, no per-set technical field reached significance (all q>0.05); largest differences: tissue_source_site CJ diff 0.351 (OR 10.12), BP diff -0.400 (OR 0.097); ct_phase ART diff 0.123 (OR 4.35); ct_scanner_model Sensation 16 diff 0.072 (OR 8.18); numeric fields all q=1.0."
+              "metric": "Global numeric epsilon-squared and q",
+              "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+            },
+            {
+              "metric": "Set-specific categorical associations",
+              "finding": "No set-specific categorical associations with q<0.05; top TSS CJ frequency diff=0.351, q=0.132; CT manufacturer SIEMENS frequency diff=0.142, q=1.0."
+            },
+            {
+              "metric": "Set-specific numeric associations",
+              "finding": "Slice thickness Cliff's delta=0.038, q=1.0; z-spacing Cliff's delta=-0.096, q=1.0; pixel spacing Cliff's delta=-0.162, q=1.0."
             }
           ],
-          "statistical_interpretation": "For C0006, no per-set technical field is significant after FDR correction. The largest differences (CJ site, BP site, ART phase) have large odds ratios but q>0.05, indicating they are not statistically significant. The global associations are driven by other sets.",
-          "medical_interpretation": "The lack of significant per-set technical associations for C0006 suggests that technical factors are unlikely to be a major confounder for this set, though the large effect sizes for site and phase warrant caution.",
+          "statistical_interpretation": "Global associations are present, but set-specific tests show no significant associations. The set is not specifically enriched for any technical factor.",
+          "medical_interpretation": "Technical factors are not strongly associated with C0006 specifically. The molecular pattern is unlikely to be explained by technical confounders.",
           "limitations": [
-            "Global associations are significant but not specific to this set.",
-            "Per-set tests may have limited power due to small set size.",
-            "Only CT-related technical fields were assessed."
+            "Global associations are not set-specific; the analysis does not establish causality."
           ],
           "tool_refs": [
             "confound_test"
@@ -141,20 +881,28 @@
           "target_ids": [],
           "observations": [
             {
-              "metric": "Stage overlap",
-              "finding": "Adjusted Rand Index 0.021, homogeneity 0.106, completeness 0.069; contingency table shows stage distribution varies across sets (e.g., C0002 has 15/19 stage I, C0006 has 5/12 stage IV)."
+              "metric": "Stage ARI",
+              "finding": "Adjusted Rand Index = 0.0209."
             },
             {
-              "metric": "Grade overlap",
-              "finding": "Adjusted Rand Index 0.011, homogeneity 0.111, completeness 0.064; contingency table shows grade distribution varies across sets (e.g., C0002 has 0/19 grade 4, C0006 has 4/12 grade 4)."
+              "metric": "Stage homogeneity and completeness",
+              "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+            },
+            {
+              "metric": "Grade ARI",
+              "finding": "Adjusted Rand Index = 0.0107."
+            },
+            {
+              "metric": "Grade homogeneity and completeness",
+              "finding": "Homogeneity = 0.1110, completeness = 0.0640."
             }
           ],
-          "statistical_interpretation": "Both stage and grade show very low overlap with the partition, as indicated by ARI values near zero (0.021 for stage, 0.011 for grade). Homogeneity and completeness are also low (0.106/0.069 for stage, 0.111/0.064 for grade), indicating that the partition does not align well with these known labels. The low ARI suggests that the partition is not a simple echo of stage or grade.",
-          "medical_interpretation": "The partition shows low concordance with stage and grade, meaning it is not simply recapitulating these clinical labels. This suggests that the partition may capture other biological or technical characteristics, but it does not establish molecular novelty.",
+          "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+          "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
           "limitations": [
-            "Only TCGA stage and grade labels are assessable in the current data.",
+            "Only TCGA stage and grade were assessed.",
             "Published molecular ccRCC subtype taxonomies were not evaluated.",
-            "Low stage or grade overlap does not by itself establish molecular novelty."
+            "Low overlap does not establish molecular novelty."
           ],
           "tool_refs": [
             "known_label_echo_test"
@@ -187,24 +935,27 @@
         ],
         "observations": [
           {
-            "metric": "RNA Hallmark ssGSEA",
-            "finding": "9 of 50 pathways significant at BH-q<0.05 (min q=0.003); top pathway HALLMARK_MYOGENESIS SMD=-1.511 (down), set median 0.207 vs rest 0.266, q=0.003; IL6_JAK_STAT3_SIGNALING SMD=1.100 (up), q=0.003; INFLAMMATORY_RESPONSE SMD=1.021 (up), q=0.003; INTERFERON_GAMMA_RESPONSE SMD=1.183 (up), q=0.006; INTERFERON_ALPHA_RESPONSE SMD=1.189 (up), q=0.009."
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "9 of 50 pathways significant at BH-q<0.05; top HALLMARK_MYOGENESIS SMD=-1.511, q=0.00337, set median 0.207 vs rest 0.266."
           },
           {
-            "metric": "WXS mutation enrichment",
-            "finding": "1 of 22 genes significant at BH-q<0.05 (min q=0.017); BAP1 mutation frequency 0.50 vs rest 0.077 (OR 12.0, 95% CI 3.05-47.19, Fisher p=0.00075, q=0.017); SPTA1 0.25 vs 0.033 (OR 9.78, 95% CI 1.71-55.77, p=0.020, q=0.222)."
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "1 of 22 genes significant at BH-q<0.05; BAP1 mutation frequency 0.50 vs rest 0.077, OR=12.0, 95% CI [3.051,47.193], Fisher p=0.00075, q=0.0165."
           },
           {
-            "metric": "CNV characterization",
-            "finding": "No CNV feature significant at BH-q<0.05 (min q=0.487); continuous top chr1q Cliff's delta=0.527 (higher in set), chr19q delta=0.442, chr17q delta=0.414; gain/loss top chr5p::gain frequency 0.0 vs 0.297 (OR 0.094, 95% CI 0.005-1.64, q=0.936), chr9q::loss 0.417 vs 0.187 (OR 3.11, 95% CI 0.88-11.0, q=1.0)."
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 continuous features significant at BH-q<0.05; top chr1q Cliff's delta=0.527, q=0.487."
+          },
+          {
+            "metric": "CNV gain/loss significant_q05",
+            "finding": "0 of 107 gain/loss features significant at BH-q<0.05; top chr5p gain frequency 0.0 vs rest 0.297, OR=0.0938, 95% CI [0.0054,1.641], q=0.936."
           }
         ],
-        "statistical_interpretation": "RNA shows a strong and coherent pattern with 9 significant pathways, including downregulation of MYOGENESIS (SMD=-1.511) and upregulation of inflammatory and interferon pathways (SMD 1.02-1.19) with q<0.009. WXS shows significant BAP1 mutation enrichment (OR 12.0, q=0.017), providing genomic confirmation. CNV shows no significant features, though chr1q gain trends higher (delta=0.527) but q=0.487. The biological support is strong and coherent across RNA and WXS, with CNV providing a non-significant but directionally consistent signal.",
-        "medical_interpretation": "The RNA profile suggests an inflammatory and interferon-driven tumor microenvironment with reduced myogenesis, and the significant BAP1 mutation enrichment is a known ccRCC driver. These findings together suggest a distinct molecular subtype with potential immune-related characteristics, though CNV evidence is not significant.",
+        "statistical_interpretation": "RNA shows a strong coherent pattern with down-regulation of myogenesis and WNT signaling and up-regulation of inflammatory and interferon pathways, with large SMDs and low q-values. WXS shows significant BAP1 mutation enrichment (q=0.0165) with a large OR. CNV shows no significant features. The dominant coherent pattern is RNA inflammatory/interferon up-regulation and BAP1 mutation enrichment, but CNV does not corroborate.",
+        "medical_interpretation": "The set exhibits a distinct molecular profile with BAP1 mutations and an inflammatory transcriptomic signature. This is a molecular observation; no clinical outcome claims are made.",
         "limitations": [
-          "CNV analysis had no significant features, limiting genomic confirmation.",
-          "BAP1 mutation enrichment is based on a small set (6 of 12 patients).",
-          "RNA pathway analysis is limited to Hallmark gene sets."
+          "CNV analysis did not show significant findings, possibly due to small set size (n=12).",
+          "BAP1 mutation enrichment is based on 6/12 cases, which is robust but still limited by sample size."
         ],
         "tool_refs": [
           "cnv_characterization",
@@ -225,20 +976,26 @@
         ],
         "observations": [
           {
-            "metric": "Global technical associations",
-            "finding": "Global tests show significant associations for tissue_source_site (Cramer's V=0.246, q=0.008), ct_manufacturer (V=0.420, q=0.008), and ct_reconstruction_kernel (V=0.219, q=0.008); ct_phase, scanner model, and numeric fields not significant (q>0.05)."
+            "metric": "Global categorical Cramer's V and q",
+            "finding": "TSS V=0.246, q=0.008; CT manufacturer V=0.420, q=0.008; reconstruction kernel V=0.219, q=0.008; scanner model V=0.194, q=0.068; CT phase V=0.0, q=0.686."
           },
           {
-            "metric": "Per-set technical associations",
-            "finding": "For C0006, no per-set technical field reached significance (all q>0.05); largest differences: tissue_source_site CJ diff 0.351 (OR 10.12), BP diff -0.400 (OR 0.097); ct_phase ART diff 0.123 (OR 4.35); ct_scanner_model Sensation 16 diff 0.072 (OR 8.18); numeric fields all q=1.0."
+            "metric": "Global numeric epsilon-squared and q",
+            "finding": "Slice thickness eps=0.0137, q=0.441; z-spacing eps=0.0077, q=0.442; pixel spacing eps=0.0, q=0.655."
+          },
+          {
+            "metric": "Set-specific categorical associations",
+            "finding": "No set-specific categorical associations with q<0.05; top TSS CJ frequency diff=0.351, q=0.132; CT manufacturer SIEMENS frequency diff=0.142, q=1.0."
+          },
+          {
+            "metric": "Set-specific numeric associations",
+            "finding": "Slice thickness Cliff's delta=0.038, q=1.0; z-spacing Cliff's delta=-0.096, q=1.0; pixel spacing Cliff's delta=-0.162, q=1.0."
           }
         ],
-        "statistical_interpretation": "For C0006, no per-set technical field is significant after FDR correction. The largest differences (CJ site, BP site, ART phase) have large odds ratios but q>0.05, indicating they are not statistically significant. The global associations are driven by other sets.",
-        "medical_interpretation": "The lack of significant per-set technical associations for C0006 suggests that technical factors are unlikely to be a major confounder for this set, though the large effect sizes for site and phase warrant caution.",
+        "statistical_interpretation": "Global associations are present, but set-specific tests show no significant associations. The set is not specifically enriched for any technical factor.",
+        "medical_interpretation": "Technical factors are not strongly associated with C0006 specifically. The molecular pattern is unlikely to be explained by technical confounders.",
         "limitations": [
-          "Global associations are significant but not specific to this set.",
-          "Per-set tests may have limited power due to small set size.",
-          "Only CT-related technical fields were assessed."
+          "Global associations are not set-specific; the analysis does not establish causality."
         ],
         "tool_refs": [
           "confound_test"
@@ -255,32 +1012,26 @@
         ],
         "observations": [
           {
-            "metric": "Modality-specific median silhouette",
-            "finding": "Per-set median silhouettes: CT 0.0001, WSI 0.0128, RNA 0.0271, genomic 0.0003; WSI and RNA show positive median silhouettes."
+            "metric": "Modality median silhouettes",
+            "finding": "CT=0.0001, WSI=0.0128, RNA=0.0271, genomic=0.0003."
           },
           {
             "metric": "Patient membership support",
-            "finding": "Median support count 3.0; 1 patient has support from 1 modality, 3 from 2, 7 from 3, 1 from 4; all_estimable_positive_fraction 0.083."
+            "finding": "Median support count=3.0; distribution: 0:0, 1:1, 2:3, 3:7, 4:1; all_estimable_positive_fraction=0.083."
           },
           {
-            "metric": "Internal structure (fused probe)",
-            "finding": "Fused binary probe: child sizes 6/6, normalized cut 1.059, median silhouette 0.0005, fraction positive 1.0; resampling median ARI 0.556, consensus separation 0.552, PAC 0.682, degenerate fraction 0.0."
+            "metric": "Internal structure fused binary probe",
+            "finding": "Median silhouette=0.0005, fraction positive=1.0, median resample ARI=0.556, consensus separation=0.552, PAC=0.682."
           },
           {
-            "metric": "Probe support by modality",
-            "finding": "Probe median silhouettes: CT -0.002, WSI 0.017, RNA 0.049, genomic -0.00005; RNA provides strongest support for the internal split."
-          },
-          {
-            "metric": "Boundary to other sets",
-            "finding": "Fused pair median silhouettes with other sets range 0.0007-0.0012; RNA shows strongest boundary separation (e.g., vs C0002: pair median silhouette 0.056, boundary separation 0.516/0.556); genomic shows weakest (pair median silhouette ~0.0002-0.0006)."
+            "metric": "Boundary to C0001 fused",
+            "finding": "Pair median silhouette=0.0007, left boundary separation=0.030, right=0.047."
           }
         ],
-        "statistical_interpretation": "C0006 shows moderate cross-modal consistency: WSI and RNA have positive median silhouettes, and patient support is higher (median 3 modalities). The internal structure is estimable with a fused probe median silhouette of 0.0005 and resampling showing moderate ARI (0.556) and consensus separation (0.552) with higher PAC (0.682). RNA provides the strongest support for the internal split and boundaries, while CT and genomic contribute little. The partition PERMANOVA R2 values are similar across CT, WSI, RNA (~0.09) but lower for genomic (0.049), and PERMDISP is significant for CT only (q=0.008).",
-        "medical_interpretation": "The set appears to be supported by both WSI and RNA, with RNA being the dominant modality. This suggests that C0006 may represent a subtype with both imaging and transcriptomic characteristics, consistent with its biological profile.",
+        "statistical_interpretation": "RNA and WSI show positive median silhouettes, while CT and genomic are near zero. Patient support is high (median 3), indicating most patients are supported by multiple modalities. Internal structure shows a weak split with moderate resample ARI. Boundaries are weak.",
+        "medical_interpretation": "The set shows moderate cross-modal consistency, with RNA and WSI providing support. The high patient support suggests better cohesion across modalities.",
         "limitations": [
-          "Resampling was performed on existing SNF affinity subgraph; modality affinities and SNF were not re-estimated.",
-          "Negative PCoA eigenvalues were discarded; PERMDISP is approximate.",
-          "Structural characterization does not independently validate biological subtype identity."
+          "Structural characterization is descriptive and not independent validation."
         ],
         "tool_refs": [
           "multimodal_consistency_check"
@@ -296,20 +1047,28 @@
         "target_ids": [],
         "observations": [
           {
-            "metric": "Stage overlap",
-            "finding": "Adjusted Rand Index 0.021, homogeneity 0.106, completeness 0.069; contingency table shows stage distribution varies across sets (e.g., C0002 has 15/19 stage I, C0006 has 5/12 stage IV)."
+            "metric": "Stage ARI",
+            "finding": "Adjusted Rand Index = 0.0209."
           },
           {
-            "metric": "Grade overlap",
-            "finding": "Adjusted Rand Index 0.011, homogeneity 0.111, completeness 0.064; contingency table shows grade distribution varies across sets (e.g., C0002 has 0/19 grade 4, C0006 has 4/12 grade 4)."
+            "metric": "Stage homogeneity and completeness",
+            "finding": "Homogeneity = 0.1063, completeness = 0.0695."
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "Adjusted Rand Index = 0.0107."
+          },
+          {
+            "metric": "Grade homogeneity and completeness",
+            "finding": "Homogeneity = 0.1110, completeness = 0.0640."
           }
         ],
-        "statistical_interpretation": "Both stage and grade show very low overlap with the partition, as indicated by ARI values near zero (0.021 for stage, 0.011 for grade). Homogeneity and completeness are also low (0.106/0.069 for stage, 0.111/0.064 for grade), indicating that the partition does not align well with these known labels. The low ARI suggests that the partition is not a simple echo of stage or grade.",
-        "medical_interpretation": "The partition shows low concordance with stage and grade, meaning it is not simply recapitulating these clinical labels. This suggests that the partition may capture other biological or technical characteristics, but it does not establish molecular novelty.",
+        "statistical_interpretation": "Both stage and grade show very low ARI values (near zero), indicating minimal overlap between the partition and these labels. Homogeneity and completeness are also low, suggesting that the clusters are not homogeneous with respect to stage or grade. The partition does not appear to be a simple echo of stage or grade.",
+        "medical_interpretation": "The partition is not strongly associated with clinical stage or grade. This suggests that the clustering is not merely reflecting these known clinical labels, but it does not prove molecular novelty.",
         "limitations": [
-          "Only TCGA stage and grade labels are assessable in the current data.",
+          "Only TCGA stage and grade were assessed.",
           "Published molecular ccRCC subtype taxonomies were not evaluated.",
-          "Low stage or grade overlap does not by itself establish molecular novelty."
+          "Low overlap does not establish molecular novelty."
         ],
         "tool_refs": [
           "known_label_echo_test"
