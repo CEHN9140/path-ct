@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.subtype_review.graph import save_review_outputs  # noqa: E402
+from agents.subtype_review.llm import review_signature_manifest  # noqa: E402
 from agents.subtype_review.runner import run_subtype_review  # noqa: E402
 from scripts_2026_8_17.experiment_initial_k_review_sensitivity import (  # noqa: E402
     labels_to_candidate_sets,
@@ -31,6 +32,7 @@ from scripts_2026_8_17.experiment_initial_k_review_sensitivity import (  # noqa:
     load_patient_states,
 )
 from utils.io import write_json  # noqa: E402
+from utils.llm_utils import load_yaml_file  # noqa: E402
 
 INITIAL_KS = tuple(range(2, 9))
 REPEATS = (1, 2, 3)
@@ -65,7 +67,7 @@ DERIVED_ANALYSIS_ARTIFACTS = (
 )
 DEFAULT_DATA_ROOT = ROOT / "output_kirc"
 DEFAULT_EXPERIMENT_ROOT = (
-    ROOT / "output_kirc_v9" / "experiment_multi_k_accepted_core_stability"
+    ROOT / "output_kirc_v11" / "experiment_multi_k_accepted_core_stability"
 )
 
 
@@ -1321,22 +1323,9 @@ def main() -> None:
     repeats = sorted(set(args.repeat or REPEATS))
     patient_ids = sorted(load_affinity_patient_ids(args.data_root))
     patient_states = load_patient_states(args.data_root)
-    review_files = [
-        *sorted((ROOT / "agents" / "subtype_review").rglob("*.py")),
-        *sorted((ROOT / "agents" / "subtype_review").rglob("*.md")),
-        args.config_dir / "subtype_review.yaml",
-        *[
-            ROOT / "tools" / name
-            for name in (
-                "cnv_characterization.py", "confound.py", "known_label_echo.py",
-                "multimodal_consistency_check.py", "mutation_enrichment.py",
-                "pathway_enrichment.py", "cross_modal_structure.py",
-            )
-        ],
-    ]
-    review_signature = hashlib.sha256(
-        b"".join(path.read_bytes() for path in review_files)
-    ).hexdigest()
+    review_config = load_yaml_file(args.config_dir / "subtype_review.yaml")
+    review_manifest = review_signature_manifest(review_config, args.config_dir)
+    review_signature = review_manifest["review_signature"]
     source_paths = {
         initial_k: (
             args.data_root
@@ -1410,7 +1399,7 @@ def main() -> None:
                         "source": str(source_path),
                         "source_sha256": source_sha256[initial_k],
                         "input_data_signature": input_signature,
-                        "review_signature": review_signature,
+                        **review_manifest,
                         "patient_count": len(patient_ids),
                         "candidate_sets": initial_sets,
                     },
@@ -1432,7 +1421,7 @@ def main() -> None:
                         "source": str(source_path),
                         "source_sha256": source_sha256[initial_k],
                         "input_data_signature": input_signature,
-                        "review_signature": review_signature,
+                        **review_manifest,
                         "patient_count": len(patient_ids),
                         "status": summary["status"],
                         "rounds_used": summary["rounds_used"],

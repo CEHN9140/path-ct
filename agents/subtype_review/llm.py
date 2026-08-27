@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -9,7 +10,7 @@ from agents.subtype_review.schemas import (
     RevisionPlan,
     RouterPlan,
 )
-from agents.subtype_review.tools import build_validation_tools
+from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
 from utils.llm_utils import (
     LocalLLMClient,
     extract_json_object,
@@ -76,6 +77,31 @@ def load_prompt(prompt_dir: str | Path, name: str) -> str:
 def prompt_dir(config: Mapping[str, Any], config_dir: str | Path) -> Path:
     path = Path(str(config.get("prompt_dir", "agents/subtype_review/prompts")))
     return path if path.is_absolute() else Path(config_dir).resolve().parent / path
+
+
+def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path) -> dict[str, Any]:
+    directory = prompt_dir(config, config_dir)
+    prompt_hashes = {
+        name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
+        for name in ("verifier.md", "router.md", "reviser.md")
+    }
+    review_config = dict(config)
+    for key in ("prompt_dir", "repeat", "output_root", "experiment_root"):
+        review_config.pop(key, None)
+    review_config["llm"] = {
+        key: value
+        for key, value in dict(review_config.get("llm", {}) or {}).items()
+        if key not in {"api_key", "api_key_env"}
+    }
+    registry = {
+        name: {key: value for key, value in metadata.items() if key != "function"}
+        for name, metadata in TOOL_REGISTRY.items()
+    }
+    payload = {"prompts": prompt_hashes, "config": review_config, "tool_registry": registry}
+    signature = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {**prompt_hashes, "review_signature": signature}
 
 
 def parse_json_content(content: Any) -> dict[str, Any]:
