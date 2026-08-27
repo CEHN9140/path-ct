@@ -22,7 +22,7 @@
           "C0003"
         ],
         "tool_requests": [],
-        "reason": "No significant biological enrichment across RNA, WXS, or CNV (all q near 1.0). Strong technical confounding: significant associations with CT manufacturer, scanner model, and kernel (q<0.05), and CT is the only modality with positive silhouette (0.276), indicating the set is primarily defined by technical imaging factors rather than biology. Cross-modal consistency is weak outside CT. The set lacks a defensible biological identity and is better explained by technical variation."
+        "reason": "Biological support is absent across all modalities (no significant RNA, WXS, or CNV findings). Cross-modal consistency is driven almost entirely by CT (median silhouette 0.276) with no support from other modalities, and confounder exclusion reveals strong technical associations with CT manufacturer/scanner/kernel (q<0.05). The set appears to be a technical artifact rather than a biological subtype. No structural split or merge is supported, and no available evidence can resolve this."
       },
       {
         "action": "drop",
@@ -30,15 +30,7 @@
           "C0004"
         ],
         "tool_requests": [],
-        "reason": "No significant biological enrichment across any modality (all q high). Cross-modal consistency is weak with near-zero silhouettes in most modalities and low patient support (median 2). No significant technical confounders, but the absence of any biological signal and lack of structural cohesion indicate the set is not a distinct biological entity. No supported structural action or resolvable evidence gap exists."
-      },
-      {
-        "action": "drop",
-        "target_ids": [
-          "C0001"
-        ],
-        "tool_requests": [],
-        "reason": "Biological support is primarily transcriptional with no significant mutation or CNV enrichment. Cross-modal consistency is weak (median silhouettes near zero, low patient support). No significant technical confounders, but the lack of corroborating genomic evidence and weak structural cohesion indicate the set is not a robust biological entity. No supported structural action or resolvable evidence gap exists."
+        "reason": "Biological support is absent across all modalities (no significant RNA, WXS, or CNV findings). Cross-modal consistency is weak with near-zero silhouettes in most modalities and only slight WSI support. Confounder exclusion shows no significant technical associations, but the lack of any biological distinction and weak structural cohesion do not justify acceptance. No structural split or merge is supported, and no available evidence can resolve this."
       },
       {
         "action": "accept",
@@ -46,7 +38,15 @@
           "C0002"
         ],
         "tool_requests": [],
-        "reason": "Biological support is coherent across RNA and CNV: RNA shows extensive FDR-significant pathway enrichment (immune downregulation, heme metabolism upregulation) and CNV shows significant lower copy-number on multiple arms. Cross-modal consistency is moderate with positive WSI and RNA silhouettes and high resampling ARI (0.561). Confounder exclusion shows no significant per-set technical associations. The set has a defensible identity with corroborating evidence across modalities."
+        "reason": "Biological support is strong: RNA shows 25 significant pathways with coherent downregulation of immune signaling and upregulation of heme metabolism, and CNV shows significant lower copy-number on multiple arms (q<0.05). Cross-modal consistency is moderate with positive WSI and RNA silhouettes and high resampling ARI (0.561). Confounder exclusion shows no significant per-set technical associations. The set has a defensible identity with no dominant technical explanation."
+      },
+      {
+        "action": "accept",
+        "target_ids": [
+          "C0001"
+        ],
+        "tool_requests": [],
+        "reason": "Biological support is moderate: RNA shows 18 significant pathways with coherent upregulation of coagulation/EMT and downregulation of metabolic pathways, though WXS and CNV are not significant. Cross-modal consistency is weak but RNA provides some support (median silhouette 0.021). Confounder exclusion shows no significant per-set technical associations. The transcriptional profile provides a defensible identity, and no better-supported structural action or resolvable evidence gap exists."
       }
     ]
   },
