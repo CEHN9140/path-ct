@@ -60,6 +60,22 @@ def test_matplotlib_writer_creates_png_only(tmp_path):
     assert not (tmp_path / "figure.pdf").exists()
 
 
+def test_survival_km_plot_contains_only_stable_cores(tmp_path):
+    records = {
+        "a": {"os_time": 100, "os_event": 0},
+        "b": {"os_time": 200, "os_event": 1},
+        "c": {"os_time": 120, "os_event": 0},
+        "d": {"os_time": 240, "os_event": 1},
+    }
+    plotted = analysis.plot_survival_km(
+        tmp_path / "clinical_overall_survival_km",
+        records,
+        {"CORE01": ["a", "b"], "CORE02": ["c", "d"]},
+    )
+    assert plotted == 2
+    assert (tmp_path / "clinical_overall_survival_km.png").exists()
+
+
 def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():
     rows = [
         {"pathway": "A", "core_id": "CORE01", "q_value": 0.01, "smd": 0.1},
@@ -131,6 +147,38 @@ def test_clinical_analysis_reports_stage_grade_metastasis_and_survival():
     assert {row["clinical_variable"] for row in survival} == {"overall_survival"}
     assert {row["clinical_variable"] for row in pair_rows} == {"stage_group", "grade", "m_stage", "overall_survival"}
     assert all("q_value" in row for row in rows + pair_rows + survival)
+
+
+def test_clinical_availability_excludes_indeterminate_n_and_m_levels():
+    records = {
+        case_id: {
+            "age": 60,
+            "gender": "male",
+            "race": "white",
+            "stage_group": "I",
+            "t_stage": "T1",
+            "n_stage": "N0" if case_id in {"a", "b", "e", "f"} else "NX",
+            "m_stage": "M1" if case_id in {"a", "e"} else "M0" if case_id != "i" else "MX",
+            "grade": "G2",
+            "os_time": 100,
+            "os_event": 0,
+        }
+        for case_id in "abcdefghij"
+    }
+    rows, summary = analysis.clinical_availability(
+        records, {"CORE01": list("abcd"), "CORE02": list("efgh")}, list(records)
+    )
+    assert summary["n_stage"]["overall_fraction"] == 0.4
+    assert summary["n_stage"]["stable_core_fraction"] == 0.5
+    assert "n_stage" in summary["not_analyzed_variables"]
+    assert summary["n_stage"]["reason"] == "not_analyzed_below_availability_threshold"
+    assert summary["m_stage"]["overall_available_n"] == 9
+    assert "m_stage" in summary["eligible_variables"]
+    assert analysis.clinical_value(records["i"], "m_stage") is None
+    assert {row["scope"] for row in rows if row["clinical_variable"] == "n_stage"} == {"ALL", "STABLE_CORES", "CORE01", "CORE02"}
+    clinical_rows, _, _ = analysis.clinical_analysis(records, {"CORE01": list("abcd"), "CORE02": list("efgh")}, list(records), summary["eligible_variables"], summary["survival_eligible"])
+    assert not any(row["clinical_variable"] == "n_stage" for row in clinical_rows)
+    assert {row["level"] for row in clinical_rows if row["clinical_variable"] == "m_stage"} == {"M0", "M1"}
 
 
 def test_cooccurrence_does_not_turn_unassignable_into_different_parent():

@@ -198,44 +198,99 @@ def radiomics_analysis(table: dict[str, dict[str, float]], features: list[str], 
     return rows, pair_rows
 
 
-def clinical_analysis(records: dict[str, dict], cores: dict[str, list[str]], all_ids: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
+def clinical_value(record: dict, variable: str):
+    value = record.get(variable)
+    if variable == "age":
+        return finite(value)
+    text = str(value or "").strip().upper()
+    if text in {"", "NA", "N/A", "NAN", "NONE", "UNKNOWN", "NOT REPORTED", "NOT AVAILABLE", "NX", "MX", "TX"}:
+        return None
+    if variable == "m_stage":
+        return text if text in {"M0", "M1"} else None
+    return text
+
+
+def clinical_availability(records: dict[str, dict], cores: dict[str, list[str]], all_ids: list[str], threshold: float = .8) -> tuple[list[dict], dict]:
+    audit_variables = ("age", "gender", "race", "stage_group", "t_stage", "n_stage", "m_stage", "grade", "overall_survival")
+    formal_variables = ("age", "gender", "stage_group", "t_stage", "m_stage", "grade", "overall_survival")
+    stable_core_ids = sorted(set().union(*(set(members) for members in cores.values()))) if cores else []
+    rows, summary = [], {}
+    for variable in audit_variables:
+        scopes = {"ALL": all_ids, "STABLE_CORES": stable_core_ids, **cores}
+        available_by_scope = {}
+        for scope, ids in scopes.items():
+            available = sum(clinical_value(records.get(case_id, {}), "os_time" if variable == "overall_survival" else variable) is not None for case_id in ids)
+            available_by_scope[scope] = available
+            rows.append({"clinical_variable": variable, "scope": scope, "available_n": available, "total_n": len(ids), "missing_n": len(ids) - available, "availability_fraction": available / len(ids) if ids else None})
+        overall_fraction = available_by_scope["ALL"] / len(all_ids) if all_ids else 0
+        core_fractions = [available_by_scope[core] / len(members) if members else 0 for core, members in cores.items()]
+        eligible = variable in formal_variables and overall_fraction >= threshold and all(fraction >= threshold for fraction in core_fractions)
+        stable_core_fraction = available_by_scope["STABLE_CORES"] / len(stable_core_ids) if stable_core_ids else 0
+        summary[variable] = {"overall_available_n": available_by_scope["ALL"], "overall_total_n": len(all_ids), "overall_fraction": overall_fraction, "stable_core_available_n": available_by_scope["STABLE_CORES"], "stable_core_total_n": len(stable_core_ids), "stable_core_fraction": stable_core_fraction, "minimum_core_fraction": min(core_fractions, default=0), "eligible": eligible, "reason": "eligible" if eligible else "below_availability_threshold" if variable in formal_variables else "descriptive_only" if variable == "race" else "not_analyzed_below_availability_threshold"}
+    summary["threshold"] = threshold
+    summary["eligible_variables"] = [variable for variable in formal_variables if variable != "overall_survival" and summary[variable]["eligible"]]
+    summary["excluded_variables"] = [variable for variable in formal_variables if variable != "overall_survival" and not summary[variable]["eligible"]]
+    summary["not_analyzed_variables"] = [variable for variable in audit_variables if variable not in formal_variables]
+    summary["survival_eligible"] = summary["overall_survival"]["eligible"]
+    return rows, summary
+
+
+def clinical_analysis(records: dict[str, dict], cores: dict[str, list[str]], all_ids: list[str], eligible_variables: list[str] | None = None, survival_eligible: bool = True) -> tuple[list[dict], list[dict], list[dict]]:
     from scipy.stats import fisher_exact
-    variables = ("stage_group", "grade", "m_stage")
+    categorical = {"gender", "stage_group", "t_stage", "m_stage", "grade"}
+    variables = tuple(("age", "gender", "stage_group", "t_stage", "m_stage", "grade") if eligible_variables is None else eligible_variables)
     rows, survival = [], []
     for core_id, members in cores.items():
-        rest = [case_id for case_id in all_ids if case_id not in members]; current = []
+        rest = [case_id for case_id in all_ids if case_id not in members]
+        current = []
         for variable in variables:
-            left = [records[case_id].get(variable) for case_id in members if records.get(case_id, {}).get(variable) not in (None, "")]; right = [records[case_id].get(variable) for case_id in rest if records.get(case_id, {}).get(variable) not in (None, "")]
-            for level in sorted(set(left + right)):
-                set_count, rest_count = left.count(level), right.count(level)
-                if not left or not right: p_value, odds, ci = None, None, [None, None]
-                else:
-                    _, p_value = fisher_exact([[set_count, len(left) - set_count], [rest_count, len(right) - rest_count]]); odds, ci = odds_ratio_ci(set_count, len(left) - set_count, rest_count, len(right) - rest_count)
-                current.append({"core_id": core_id, "clinical_variable": variable, "level": level, "set_count": set_count, "set_total": len(left), "rest_count": rest_count, "rest_total": len(right), "set_fraction": set_count / len(left) if left else None, "rest_fraction": rest_count / len(right) if right else None, "frequency_difference": set_count / len(left) - rest_count / len(right) if left and right else None, "odds_ratio": odds, "ci_low": ci[0], "ci_high": ci[1], "p_value": rounded(p_value), "q_value": None, "available_n": len(left) + len(right), "missing_n": len(all_ids) - len(left) - len(right)})
+            left = [clinical_value(records.get(case_id, {}), variable) for case_id in members]
+            right = [clinical_value(records.get(case_id, {}), variable) for case_id in rest]
+            left, right = [value for value in left if value is not None], [value for value in right if value is not None]
+            if not left or not right:
+                continue
+            if variable in categorical:
+                for level in sorted(set(left + right)):
+                    set_count, rest_count = left.count(level), right.count(level)
+                    if not left or not right:
+                        p_value, odds, ci = None, None, [None, None]
+                    else:
+                        _, p_value = fisher_exact([[set_count, len(left) - set_count], [rest_count, len(right) - rest_count]])
+                        odds, ci = odds_ratio_ci(set_count, len(left) - set_count, rest_count, len(right) - rest_count)
+                    current.append({"core_id": core_id, "clinical_variable": variable, "level": level, "set_count": set_count, "set_total": len(left), "rest_count": rest_count, "rest_total": len(right), "set_fraction": set_count / len(left) if left else None, "rest_fraction": rest_count / len(right) if right else None, "frequency_difference": set_count / len(left) - rest_count / len(right) if left and right else None, "odds_ratio": odds, "ci_low": ci[0], "ci_high": ci[1], "p_value": rounded(p_value), "q_value": None, "available_n": len(left) + len(right), "missing_n": len(all_ids) - len(left) - len(right)})
+            else:
+                effect, p_value = numeric_test(left, right)
+                current.append({"core_id": core_id, "clinical_variable": variable, "n_core": len(left), "n_rest": len(right), "median_core": rounded(np.median(left)) if left else None, "median_rest": rounded(np.median(right)) if right else None, "mean_core": rounded(np.mean(left)) if left else None, "mean_rest": rounded(np.mean(right)) if right else None, "smd": effect, "effect_size": effect, "direction": "higher_in_core" if (effect or 0) > 0 else "lower_in_core" if (effect or 0) < 0 else None, "p_value": p_value, "q_value": None, "available_n": len(left) + len(right), "missing_n": len(all_ids) - len(left) - len(right)})
         for row, q_value in zip(current, bh([row["p_value"] for row in current])): row["q_value"] = q_value
         rows.extend(current)
-        left = [records[case_id] for case_id in members if records.get(case_id, {}).get("os_time") is not None]; right = [records[case_id] for case_id in rest if records.get(case_id, {}).get("os_time") is not None]
+        left = [finite(records.get(case_id, {}).get("os_time")) for case_id in members if finite(records.get(case_id, {}).get("os_time")) is not None]; right = [finite(records.get(case_id, {}).get("os_time")) for case_id in rest if finite(records.get(case_id, {}).get("os_time")) is not None]
         p_value = None
-        if left and right and (sum(item.get("os_event", 0) for item in left) + sum(item.get("os_event", 0) for item in right)) > 0:
+        if survival_eligible and left and right and (sum(records.get(case_id, {}).get("os_event", 0) for case_id in members) + sum(records.get(case_id, {}).get("os_event", 0) for case_id in rest)) > 0:
             from lifelines.statistics import logrank_test
-            p_value = logrank_test([item["os_time"] for item in left], [item["os_time"] for item in right], event_observed_A=[item.get("os_event", 0) for item in left], event_observed_B=[item.get("os_event", 0) for item in right]).p_value
-        survival.append({"core_id": core_id, "clinical_variable": "overall_survival", "set_n": len(left), "rest_n": len(right), "set_events": sum(item.get("os_event", 0) for item in left), "rest_events": sum(item.get("os_event", 0) for item in right), "set_median_time": rounded(np.median([item["os_time"] for item in left])) if left else None, "rest_median_time": rounded(np.median([item["os_time"] for item in right])) if right else None, "p_value": rounded(p_value), "q_value": None})
+            p_value = logrank_test(left, right, event_observed_A=[records.get(case_id, {}).get("os_event", 0) for case_id in members if finite(records.get(case_id, {}).get("os_time")) is not None], event_observed_B=[records.get(case_id, {}).get("os_event", 0) for case_id in rest if finite(records.get(case_id, {}).get("os_time")) is not None]).p_value
+        survival.append({"core_id": core_id, "clinical_variable": "overall_survival", "set_n": len(left), "rest_n": len(right), "set_events": sum(records.get(case_id, {}).get("os_event", 0) for case_id in members if finite(records.get(case_id, {}).get("os_time")) is not None), "rest_events": sum(records.get(case_id, {}).get("os_event", 0) for case_id in rest if finite(records.get(case_id, {}).get("os_time")) is not None), "set_median_time": rounded(np.median(left)) if left else None, "rest_median_time": rounded(np.median(right)) if right else None, "p_value": rounded(p_value), "q_value": None})
     for row, q_value in zip(survival, bh([row["p_value"] for row in survival])): row["q_value"] = q_value
     pair_rows = []
     for core_a, core_b in combinations(sorted(cores), 2):
         current = []
         for variable in variables:
-            left = [records[case_id].get(variable) for case_id in cores[core_a] if records.get(case_id, {}).get(variable) not in (None, "")]; right = [records[case_id].get(variable) for case_id in cores[core_b] if records.get(case_id, {}).get(variable) not in (None, "")]
-            for level in sorted(set(left + right)):
-                a, c = left.count(level), right.count(level); p_value = fisher_exact([[a, len(left) - a], [c, len(right) - c]])[1] if left and right else None; odds, ci = odds_ratio_ci(a, len(left) - a, c, len(right) - c) if left and right else (None, [None, None]); current.append({"core_a": core_a, "core_b": core_b, "clinical_variable": variable, "level": level, "core_a_count": a, "core_a_total": len(left), "core_b_count": c, "core_b_total": len(right), "core_a_fraction": a / len(left) if left else None, "core_b_fraction": c / len(right) if right else None, "frequency_difference": a / len(left) - c / len(right) if left and right else None, "odds_ratio": odds, "ci_low": ci[0], "ci_high": ci[1], "p_value": rounded(p_value), "q_value": None})
+            left = [clinical_value(records.get(case_id, {}), variable) for case_id in cores[core_a]]; right = [clinical_value(records.get(case_id, {}), variable) for case_id in cores[core_b]]; left, right = [value for value in left if value is not None], [value for value in right if value is not None]
+            if not left or not right:
+                continue
+            if variable in categorical:
+                for level in sorted(set(left + right)):
+                    a, c = left.count(level), right.count(level); p_value = fisher_exact([[a, len(left) - a], [c, len(right) - c]])[1] if left and right else None; odds, ci = odds_ratio_ci(a, len(left) - a, c, len(right) - c) if left and right else (None, [None, None]); current.append({"core_a": core_a, "core_b": core_b, "clinical_variable": variable, "level": level, "core_a_count": a, "core_a_total": len(left), "core_b_count": c, "core_b_total": len(right), "core_a_fraction": a / len(left) if left else None, "core_b_fraction": c / len(right) if right else None, "frequency_difference": a / len(left) - c / len(right) if left and right else None, "odds_ratio": odds, "ci_low": ci[0], "ci_high": ci[1], "p_value": rounded(p_value), "q_value": None})
+            else:
+                effect, p_value = numeric_test(left, right); current.append({"core_a": core_a, "core_b": core_b, "clinical_variable": variable, "n_core_a": len(left), "n_core_b": len(right), "median_core_a": rounded(np.median(left)) if left else None, "median_core_b": rounded(np.median(right)) if right else None, "smd_a_vs_b": effect, "effect_size": effect, "p_value": p_value, "q_value": None})
         for row, q_value in zip(current, bh([row["p_value"] for row in current])): row["q_value"] = q_value
         pair_rows.extend(current)
-        left = [records[case_id] for case_id in cores[core_a] if records.get(case_id, {}).get("os_time") is not None]; right = [records[case_id] for case_id in cores[core_b] if records.get(case_id, {}).get("os_time") is not None]; p_value = None
-        if left and right and (sum(item.get("os_event", 0) for item in left) + sum(item.get("os_event", 0) for item in right)) > 0:
+        left_ids = [case_id for case_id in cores[core_a] if finite(records.get(case_id, {}).get("os_time")) is not None]; right_ids = [case_id for case_id in cores[core_b] if finite(records.get(case_id, {}).get("os_time")) is not None]; left = [finite(records[case_id]["os_time"]) for case_id in left_ids]; right = [finite(records[case_id]["os_time"]) for case_id in right_ids]; p_value = None
+        if survival_eligible and left and right and (sum(records[case_id].get("os_event", 0) for case_id in left_ids) + sum(records[case_id].get("os_event", 0) for case_id in right_ids)) > 0:
             from lifelines.statistics import logrank_test
-            p_value = logrank_test([item["os_time"] for item in left], [item["os_time"] for item in right], event_observed_A=[item.get("os_event", 0) for item in left], event_observed_B=[item.get("os_event", 0) for item in right]).p_value
-        pair_rows.append({"core_a": core_a, "core_b": core_b, "clinical_variable": "overall_survival", "core_a_n": len(left), "core_b_n": len(right), "core_a_events": sum(item.get("os_event", 0) for item in left), "core_b_events": sum(item.get("os_event", 0) for item in right), "core_a_median_time": rounded(np.median([item["os_time"] for item in left])) if left else None, "core_b_median_time": rounded(np.median([item["os_time"] for item in right])) if right else None, "p_value": rounded(p_value), "q_value": None})
-    for row, q_value in zip([row for row in pair_rows if row["clinical_variable"] == "overall_survival"], bh([row["p_value"] for row in pair_rows if row["clinical_variable"] == "overall_survival"])): row["q_value"] = q_value
+            p_value = logrank_test(left, right, event_observed_A=[records[case_id].get("os_event", 0) for case_id in left_ids], event_observed_B=[records[case_id].get("os_event", 0) for case_id in right_ids]).p_value
+        pair_rows.append({"core_a": core_a, "core_b": core_b, "clinical_variable": "overall_survival", "core_a_n": len(left), "core_b_n": len(right), "core_a_events": sum(records[case_id].get("os_event", 0) for case_id in left_ids), "core_b_events": sum(records[case_id].get("os_event", 0) for case_id in right_ids), "core_a_median_time": rounded(np.median(left)) if left else None, "core_b_median_time": rounded(np.median(right)) if right else None, "p_value": rounded(p_value), "q_value": None})
+    survival_pair_rows = [row for row in pair_rows if row["clinical_variable"] == "overall_survival"]
+    for row, q_value in zip(survival_pair_rows, bh([row["p_value"] for row in survival_pair_rows])): row["q_value"] = q_value
     return rows, pair_rows, survival
 
 
@@ -461,6 +516,25 @@ def plot_oncoplot(path, table, genes, cores, all_ids, main_by_core, tss_by_core)
     right.set_yticks(range(len(genes)), []); right.set_xlabel("Mutation frequency"); right.legend(title="CORE", fontsize=6); figure.subplots_adjust(left=.2, bottom=.25, right=.86, top=.82); save_figure(figure, path)
 
 
+def plot_survival_km(path, records, cores):
+    from lifelines import KaplanMeierFitter
+    from utils.visualization import configure_matplotlib
+    configure_matplotlib(); import matplotlib.pyplot as plt
+    groups = {core: members for core, members in sorted(cores.items())}
+    figure, axis = plt.subplots(figsize=(9, 6))
+    plotted = 0
+    for group, members in groups.items():
+        usable = [records.get(case_id, {}) for case_id in members if finite(records.get(case_id, {}).get("os_time")) is not None]
+        if not usable:
+            continue
+        durations = [finite(record["os_time"]) for record in usable]
+        events = [int(record.get("os_event") or 0) for record in usable]
+        KaplanMeierFitter().fit(durations, event_observed=events, label=f"{group} (n={len(usable)}, events={sum(events)})").plot_survival_function(ax=axis)
+        plotted += 1
+    axis.set_xlabel("Overall survival time (days)"); axis.set_ylabel("Survival probability"); axis.set_title("Overall survival by recurrent stable core (descriptive)"); axis.grid(alpha=.2); axis.legend(title="Group"); figure.tight_layout(); save_figure(figure, path)
+    return plotted
+
+
 def plot_umap(path, similarity, ids, cores, random_state):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
@@ -492,7 +566,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
     affinity_paths = {"ct": data_root / "candidate_subtype/ct_affinity.npy", "wsi": data_root / "candidate_subtype/wsi_affinity.npy", "rna": data_root / "candidate_subtype/rna_affinity.npy", "genomic": data_root / "wxs/genomic_affinity.npy", "fused": data_root / "candidate_subtype/fused_similarity.npy"}; affinity_ids = json.loads((data_root / "candidate_subtype/affinity_patient_order.json").read_text(encoding="utf-8")); affinities = {name: np.load(path) for name, path in affinity_paths.items() if path.is_file()}; separation_rows, distance_matrices, tests, audits = core_embedding_analysis(affinities, affinity_ids, cores); write_csv(output_root / "embedding_core_separation.csv", separation_rows); [write_csv(output_root / f"{modality}_core_distance_matrix.csv", [{"core_id": core, **values} for core, values in matrix.items()]) for modality, matrix in distance_matrices.items()]; write_json(output_root / "affinity_audit.json", audits); write_csv(output_root / "core_permanova.csv", [{"modality": modality, **tests[modality]["permanova"]} for modality in tests]); write_csv(output_root / "core_permdisp.csv", [{"modality": modality, **tests[modality]["permdisp"]} for modality in tests])
     co_run, co_k = cooccurrence_from_runs(load_core_runs(experiment_root), cores); write_csv(output_root / "stable_core_cooccurrence_by_run.csv", co_run); write_csv(output_root / "stable_core_cooccurrence_by_k.csv", co_k); confounds = core_confounds(data_root, config_dir, states, cores); write_csv(output_root / "stable_core_confounders.csv", confounds)
     from tools.subtype_review_common import clinical_table
-    clinical_records = clinical_table(states); write_csv(output_root / "clinical_patient_records.csv", [{"case_id": case_id, "core_id": next((core for core, members in cores.items() if case_id in members), "non_core"), **record} for case_id, record in clinical_records.items()]); clinical_rows, clinical_pair_rows, survival_rows = clinical_analysis(clinical_records, cores, all_ids); write_csv(output_root / "clinical_core_vs_rest.csv", clinical_rows); write_csv(output_root / "clinical_core_pairwise.csv", clinical_pair_rows); write_csv(output_root / "clinical_survival_core_vs_rest.csv", survival_rows)
+    clinical_records = clinical_table(states); write_csv(output_root / "clinical_patient_records.csv", [{"case_id": case_id, "core_id": next((core for core, members in cores.items() if case_id in members), "non_core"), **record} for case_id, record in clinical_records.items()]); clinical_availability_rows, clinical_availability_summary = clinical_availability(clinical_records, cores, all_ids); write_csv(output_root / "clinical_availability.csv", clinical_availability_rows); write_json(output_root / "clinical_availability_summary.json", clinical_availability_summary); clinical_rows, clinical_pair_rows, survival_rows = clinical_analysis(clinical_records, cores, all_ids, clinical_availability_summary["eligible_variables"], clinical_availability_summary["survival_eligible"]); write_csv(output_root / "clinical_core_vs_rest.csv", clinical_rows); write_csv(output_root / "clinical_core_pairwise.csv", clinical_pair_rows); write_csv(output_root / "clinical_survival_core_vs_rest.csv", survival_rows)
     similarity_rows = update_pairwise_similarity(pairwise_similarity(cores, rna_rows, wxs_rows, cnv_cont, distance_matrices, co_run, co_k), rna_pair_rows, wxs_pair_rows, cnv_pair_cont); write_csv(output_root / "stable_core_pairwise_similarity.csv", similarity_rows)
     core_order, main_order = sorted(cores), [row["set_id"] for row in main_sets]
     overview_rows = []
@@ -500,9 +574,12 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
         top_ct = sorted((row for row in ct_rows if row["core_id"] == core), key=lambda row: (row.get("q_value") is None, row.get("q_value") if row.get("q_value") is not None else 1, -abs(row.get("effect_size") or 0), row["feature"]))
         top_clinical = sorted((row for row in clinical_rows if row["core_id"] == core), key=lambda row: (row.get("q_value") is None, row.get("q_value") if row.get("q_value") is not None else 1, row["clinical_variable"], row.get("level", "")))
         main = max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={})
-        overview_rows.append({"core_id": core, "core_n": len(cores[core]), "main_candidate": main.get("set_id", ""), "top_ct_radiomics_feature": top_ct[0]["feature"] if top_ct else "", "top_ct_radiomics_effect_size": top_ct[0].get("effect_size") if top_ct else None, "top_ct_radiomics_q_value": top_ct[0].get("q_value") if top_ct else None, "top_clinical_signal": f'{top_clinical[0]["clinical_variable"]}={top_clinical[0].get("level", "")}' if top_clinical else "", "top_clinical_q_value": top_clinical[0].get("q_value") if top_clinical else None, "overall_survival_q_value": next((row.get("q_value") for row in survival_rows if row["core_id"] == core), None)})
+        top_signal = ""
+        if top_clinical:
+            top_signal = f'{top_clinical[0]["clinical_variable"]}={top_clinical[0].get("level", "")}' if top_clinical[0].get("level") else top_clinical[0]["clinical_variable"]
+        overview_rows.append({"core_id": core, "core_n": len(cores[core]), "main_candidate": main.get("set_id", ""), "top_ct_radiomics_feature": top_ct[0]["feature"] if top_ct else "", "top_ct_radiomics_effect_size": top_ct[0].get("effect_size") if top_ct else None, "top_ct_radiomics_q_value": top_ct[0].get("q_value") if top_ct else None, "top_clinical_signal": top_signal, "top_clinical_q_value": top_clinical[0].get("q_value") if top_clinical else None, "overall_survival_q_value": next((row.get("q_value") for row in survival_rows if row["core_id"] == core), None)})
     write_csv(output_root / "stable_core_summary_multimodal.csv", overview_rows)
-    plot_stacked(figure_root / "core_main_composition", np.asarray([[composition[core].get(candidate, 0) for candidate in main_order] for core in core_order]), core_order, main_order); selected_pathways = select_pathways(rna_rows, top_pathways); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores})
+    plot_stacked(figure_root / "core_main_composition", np.asarray([[composition[core].get(candidate, 0) for candidate in main_order] for core in core_order]), core_order, main_order); selected_pathways = select_pathways(rna_rows, top_pathways); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores}); plot_survival_km(figure_root / "clinical_overall_survival_km", clinical_records, cores)
     parent_lookup = {(row["core_a"], row["core_b"]): row.get("conditional_same_parent_fraction") for row in similarity_rows}; pair_lookup = {(row["core_a"], row["core_b"]): row for row in similarity_rows}; parent_matrix = np.eye(len(core_order)); rna_matrix = np.eye(len(core_order)); cnv_matrix = np.eye(len(core_order)); mutation_matrix = np.eye(len(core_order)); fused_distance = np.zeros((len(core_order), len(core_order)))
     for i, core_a in enumerate(core_order):
         for j, core_b in enumerate(core_order):
@@ -510,7 +587,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
             pair = pair_lookup.get((core_a, core_b)) or pair_lookup.get((core_b, core_a)); parent_matrix[i, j] = parent_lookup.get((core_a, core_b), parent_lookup.get((core_b, core_a))) or 0
             if pair: rna_matrix[i, j] = pair.get("rna_hallmark_profile_pearson") or 0; cnv_matrix[i, j] = pair.get("cnv_effect_profile_pearson") or 0; mutation_matrix[i, j] = pair.get("mutation_frequency_pearson") or 0; fused_distance[i, j] = pair.get("fused_mean_between_core_distance") or 0
     plot_heatmap(figure_root / "core_same_parent_heatmap", parent_matrix, core_order, core_order, "Conditional same-parent fraction"); plot_heatmap(figure_root / "core_rna_similarity_heatmap", rna_matrix, core_order, core_order, "RNA Hallmark profile correlation", diverging=True); plot_heatmap(figure_root / "core_cnv_similarity_heatmap", cnv_matrix, core_order, core_order, "CNV effect profile correlation", diverging=True); plot_heatmap(figure_root / "core_mutation_similarity_heatmap", mutation_matrix, core_order, core_order, "Mutation frequency correlation", diverging=True); plot_heatmap(figure_root / "fused_between_core_distance_heatmap", fused_distance, core_order, core_order, "Fused mean between-core distance")
-    projection_methods = {modality: plot_umap(figure_root / f"{modality}_core_umap", matrix, affinity_ids, cores, random_state) for modality, matrix in affinities.items()}; generated = sorted(str(path.relative_to(output_root)) for path in output_root.rglob("*") if path.is_file()); main_partition = data_root / "subtype_review/final_partition_sets.json"; manifest = {"core_count": len(cores), "patient_count": len(all_ids), "core_patient_count": len(core_ids), "non_core_patient_count": len(set(all_ids) - set(core_ids)), "source_multi_k_summary_sha256": file_sha256(experiment_root / "stable_core_summary.csv"), "source_main_partition_sha256": file_sha256(main_partition) if main_partition.exists() else None, "analysis_parameters": {"top_pathways": top_pathways, "top_cnv": top_cnv, "random_state": random_state, "permutations": 999, "projection_methods": projection_methods}, "generated_files": generated}; write_json(output_root / "stable_core_analysis_manifest.json", manifest); summary = build_summary(cores, all_ids, mapping_rows, separation_rows, confounds, ct_radiomics_core_vs_rest_rows=len(ct_rows), ct_radiomics_core_pairwise_rows=len(ct_pair_rows), clinical_patient_record_count=len(clinical_records), clinical_core_vs_rest_rows=len(clinical_rows), clinical_core_pairwise_rows=len(clinical_pair_rows), clinical_survival_rows=len(survival_rows)); write_json(output_root / "stable_core_analysis_summary.json", summary); return summary
+    projection_methods = {modality: plot_umap(figure_root / f"{modality}_core_umap", matrix, affinity_ids, cores, random_state) for modality, matrix in affinities.items()}; generated = sorted(str(path.relative_to(output_root)) for path in output_root.rglob("*") if path.is_file()); main_partition = data_root / "subtype_review/final_partition_sets.json"; manifest = {"core_count": len(cores), "patient_count": len(all_ids), "core_patient_count": len(core_ids), "non_core_patient_count": len(set(all_ids) - set(core_ids)), "source_multi_k_summary_sha256": file_sha256(experiment_root / "stable_core_summary.csv"), "source_main_partition_sha256": file_sha256(main_partition) if main_partition.exists() else None, "analysis_parameters": {"top_pathways": top_pathways, "top_cnv": top_cnv, "random_state": random_state, "permutations": 999, "projection_methods": projection_methods}, "generated_files": generated}; write_json(output_root / "stable_core_analysis_manifest.json", manifest); summary = build_summary(cores, all_ids, mapping_rows, separation_rows, confounds, ct_radiomics_core_vs_rest_rows=len(ct_rows), ct_radiomics_core_pairwise_rows=len(ct_pair_rows), clinical_patient_record_count=len(clinical_records), clinical_availability_rows=len(clinical_availability_rows), clinical_eligible_variables=clinical_availability_summary["eligible_variables"], clinical_excluded_variables=clinical_availability_summary["excluded_variables"], clinical_core_vs_rest_rows=len(clinical_rows), clinical_core_pairwise_rows=len(clinical_pair_rows), clinical_survival_rows=len(survival_rows)); write_json(output_root / "stable_core_analysis_summary.json", summary); return summary
 
 
 def main():
