@@ -91,6 +91,23 @@ def test_patient_core_visualizations_write_pngs(tmp_path):
     assert all((tmp_path / name).with_suffix(".png").exists() for name in ("coassignment", "alluvial", "rna_patient", "clinical"))
 
 
+def test_core03_ct_radiomics_boxplot_writes_png(tmp_path):
+    table = {
+        "a": {"original_shape_MeshVolume": 10, "original_shape_Maximum3DDiameter": 4, "original_firstorder_Range": 80},
+        "b": {"original_shape_MeshVolume": 12, "original_shape_Maximum3DDiameter": 5, "original_firstorder_Range": 90},
+        "c": {"original_shape_MeshVolume": 20, "original_shape_Maximum3DDiameter": 7, "original_firstorder_Range": 110},
+        "d": {"original_shape_MeshVolume": 22, "original_shape_Maximum3DDiameter": 8, "original_firstorder_Range": 120},
+    }
+    plotted = analysis.plot_core03_ct_radiomics_boxplot(
+        tmp_path / "core03_ct_radiomics_boxplot",
+        table,
+        list(table),
+        {"CORE03": ["a", "b"], "CORE01": ["c", "d"]},
+    )
+    assert plotted == 3
+    assert (tmp_path / "core03_ct_radiomics_boxplot.png").exists()
+
+
 def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():
     rows = [
         {"pathway": "A", "core_id": "CORE01", "q_value": 0.01, "smd": 0.1},
