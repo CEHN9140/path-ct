@@ -547,7 +547,7 @@ def plot_patient_coassignment(path, runs, cores):
                 if case_a not in assignment or case_b not in assignment: continue
                 denominator[i, j] += 1; denominator[j, i] += 1
                 if assignment[case_a] == assignment[case_b]: numerator[i, j] += 1; numerator[j, i] += 1
-    matrix = np.divide(numerator, denominator, out=np.full_like(numerator, np.nan), where=denominator > 0); np.fill_diagonal(matrix, 1); figure, axis = plt.subplots(figsize=(12, 11)); image = axis.imshow(matrix, vmin=0, vmax=1, cmap="viridis", interpolation="none"); axis.set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); axis.set_yticks(range(len(case_ids)), case_ids, fontsize=5); axis.set_title("Patient co-assignment across accepted multi-K runs (stable cores only)"); figure.colorbar(image, ax=axis, label="Conditional co-assignment fraction")
+    matrix = np.divide(numerator, denominator, out=np.full_like(numerator, np.nan), where=denominator > 0); np.fill_diagonal(matrix, 1); figure, axis = plt.subplots(figsize=(12, 11)); image = axis.imshow(matrix, vmin=0, vmax=1, cmap="viridis", interpolation="none"); axis.set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); axis.set_yticks(range(len(case_ids)), case_ids, fontsize=5); axis.set_title(f"Patient co-assignment across accepted multi-K runs (stable cores only, n={len(case_ids)})"); figure.colorbar(image, ax=axis, label="Conditional co-assignment fraction")
     start = 0
     for core in sorted(cores):
         start += len(cores[core]); axis.axhline(start - .5, color="white", linewidth=1.2); axis.axvline(start - .5, color="white", linewidth=1.2)
@@ -556,56 +556,71 @@ def plot_patient_coassignment(path, runs, cores):
 
 def plot_core_k_alluvial(path, runs, cores):
     from collections import Counter
+    from matplotlib.patches import Polygon
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
-    by_k = {}
-    for run in runs:
-        by_k.setdefault(run["initial_k"], []).append(run)
-    parent_by_k = {}
+    case_ids = sorted(set().union(*(set(members) for members in cores.values()))); by_k = {}
+    for run in runs: by_k.setdefault(run["initial_k"], []).append(run)
+    assignments = {}
     for initial_k, k_runs in sorted(by_k.items()):
-        parent_by_k[initial_k] = {}
-        for core, members in cores.items():
-            parents = []
-            for run in k_runs:
-                overlaps = [(set_id, len(set(members) & set(ids))) for set_id, ids in run["sets"].items()]
-                if overlaps:
-                    parent, overlap = max(overlaps, key=lambda item: (item[1], item[0]))
-                    if overlap / len(members) >= .5: parents.append(parent)
-            parent_by_k[initial_k][core] = Counter(parents).most_common(1)[0][0] if parents else "not estimable"
-    k_values = sorted(parent_by_k); labels_by_k = {k: sorted({parent_by_k[k][core] for core in cores}) for k in k_values}; y_by_k = {k: {label: i for i, label in enumerate(labels_by_k[k])} for k in k_values}; figure, axis = plt.subplots(figsize=(12, 7)); colors = {core: plt.get_cmap("tab10")(i) for i, core in enumerate(sorted(cores))}
-    for core in sorted(cores):
-        points = [(k, y_by_k[k][parent_by_k[k][core]]) for k in k_values if parent_by_k[k][core] in y_by_k[k]]
-        if points:
-            axis.plot([point[0] for point in points], [point[1] for point in points], marker="o", linewidth=max(2, len(cores[core]) / 4), alpha=.65, color=colors[core], label=f"{core} (n={len(cores[core])})")
-            for k, y in points: axis.annotate(parent_by_k[k][core], (k, y), xytext=(0, 7), textcoords="offset points", ha="center", fontsize=6, color=colors[core])
-    axis.set_xticks(k_values, [f"K={k}" for k in k_values]); axis.set_yticks(sorted({y for mapping in y_by_k.values() for y in mapping.values()})); axis.set_ylabel("Accepted parent set index (labels local to K)"); axis.set_title("Stable-core parent flow across initial K (descriptive)"); axis.legend(title="Stable core", bbox_to_anchor=(1.02, 1), loc="upper left"); figure.tight_layout(); save_figure(figure, path); return len(cores)
+        assignments[initial_k] = {}
+        for case_id in case_ids:
+            labels = [set_id for run in k_runs for set_id, members in run["sets"].items() if case_id in members]
+            assignments[initial_k][case_id] = Counter(labels).most_common(1)[0][0] if labels else "not accepted"
+    k_values = sorted(assignments); nodes = {k: sorted(set(assignments[k].values())) for k in k_values}
+    node_bounds = {}
+    for k in k_values:
+        offset = 0; node_bounds[k] = {}
+        for node in nodes[k]:
+            count = sum(assignments[k][case_id] == node for case_id in case_ids); node_bounds[k][node] = (offset, offset + count); offset += count
+    figure, axis = plt.subplots(figsize=(14, 8)); core_colors = {core: plt.get_cmap("tab10")(i) for i, core in enumerate(sorted(cores))}; core_by_case = {case_id: core for core, members in cores.items() for case_id in members}; node_color = {}
+    for k in k_values:
+        for node in nodes[k]:
+            members = [case_id for case_id in case_ids if assignments[k][case_id] == node]; counts = Counter(core_by_case[case_id] for case_id in members); node_color[k, node] = core_colors[counts.most_common(1)[0][0]] if counts else "lightgray"; axis.fill_between([k - .08, k + .08], *node_bounds[k][node], color=node_color[k, node], alpha=.85); axis.text(k, sum(node_bounds[k][node]) / 2, f"{node}\n(n={len(members)})", ha="center", va="center", fontsize=7)
+    for left_k, right_k in zip(k_values, k_values[1:]):
+        flows = {}
+        for source in nodes[left_k]:
+            for target in nodes[right_k]:
+                members = [case_id for case_id in case_ids if assignments[left_k][case_id] == source and assignments[right_k][case_id] == target]
+                if members: flows[source, target] = members
+        source_offset = {node: node_bounds[left_k][node][0] for node in nodes[left_k]}; target_offset = {node: node_bounds[right_k][node][0] for node in nodes[right_k]}
+        for (source, target), members in flows.items():
+            y0, y1 = source_offset[source], source_offset[source] + len(members); z0, z1 = target_offset[target], target_offset[target] + len(members); source_offset[source] = y1; target_offset[target] = z1; counts = Counter(core_by_case[case_id] for case_id in members); color = core_colors[counts.most_common(1)[0][0]] if counts else "gray"; axis.add_patch(Polygon([(left_k + .08, y0), (left_k + .08, y1), (right_k - .08, z1), (right_k - .08, z0)], closed=True, facecolor=color, edgecolor="none", alpha=.28))
+    axis.set_xticks(k_values, [f"K={k}" for k in k_values]); axis.set_ylabel("Stable-core patient count"); axis.set_title("Patient flow across initial K (stable-core patients only)"); axis.set_xlim(min(k_values) - .3, max(k_values) + .3); axis.set_ylim(0, len(case_ids)); axis.legend(handles=[plt.Line2D([0], [0], color=core_colors[core], linewidth=6, label=f"{core} (n={len(cores[core])})") for core in sorted(cores)], title="Stable core", bbox_to_anchor=(1.02, 1), loc="upper left"); figure.tight_layout(); save_figure(figure, path); return len(cores)
 
 
 def plot_patient_rna_heatmap(path, scores, pathways, cores, records):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap
-    case_ids = [case_id for core in sorted(cores) for case_id in sorted(cores[core]) if case_id in scores.index]; pathways = [pathway for pathway in pathways if pathway in scores.columns]; matrix = scores.loc[case_ids, pathways].astype(float).to_numpy().T; matrix = (matrix - np.nanmean(matrix, axis=1, keepdims=True)) / np.where(np.nanstd(matrix, axis=1, keepdims=True) > 0, np.nanstd(matrix, axis=1, keepdims=True), 1); fields = ["CORE", "stage_group", "grade", "m_stage", "OS event"]; annotation = np.zeros((len(fields), len(case_ids)), dtype=int); annotation_maps = []
+    from matplotlib.patches import Patch
+    case_ids = [case_id for core in sorted(cores) for case_id in sorted(cores[core]) if case_id in scores.index]; pathways = [pathway for pathway in pathways if pathway in scores.columns]; matrix = scores.loc[case_ids, pathways].astype(float).to_numpy().T; matrix = (matrix - np.nanmean(matrix, axis=1, keepdims=True)) / np.where(np.nanstd(matrix, axis=1, keepdims=True) > 0, np.nanstd(matrix, axis=1, keepdims=True), 1); fields = ["CORE", "TSS", "stage_group", "grade", "m_stage", "OS event", "Age"]; annotation = np.zeros((len(fields), len(case_ids)), dtype=float); legend_handles = []; annotation_levels = []
     for row_index, field in enumerate(fields):
-        values_for_field = [next((core for core, members in cores.items() if case_id in members), "") if field == "CORE" else str(records.get(case_id, {}).get("os_event", "")) if field == "OS event" else str(records.get(case_id, {}).get(field, "")) for case_id in case_ids]; levels = sorted(set(values_for_field)); mapping = {value: index + 1 for index, value in enumerate(levels)}; annotation[row_index] = [mapping[value] for value in values_for_field]; annotation_maps.append((field, levels))
-    figure, axes = plt.subplots(len(fields) + 1, 1, figsize=(max(12, len(case_ids) * .22), max(7, len(pathways) * .3)), gridspec_kw={"height_ratios": [0.24] * len(fields) + [max(3, len(pathways) * .24)]}, sharex=True); annotation_colors = plt.get_cmap("tab20")
-    for row_index, (axis, (field, levels)) in enumerate(zip(axes, annotation_maps)):
-        axis.imshow(annotation[row_index][None, :], aspect="auto", interpolation="none", cmap=ListedColormap(["white"] + [annotation_colors(i) for i in range(len(levels))]), vmin=0, vmax=max(len(levels), 1)); axis.set_yticks([0], [field]); axis.set_xticks([])
-    image = axes[-1].imshow(matrix, aspect="auto", interpolation="none", cmap="RdBu_r", vmin=-2.5, vmax=2.5); axes[-1].set_yticks(range(len(pathways)), pathways); axes[-1].set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); axes[-1].set_xlabel("Stable-core patient"); axes[-1].set_title("Patient-level Hallmark ssGSEA signatures (row z-score)"); figure.colorbar(image, ax=axes[-1], label="ssGSEA z-score", shrink=.7); start = 0
-    for core in sorted(cores):
-        start += sum(case_id in case_ids for case_id in cores[core]); axes[-1].axvline(start - .5, color="black", linewidth=.8)
-    figure.tight_layout(); save_figure(figure, path); return len(case_ids)
+        values_for_field = [next((core for core, members in cores.items() if case_id in members), "") if field == "CORE" else case_id.split("-")[1] if field == "TSS" and len(case_id.split("-")) > 2 else "" if field == "TSS" else str(records.get(case_id, {}).get("os_event", "")) if field == "OS event" else records.get(case_id, {}).get("age") if field == "Age" else str(records.get(case_id, {}).get(field, "")) for case_id in case_ids]
+        if field == "Age": annotation[row_index] = [finite(value) if finite(value) is not None else np.nan for value in values_for_field]; annotation_levels.append(None)
+        else:
+            levels = sorted(set(values_for_field)); mapping = {value: index + 1 for index, value in enumerate(levels)}; annotation[row_index] = [mapping[value] for value in values_for_field]; annotation_levels.append(levels); legend_handles.extend(Patch(facecolor=plt.get_cmap("tab20")(i), label=f"{field}: {level}") for i, level in enumerate(levels))
+    figure, (annotation_axis, heatmap_axis) = plt.subplots(2, 1, figsize=(max(14, len(case_ids) * .22), max(9, len(pathways) * .36 + 2)), gridspec_kw={"height_ratios": [.9, max(5, len(pathways) * .34)]}, sharex=True); annotation_colors = plt.get_cmap("tab20")
+    for row_index, (field, levels) in enumerate(zip(fields, annotation_levels)):
+        if field == "Age": annotation_axis.imshow(annotation[row_index][None, :], aspect="auto", interpolation="none", cmap="viridis", extent=(-.5, len(case_ids) - .5, row_index, row_index + 1))
+        else: annotation_axis.imshow(annotation[row_index][None, :], aspect="auto", interpolation="none", cmap=ListedColormap(["white"] + [annotation_colors(i) for i in range(len(levels))]), vmin=0, vmax=max(len(levels), 1), extent=(-.5, len(case_ids) - .5, row_index, row_index + 1))
+    annotation_axis.set_yticks(np.arange(len(fields)) + .5, fields); annotation_axis.set_ylim(len(fields), 0); annotation_axis.set_xticks([]); annotation_axis.set_title("Clinical and technical annotations (Age uses continuous viridis scale)"); image = heatmap_axis.imshow(matrix, aspect="auto", interpolation="none", cmap="RdBu_r", vmin=-2.5, vmax=2.5); heatmap_axis.set_yticks(range(len(pathways)), pathways); heatmap_axis.set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); heatmap_axis.set_xlabel("Stable-core patient"); heatmap_axis.set_title("Patient-level Hallmark ssGSEA signatures (row z-score)"); figure.colorbar(image, ax=heatmap_axis, label="ssGSEA z-score", shrink=.7); start = 0
+    for core in sorted(cores): start += sum(case_id in case_ids for case_id in cores[core]); heatmap_axis.axvline(start - .5, color="black", linewidth=.8); annotation_axis.axvline(start - .5, color="black", linewidth=.8)
+    figure.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(.72, .99), ncol=2, fontsize=6, frameon=False); figure.tight_layout(rect=[0, 0, .7, .96]); save_figure(figure, path); return len(case_ids)
 
 
 def plot_clinical_proportions(path, records, cores):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
-    variables = [variable for variable in ("stage_group", "t_stage", "m_stage", "grade") if any(clinical_value(records.get(case_id, {}), variable) is not None for members in cores.values() for case_id in members)]; figure, axes = plt.subplots(max(1, len(variables)), 1, figsize=(10, max(3, len(variables) * 2.8)), squeeze=False); axes = axes[:, 0]; core_order = sorted(cores)
+    collapse = {"stage_group": lambda value: "I-II" if value in {"I", "II"} else "III-IV" if value in {"III", "IV"} else value, "t_stage": lambda value: "T1" if value.startswith("T1") else "T2" if value.startswith("T2") else "T3-T4" if value.startswith("T3") or value.startswith("T4") else value, "m_stage": lambda value: value, "grade": lambda value: "G1-G2" if value in {"G1", "G2"} else "G3-G4" if value in {"G3", "G4"} else value}; variables = [variable for variable in collapse if any(clinical_value(records.get(case_id, {}), variable) is not None for members in cores.values() for case_id in members)]; figure, axes = plt.subplots(max(1, len(variables)), 1, figsize=(10, max(3, len(variables) * 2.3)), squeeze=False); axes = axes[:, 0]; core_order = sorted(cores)
     for axis, variable in zip(axes, variables):
-        levels = sorted({clinical_value(records.get(case_id, {}), variable) for members in cores.values() for case_id in members if clinical_value(records.get(case_id, {}), variable) is not None}); width = .8 / max(len(levels), 1)
-        for index, level in enumerate(levels):
-            fractions = [sum(clinical_value(records.get(case_id, {}), variable) == level for case_id in cores[core]) / len([case_id for case_id in cores[core] if clinical_value(records.get(case_id, {}), variable) is not None]) if any(clinical_value(records.get(case_id, {}), variable) is not None for case_id in cores[core]) else 0 for core in core_order]; axis.bar(np.arange(len(core_order)) + index * width, fractions, width=width, label=level)
-        axis.set_xticks(np.arange(len(core_order)) + width * max(len(levels) - 1, 0) / 2, core_order); axis.set_ylim(0, 1); axis.set_ylabel("Fraction"); axis.set_title(f"{variable} composition (stable cores only)"); axis.legend(title=variable, ncol=min(5, max(1, len(levels))))
+        levels = sorted({collapse[variable](clinical_value(records.get(case_id, {}), variable)) for members in cores.values() for case_id in members if clinical_value(records.get(case_id, {}), variable) is not None}); bottom = np.zeros(len(core_order))
+        for level in levels:
+            fractions = []
+            for core in core_order:
+                values_for_core = [clinical_value(records.get(case_id, {}), variable) for case_id in cores[core]]; values_for_core = [collapse[variable](value) for value in values_for_core if value is not None]; fractions.append(values_for_core.count(level) / len(values_for_core) if values_for_core else 0)
+            axis.bar(core_order, fractions, bottom=bottom, label=level); bottom += fractions
+        axis.set_ylim(0, 1); axis.set_ylabel("Fraction"); axis.set_title(f"{variable} composition (stable cores only, collapsed)"); axis.legend(title=variable, ncol=min(5, max(1, len(levels))))
     if not variables: axes[0].text(.5, .5, "No estimable clinical variables", ha="center", va="center"); axes[0].set_axis_off()
     figure.tight_layout(); save_figure(figure, path); return len(variables)
 
