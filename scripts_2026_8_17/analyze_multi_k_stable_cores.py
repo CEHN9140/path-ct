@@ -307,8 +307,8 @@ def load_expression_scores(states: dict[str, dict], config_dir: Path):
     return sorted(pathways), scores
 
 
-def rna_analysis(states: dict[str, dict], config_dir: Path, cores: dict[str, list[str]], all_ids: list[str]) -> tuple[list[dict], list[dict]]:
-    pathways, scores = load_expression_scores(states, config_dir); rows = []
+def rna_analysis(states: dict[str, dict], config_dir: Path, cores: dict[str, list[str]], all_ids: list[str], pathways=None, scores=None) -> tuple[list[dict], list[dict]]:
+    pathways, scores = load_expression_scores(states, config_dir) if pathways is None or scores is None else (pathways, scores); rows = []
     for core_id, members in cores.items():
         rest = [case_id for case_id in all_ids if case_id not in members]; current = []
         for pathway in pathways:
@@ -535,6 +535,81 @@ def plot_survival_km(path, records, cores):
     return plotted
 
 
+def plot_patient_coassignment(path, runs, cores):
+    from utils.visualization import configure_matplotlib
+    configure_matplotlib(); import matplotlib.pyplot as plt
+    case_ids = [case_id for core in sorted(cores) for case_id in sorted(cores[core])]; index = {case_id: i for i, case_id in enumerate(case_ids)}; numerator = np.zeros((len(case_ids), len(case_ids))); denominator = np.zeros_like(numerator)
+    for run in runs:
+        assignment = {case_id: set_id for set_id, members in run["sets"].items() for case_id in members if case_id in index}
+        for i, case_a in enumerate(case_ids):
+            for j in range(i + 1, len(case_ids)):
+                case_b = case_ids[j]
+                if case_a not in assignment or case_b not in assignment: continue
+                denominator[i, j] += 1; denominator[j, i] += 1
+                if assignment[case_a] == assignment[case_b]: numerator[i, j] += 1; numerator[j, i] += 1
+    matrix = np.divide(numerator, denominator, out=np.full_like(numerator, np.nan), where=denominator > 0); np.fill_diagonal(matrix, 1); figure, axis = plt.subplots(figsize=(12, 11)); image = axis.imshow(matrix, vmin=0, vmax=1, cmap="viridis", interpolation="none"); axis.set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); axis.set_yticks(range(len(case_ids)), case_ids, fontsize=5); axis.set_title("Patient co-assignment across accepted multi-K runs (stable cores only)"); figure.colorbar(image, ax=axis, label="Conditional co-assignment fraction")
+    start = 0
+    for core in sorted(cores):
+        start += len(cores[core]); axis.axhline(start - .5, color="white", linewidth=1.2); axis.axvline(start - .5, color="white", linewidth=1.2)
+    figure.tight_layout(); save_figure(figure, path); return len(case_ids)
+
+
+def plot_core_k_alluvial(path, runs, cores):
+    from collections import Counter
+    from utils.visualization import configure_matplotlib
+    configure_matplotlib(); import matplotlib.pyplot as plt
+    by_k = {}
+    for run in runs:
+        by_k.setdefault(run["initial_k"], []).append(run)
+    parent_by_k = {}
+    for initial_k, k_runs in sorted(by_k.items()):
+        parent_by_k[initial_k] = {}
+        for core, members in cores.items():
+            parents = []
+            for run in k_runs:
+                overlaps = [(set_id, len(set(members) & set(ids))) for set_id, ids in run["sets"].items()]
+                if overlaps:
+                    parent, overlap = max(overlaps, key=lambda item: (item[1], item[0]))
+                    if overlap / len(members) >= .5: parents.append(parent)
+            parent_by_k[initial_k][core] = Counter(parents).most_common(1)[0][0] if parents else "not estimable"
+    k_values = sorted(parent_by_k); labels_by_k = {k: sorted({parent_by_k[k][core] for core in cores}) for k in k_values}; y_by_k = {k: {label: i for i, label in enumerate(labels_by_k[k])} for k in k_values}; figure, axis = plt.subplots(figsize=(12, 7)); colors = {core: plt.get_cmap("tab10")(i) for i, core in enumerate(sorted(cores))}
+    for core in sorted(cores):
+        points = [(k, y_by_k[k][parent_by_k[k][core]]) for k in k_values if parent_by_k[k][core] in y_by_k[k]]
+        if points:
+            axis.plot([point[0] for point in points], [point[1] for point in points], marker="o", linewidth=max(2, len(cores[core]) / 4), alpha=.65, color=colors[core], label=f"{core} (n={len(cores[core])})")
+            for k, y in points: axis.annotate(parent_by_k[k][core], (k, y), xytext=(0, 7), textcoords="offset points", ha="center", fontsize=6, color=colors[core])
+    axis.set_xticks(k_values, [f"K={k}" for k in k_values]); axis.set_yticks(sorted({y for mapping in y_by_k.values() for y in mapping.values()})); axis.set_ylabel("Accepted parent set index (labels local to K)"); axis.set_title("Stable-core parent flow across initial K (descriptive)"); axis.legend(title="Stable core", bbox_to_anchor=(1.02, 1), loc="upper left"); figure.tight_layout(); save_figure(figure, path); return len(cores)
+
+
+def plot_patient_rna_heatmap(path, scores, pathways, cores, records):
+    from utils.visualization import configure_matplotlib
+    configure_matplotlib(); import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+    case_ids = [case_id for core in sorted(cores) for case_id in sorted(cores[core]) if case_id in scores.index]; pathways = [pathway for pathway in pathways if pathway in scores.columns]; matrix = scores.loc[case_ids, pathways].astype(float).to_numpy().T; matrix = (matrix - np.nanmean(matrix, axis=1, keepdims=True)) / np.where(np.nanstd(matrix, axis=1, keepdims=True) > 0, np.nanstd(matrix, axis=1, keepdims=True), 1); fields = ["CORE", "stage_group", "grade", "m_stage", "OS event"]; annotation = np.zeros((len(fields), len(case_ids)), dtype=int); annotation_maps = []
+    for row_index, field in enumerate(fields):
+        values_for_field = [next((core for core, members in cores.items() if case_id in members), "") if field == "CORE" else str(records.get(case_id, {}).get("os_event", "")) if field == "OS event" else str(records.get(case_id, {}).get(field, "")) for case_id in case_ids]; levels = sorted(set(values_for_field)); mapping = {value: index + 1 for index, value in enumerate(levels)}; annotation[row_index] = [mapping[value] for value in values_for_field]; annotation_maps.append((field, levels))
+    figure, axes = plt.subplots(len(fields) + 1, 1, figsize=(max(12, len(case_ids) * .22), max(7, len(pathways) * .3)), gridspec_kw={"height_ratios": [0.24] * len(fields) + [max(3, len(pathways) * .24)]}, sharex=True); annotation_colors = plt.get_cmap("tab20")
+    for row_index, (axis, (field, levels)) in enumerate(zip(axes, annotation_maps)):
+        axis.imshow(annotation[row_index][None, :], aspect="auto", interpolation="none", cmap=ListedColormap(["white"] + [annotation_colors(i) for i in range(len(levels))]), vmin=0, vmax=max(len(levels), 1)); axis.set_yticks([0], [field]); axis.set_xticks([])
+    image = axes[-1].imshow(matrix, aspect="auto", interpolation="none", cmap="RdBu_r", vmin=-2.5, vmax=2.5); axes[-1].set_yticks(range(len(pathways)), pathways); axes[-1].set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); axes[-1].set_xlabel("Stable-core patient"); axes[-1].set_title("Patient-level Hallmark ssGSEA signatures (row z-score)"); figure.colorbar(image, ax=axes[-1], label="ssGSEA z-score", shrink=.7); start = 0
+    for core in sorted(cores):
+        start += sum(case_id in case_ids for case_id in cores[core]); axes[-1].axvline(start - .5, color="black", linewidth=.8)
+    figure.tight_layout(); save_figure(figure, path); return len(case_ids)
+
+
+def plot_clinical_proportions(path, records, cores):
+    from utils.visualization import configure_matplotlib
+    configure_matplotlib(); import matplotlib.pyplot as plt
+    variables = [variable for variable in ("stage_group", "t_stage", "m_stage", "grade") if any(clinical_value(records.get(case_id, {}), variable) is not None for members in cores.values() for case_id in members)]; figure, axes = plt.subplots(max(1, len(variables)), 1, figsize=(10, max(3, len(variables) * 2.8)), squeeze=False); axes = axes[:, 0]; core_order = sorted(cores)
+    for axis, variable in zip(axes, variables):
+        levels = sorted({clinical_value(records.get(case_id, {}), variable) for members in cores.values() for case_id in members if clinical_value(records.get(case_id, {}), variable) is not None}); width = .8 / max(len(levels), 1)
+        for index, level in enumerate(levels):
+            fractions = [sum(clinical_value(records.get(case_id, {}), variable) == level for case_id in cores[core]) / len([case_id for case_id in cores[core] if clinical_value(records.get(case_id, {}), variable) is not None]) if any(clinical_value(records.get(case_id, {}), variable) is not None for case_id in cores[core]) else 0 for core in core_order]; axis.bar(np.arange(len(core_order)) + index * width, fractions, width=width, label=level)
+        axis.set_xticks(np.arange(len(core_order)) + width * max(len(levels) - 1, 0) / 2, core_order); axis.set_ylim(0, 1); axis.set_ylabel("Fraction"); axis.set_title(f"{variable} composition (stable cores only)"); axis.legend(title=variable, ncol=min(5, max(1, len(levels))))
+    if not variables: axes[0].text(.5, .5, "No estimable clinical variables", ha="center", va="center"); axes[0].set_axis_off()
+    figure.tight_layout(); save_figure(figure, path); return len(variables)
+
+
 def plot_umap(path, similarity, ids, cores, random_state):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
@@ -562,9 +637,9 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
     if force and output_root.exists(): shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True); figure_root = output_root / "figures"; figure_root.mkdir(); states, all_ids = load_states(data_root); cores, core_ids = load_cores(experiment_root); main_sets = load_main_sets(data_root); mapping_rows, composition = main_mapping(cores, main_sets); write_csv(output_root / "stable_core_main_mapping.csv", mapping_rows); write_csv(output_root / "stable_core_main_composition.csv", [{"core_id": core, **counts} for core, counts in composition.items()])
     ct_features, ct_table = ct_radiomics_table(states, all_ids); ct_rows, ct_pair_rows = radiomics_analysis(ct_table, ct_features, cores, all_ids); write_csv(output_root / "ct_radiomics_core_vs_rest.csv", ct_rows); write_csv(output_root / "ct_radiomics_core_pairwise.csv", ct_pair_rows)
-    rna_rows, rna_pair_rows = rna_analysis(states, config_dir, cores, all_ids); write_csv(output_root / "rna_hallmark_core_vs_rest.csv", rna_rows); write_csv(output_root / "rna_hallmark_core_pairwise.csv", rna_pair_rows); wxs_features, wxs_table = load_table(data_root / "wxs/wxs_discovery_features.csv"); mutation_features = [x for x in wxs_features if x.startswith("mutation::")]; wxs_rows, wxs_pair_rows = binary_analysis(wxs_table, mutation_features, cores, all_ids, "mutation"); write_csv(output_root / "wxs_core_vs_rest.csv", wxs_rows); write_csv(output_root / "wxs_core_pairwise.csv", wxs_pair_rows); cnv_features, cnv_table = load_table(data_root / "cnv/case_features.csv"); cnv_cont, cnv_event, cnv_pair_cont, cnv_pair_event = cnv_analysis(cnv_table, cnv_features, cores, all_ids); write_csv(output_root / "cnv_continuous_core_vs_rest.csv", cnv_cont); write_csv(output_root / "cnv_gain_loss_core_vs_rest.csv", cnv_event); write_csv(output_root / "cnv_continuous_core_pairwise.csv", cnv_pair_cont); write_csv(output_root / "cnv_gain_loss_core_pairwise.csv", cnv_pair_event)
+    rna_pathways, rna_scores = load_expression_scores(states, config_dir); rna_rows, rna_pair_rows = rna_analysis(states, config_dir, cores, all_ids, rna_pathways, rna_scores); write_csv(output_root / "rna_hallmark_core_vs_rest.csv", rna_rows); write_csv(output_root / "rna_hallmark_core_pairwise.csv", rna_pair_rows); wxs_features, wxs_table = load_table(data_root / "wxs/wxs_discovery_features.csv"); mutation_features = [x for x in wxs_features if x.startswith("mutation::")]; wxs_rows, wxs_pair_rows = binary_analysis(wxs_table, mutation_features, cores, all_ids, "mutation"); write_csv(output_root / "wxs_core_vs_rest.csv", wxs_rows); write_csv(output_root / "wxs_core_pairwise.csv", wxs_pair_rows); cnv_features, cnv_table = load_table(data_root / "cnv/case_features.csv"); cnv_cont, cnv_event, cnv_pair_cont, cnv_pair_event = cnv_analysis(cnv_table, cnv_features, cores, all_ids); write_csv(output_root / "cnv_continuous_core_vs_rest.csv", cnv_cont); write_csv(output_root / "cnv_gain_loss_core_vs_rest.csv", cnv_event); write_csv(output_root / "cnv_continuous_core_pairwise.csv", cnv_pair_cont); write_csv(output_root / "cnv_gain_loss_core_pairwise.csv", cnv_pair_event)
     affinity_paths = {"ct": data_root / "candidate_subtype/ct_affinity.npy", "wsi": data_root / "candidate_subtype/wsi_affinity.npy", "rna": data_root / "candidate_subtype/rna_affinity.npy", "genomic": data_root / "wxs/genomic_affinity.npy", "fused": data_root / "candidate_subtype/fused_similarity.npy"}; affinity_ids = json.loads((data_root / "candidate_subtype/affinity_patient_order.json").read_text(encoding="utf-8")); affinities = {name: np.load(path) for name, path in affinity_paths.items() if path.is_file()}; separation_rows, distance_matrices, tests, audits = core_embedding_analysis(affinities, affinity_ids, cores); write_csv(output_root / "embedding_core_separation.csv", separation_rows); [write_csv(output_root / f"{modality}_core_distance_matrix.csv", [{"core_id": core, **values} for core, values in matrix.items()]) for modality, matrix in distance_matrices.items()]; write_json(output_root / "affinity_audit.json", audits); write_csv(output_root / "core_permanova.csv", [{"modality": modality, **tests[modality]["permanova"]} for modality in tests]); write_csv(output_root / "core_permdisp.csv", [{"modality": modality, **tests[modality]["permdisp"]} for modality in tests])
-    co_run, co_k = cooccurrence_from_runs(load_core_runs(experiment_root), cores); write_csv(output_root / "stable_core_cooccurrence_by_run.csv", co_run); write_csv(output_root / "stable_core_cooccurrence_by_k.csv", co_k); confounds = core_confounds(data_root, config_dir, states, cores); write_csv(output_root / "stable_core_confounders.csv", confounds)
+    core_runs = load_core_runs(experiment_root); co_run, co_k = cooccurrence_from_runs(core_runs, cores); write_csv(output_root / "stable_core_cooccurrence_by_run.csv", co_run); write_csv(output_root / "stable_core_cooccurrence_by_k.csv", co_k); confounds = core_confounds(data_root, config_dir, states, cores); write_csv(output_root / "stable_core_confounders.csv", confounds)
     from tools.subtype_review_common import clinical_table
     clinical_records = clinical_table(states); write_csv(output_root / "clinical_patient_records.csv", [{"case_id": case_id, "core_id": next((core for core, members in cores.items() if case_id in members), "non_core"), **record} for case_id, record in clinical_records.items()]); clinical_availability_rows, clinical_availability_summary = clinical_availability(clinical_records, cores, all_ids); write_csv(output_root / "clinical_availability.csv", clinical_availability_rows); write_json(output_root / "clinical_availability_summary.json", clinical_availability_summary); clinical_rows, clinical_pair_rows, survival_rows = clinical_analysis(clinical_records, cores, all_ids, clinical_availability_summary["eligible_variables"], clinical_availability_summary["survival_eligible"]); write_csv(output_root / "clinical_core_vs_rest.csv", clinical_rows); write_csv(output_root / "clinical_core_pairwise.csv", clinical_pair_rows); write_csv(output_root / "clinical_survival_core_vs_rest.csv", survival_rows)
     similarity_rows = update_pairwise_similarity(pairwise_similarity(cores, rna_rows, wxs_rows, cnv_cont, distance_matrices, co_run, co_k), rna_pair_rows, wxs_pair_rows, cnv_pair_cont); write_csv(output_root / "stable_core_pairwise_similarity.csv", similarity_rows)
@@ -579,7 +654,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
             top_signal = f'{top_clinical[0]["clinical_variable"]}={top_clinical[0].get("level", "")}' if top_clinical[0].get("level") else top_clinical[0]["clinical_variable"]
         overview_rows.append({"core_id": core, "core_n": len(cores[core]), "main_candidate": main.get("set_id", ""), "top_ct_radiomics_feature": top_ct[0]["feature"] if top_ct else "", "top_ct_radiomics_effect_size": top_ct[0].get("effect_size") if top_ct else None, "top_ct_radiomics_q_value": top_ct[0].get("q_value") if top_ct else None, "top_clinical_signal": top_signal, "top_clinical_q_value": top_clinical[0].get("q_value") if top_clinical else None, "overall_survival_q_value": next((row.get("q_value") for row in survival_rows if row["core_id"] == core), None)})
     write_csv(output_root / "stable_core_summary_multimodal.csv", overview_rows)
-    plot_stacked(figure_root / "core_main_composition", np.asarray([[composition[core].get(candidate, 0) for candidate in main_order] for core in core_order]), core_order, main_order); selected_pathways = select_pathways(rna_rows, top_pathways); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores}); plot_survival_km(figure_root / "clinical_overall_survival_km", clinical_records, cores)
+    plot_stacked(figure_root / "core_main_composition", np.asarray([[composition[core].get(candidate, 0) for candidate in main_order] for core in core_order]), core_order, main_order); plot_core_k_alluvial(figure_root / "core_k_alluvial", core_runs, cores); plot_patient_coassignment(figure_root / "patient_core_coassignment_heatmap", core_runs, cores); selected_pathways = select_pathways(rna_rows, top_pathways); plot_patient_rna_heatmap(figure_root / "patient_rna_signature_heatmap", rna_scores, selected_pathways, cores, clinical_records); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_clinical_proportions(figure_root / "clinical_core_proportions", clinical_records, cores); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores}); plot_survival_km(figure_root / "clinical_overall_survival_km", clinical_records, cores)
     parent_lookup = {(row["core_a"], row["core_b"]): row.get("conditional_same_parent_fraction") for row in similarity_rows}; pair_lookup = {(row["core_a"], row["core_b"]): row for row in similarity_rows}; parent_matrix = np.eye(len(core_order)); rna_matrix = np.eye(len(core_order)); cnv_matrix = np.eye(len(core_order)); mutation_matrix = np.eye(len(core_order)); fused_distance = np.zeros((len(core_order), len(core_order)))
     for i, core_a in enumerate(core_order):
         for j, core_b in enumerate(core_order):

@@ -76,6 +76,21 @@ def test_survival_km_plot_contains_only_stable_cores(tmp_path):
     assert (tmp_path / "clinical_overall_survival_km.png").exists()
 
 
+def test_patient_core_visualizations_write_pngs(tmp_path):
+    cores = {"CORE01": ["a", "b"], "CORE02": ["c", "d"]}
+    runs = [
+        {"run_id": "run1_K2", "initial_k": 2, "sets": {"C1": {"a", "b"}, "C2": {"c", "d"}}},
+        {"run_id": "run2_K3", "initial_k": 3, "sets": {"C1": {"a"}, "C2": {"b", "c", "d"}}},
+    ]
+    records = {case_id: {"stage_group": "I", "grade": "G2", "m_stage": "M0", "os_event": 0} for case_id in "abcd"}
+    scores = __import__("pandas").DataFrame({"HALLMARK_A": [1, 2, 3, 4], "HALLMARK_B": [4, 3, 2, 1]}, index=list("abcd"))
+    assert analysis.plot_patient_coassignment(tmp_path / "coassignment", runs, cores) == 4
+    assert analysis.plot_core_k_alluvial(tmp_path / "alluvial", runs, cores) == 2
+    assert analysis.plot_patient_rna_heatmap(tmp_path / "rna_patient", scores, ["HALLMARK_A", "HALLMARK_B"], cores, records) == 4
+    assert analysis.plot_clinical_proportions(tmp_path / "clinical", records, cores) == 3
+    assert all((tmp_path / name).with_suffix(".png").exists() for name in ("coassignment", "alluvial", "rna_patient", "clinical"))
+
+
 def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():
     rows = [
         {"pathway": "A", "core_id": "CORE01", "q_value": 0.01, "smd": 0.1},
