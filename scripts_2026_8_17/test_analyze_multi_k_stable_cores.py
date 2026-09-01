@@ -85,27 +85,8 @@ def test_patient_core_visualizations_write_pngs(tmp_path):
     records = {case_id: {"stage_group": "I", "grade": "G2", "m_stage": "M0", "os_event": 0} for case_id in "abcd"}
     scores = __import__("pandas").DataFrame({"HALLMARK_A": [1, 2, 3, 4], "HALLMARK_B": [4, 3, 2, 1]}, index=list("abcd"))
     assert analysis.plot_patient_coassignment(tmp_path / "coassignment", runs, cores) == 4
-    assert analysis.plot_core_k_alluvial(tmp_path / "alluvial", runs, cores) == 2
     assert analysis.plot_patient_rna_heatmap(tmp_path / "rna_patient", scores, ["HALLMARK_A", "HALLMARK_B"], cores, records) == 4
-    assert analysis.plot_clinical_proportions(tmp_path / "clinical", records, cores) == 3
-    assert all((tmp_path / name).with_suffix(".png").exists() for name in ("coassignment", "alluvial", "rna_patient", "clinical"))
-
-
-def test_core03_ct_radiomics_boxplot_writes_png(tmp_path):
-    table = {
-        "a": {"original_shape_MeshVolume": 10, "original_shape_Maximum3DDiameter": 4, "original_firstorder_Range": 80},
-        "b": {"original_shape_MeshVolume": 12, "original_shape_Maximum3DDiameter": 5, "original_firstorder_Range": 90},
-        "c": {"original_shape_MeshVolume": 20, "original_shape_Maximum3DDiameter": 7, "original_firstorder_Range": 110},
-        "d": {"original_shape_MeshVolume": 22, "original_shape_Maximum3DDiameter": 8, "original_firstorder_Range": 120},
-    }
-    plotted = analysis.plot_core03_ct_radiomics_boxplot(
-        tmp_path / "core03_ct_radiomics_boxplot",
-        table,
-        list(table),
-        {"CORE03": ["a", "b"], "CORE01": ["c", "d"]},
-    )
-    assert plotted == 3
-    assert (tmp_path / "core03_ct_radiomics_boxplot.png").exists()
+    assert all((tmp_path / name).with_suffix(".png").exists() for name in ("coassignment", "rna_patient"))
 
 
 def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():

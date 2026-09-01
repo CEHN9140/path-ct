@@ -481,14 +481,6 @@ def plot_heatmap(path, matrix, row_labels, col_labels, title="", annotations=Non
     figure.tight_layout(); save_figure(figure, path)
 
 
-def plot_stacked(path, matrix, row_labels, col_labels):
-    from utils.visualization import configure_matplotlib
-    configure_matplotlib(); import matplotlib.pyplot as plt
-    figure, axis = plt.subplots(figsize=(max(7, len(row_labels) * .75), 5)); bottom = np.zeros(len(row_labels))
-    for index, label in enumerate(col_labels): axis.bar(row_labels, matrix[:, index], bottom=bottom, label=label); bottom += matrix[:, index]
-    axis.set_ylabel("Patient count"); axis.set_title("Stable core composition in main partition"); axis.legend(title="Main candidate", bbox_to_anchor=(1.02, 1), loc="upper left"); axis.tick_params(axis="x", rotation=45); figure.tight_layout(); save_figure(figure, path)
-
-
 def plot_bubbles(path, rows, cores, pathways):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
@@ -554,41 +546,6 @@ def plot_patient_coassignment(path, runs, cores):
     figure.tight_layout(); save_figure(figure, path); return len(case_ids)
 
 
-def plot_core_k_alluvial(path, runs, cores):
-    from collections import Counter
-    from matplotlib.patches import Polygon
-    from utils.visualization import configure_matplotlib
-    configure_matplotlib(); import matplotlib.pyplot as plt
-    case_ids = sorted(set().union(*(set(members) for members in cores.values()))); by_k = {}
-    for run in runs: by_k.setdefault(run["initial_k"], []).append(run)
-    assignments = {}
-    for initial_k, k_runs in sorted(by_k.items()):
-        assignments[initial_k] = {}
-        for case_id in case_ids:
-            labels = [set_id for run in k_runs for set_id, members in run["sets"].items() if case_id in members]
-            assignments[initial_k][case_id] = Counter(labels).most_common(1)[0][0] if labels else "not accepted"
-    k_values = sorted(assignments); nodes = {k: sorted(set(assignments[k].values())) for k in k_values}
-    node_bounds = {}
-    for k in k_values:
-        offset = 0; node_bounds[k] = {}
-        for node in nodes[k]:
-            count = sum(assignments[k][case_id] == node for case_id in case_ids); node_bounds[k][node] = (offset, offset + count); offset += count
-    figure, axis = plt.subplots(figsize=(14, 8)); core_colors = {core: plt.get_cmap("tab10")(i) for i, core in enumerate(sorted(cores))}; core_by_case = {case_id: core for core, members in cores.items() for case_id in members}; node_color = {}
-    for k in k_values:
-        for node in nodes[k]:
-            members = [case_id for case_id in case_ids if assignments[k][case_id] == node]; counts = Counter(core_by_case[case_id] for case_id in members); node_color[k, node] = core_colors[counts.most_common(1)[0][0]] if counts else "lightgray"; axis.fill_between([k - .08, k + .08], *node_bounds[k][node], color=node_color[k, node], alpha=.85); axis.text(k, sum(node_bounds[k][node]) / 2, f"{node}\n(n={len(members)})", ha="center", va="center", fontsize=7)
-    for left_k, right_k in zip(k_values, k_values[1:]):
-        flows = {}
-        for source in nodes[left_k]:
-            for target in nodes[right_k]:
-                members = [case_id for case_id in case_ids if assignments[left_k][case_id] == source and assignments[right_k][case_id] == target]
-                if members: flows[source, target] = members
-        source_offset = {node: node_bounds[left_k][node][0] for node in nodes[left_k]}; target_offset = {node: node_bounds[right_k][node][0] for node in nodes[right_k]}
-        for (source, target), members in flows.items():
-            y0, y1 = source_offset[source], source_offset[source] + len(members); z0, z1 = target_offset[target], target_offset[target] + len(members); source_offset[source] = y1; target_offset[target] = z1; counts = Counter(core_by_case[case_id] for case_id in members); color = core_colors[counts.most_common(1)[0][0]] if counts else "gray"; axis.add_patch(Polygon([(left_k + .08, y0), (left_k + .08, y1), (right_k - .08, z1), (right_k - .08, z0)], closed=True, facecolor=color, edgecolor="none", alpha=.28))
-    axis.set_xticks(k_values, [f"K={k}" for k in k_values]); axis.set_ylabel("Stable-core patient count"); axis.set_title("Patient flow across initial K (stable-core patients only; modal assignment across repeats)"); axis.set_xlim(min(k_values) - .3, max(k_values) + .3); axis.set_ylim(0, len(case_ids)); axis.legend(handles=[plt.Line2D([0], [0], color=core_colors[core], linewidth=6, label=f"{core} (n={len(cores[core])})") for core in sorted(cores)], title="Stable core", bbox_to_anchor=(1.02, 1), loc="upper left"); figure.tight_layout(); save_figure(figure, path); return len(cores)
-
-
 def plot_patient_rna_heatmap(path, scores, pathways, cores, records):
     from utils.visualization import configure_matplotlib
     configure_matplotlib(); import matplotlib.pyplot as plt
@@ -607,40 +564,6 @@ def plot_patient_rna_heatmap(path, scores, pathways, cores, records):
     annotation_axis.set_yticks(np.arange(len(fields)) + .5, fields); annotation_axis.set_ylim(len(fields), 0); annotation_axis.set_xticks([]); annotation_axis.set_title("Clinical and technical annotations (Age uses continuous viridis scale)"); image = heatmap_axis.imshow(matrix, aspect="auto", interpolation="none", cmap="RdBu_r", vmin=-2.5, vmax=2.5); heatmap_axis.set_yticks(range(len(pathways)), pathways); heatmap_axis.set_xticks(range(len(case_ids)), case_ids, rotation=90, fontsize=5); heatmap_axis.set_xlabel("Stable-core patient"); heatmap_axis.set_title("Patient-level Hallmark ssGSEA signatures (row z-score)"); figure.colorbar(image, ax=heatmap_axis, label="ssGSEA z-score", shrink=.7); start = 0
     for core in sorted(cores): start += sum(case_id in case_ids for case_id in cores[core]); heatmap_axis.axvline(start - .5, color="black", linewidth=.8); annotation_axis.axvline(start - .5, color="black", linewidth=.8)
     figure.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(.72, .99), ncol=2, fontsize=6, frameon=False); figure.tight_layout(rect=[0, 0, .7, .96]); save_figure(figure, path); return len(case_ids)
-
-
-def plot_clinical_proportions(path, records, cores):
-    from utils.visualization import configure_matplotlib
-    configure_matplotlib(); import matplotlib.pyplot as plt
-    collapse = {"stage_group": lambda value: "I-II" if value in {"I", "II"} else "III-IV" if value in {"III", "IV"} else value, "t_stage": lambda value: "T1" if value.startswith("T1") else "T2" if value.startswith("T2") else "T3-T4" if value.startswith("T3") or value.startswith("T4") else value, "m_stage": lambda value: value, "grade": lambda value: "G1-G2" if value in {"G1", "G2"} else "G3-G4" if value in {"G3", "G4"} else value}; variables = [variable for variable in collapse if any(clinical_value(records.get(case_id, {}), variable) is not None for members in cores.values() for case_id in members)]; figure, axes = plt.subplots(max(1, len(variables)), 1, figsize=(10, max(3, len(variables) * 2.3)), squeeze=False); axes = axes[:, 0]; core_order = sorted(cores)
-    for axis, variable in zip(axes, variables):
-        levels = sorted({collapse[variable](clinical_value(records.get(case_id, {}), variable)) for members in cores.values() for case_id in members if clinical_value(records.get(case_id, {}), variable) is not None}); bottom = np.zeros(len(core_order))
-        for level in levels:
-            fractions = []
-            for core in core_order:
-                values_for_core = [clinical_value(records.get(case_id, {}), variable) for case_id in cores[core]]; values_for_core = [collapse[variable](value) for value in values_for_core if value is not None]; fractions.append(values_for_core.count(level) / len(values_for_core) if values_for_core else 0)
-            axis.bar(core_order, fractions, bottom=bottom, label=level); bottom += fractions
-        axis.set_ylim(0, 1); axis.set_ylabel("Fraction"); axis.set_title(f"{variable} composition (stable cores only, collapsed)"); axis.legend(title=variable, ncol=min(5, max(1, len(levels))))
-    if not variables: axes[0].text(.5, .5, "No estimable clinical variables", ha="center", va="center"); axes[0].set_axis_off()
-    figure.tight_layout(); save_figure(figure, path); return len(variables)
-
-
-def plot_core03_ct_radiomics_boxplot(path, table, all_ids, cores):
-    from utils.visualization import configure_matplotlib
-    configure_matplotlib(); import matplotlib.pyplot as plt
-    features = [("original_shape_MeshVolume", "Tumor volume"), ("original_shape_Maximum3DDiameter", "Maximum 3D diameter"), ("original_shape_MajorAxisLength", "Major axis length"), ("original_shape_MinorAxisLength", "Minor axis length"), ("original_firstorder_Range", "CT intensity range")]
-    core_ids = set(cores.get("CORE03", [])); rest_ids = [case_id for case_id in all_ids if case_id not in core_ids]
-    available = [(feature, label) for feature, label in features if values(table, list(core_ids), feature) and values(table, rest_ids, feature)]
-    if not available: return 0
-    figure, axes = plt.subplots(2, 3, figsize=(13, 8)); axes = axes.ravel(); rng = np.random.default_rng(42)
-    for axis, (feature, label) in zip(axes, available):
-        groups = [values(table, list(core_ids), feature), values(table, rest_ids, feature)]
-        box = axis.boxplot(groups, positions=(1, 2), widths=.55, patch_artist=True, showfliers=False)
-        for patch, color in zip(box["boxes"], ("#4C78A8", "#BDBDBD")): patch.set_facecolor(color); patch.set_alpha(.75)
-        for position, group in enumerate(groups, 1): axis.scatter(rng.normal(position, .055, len(group)), group, s=14, alpha=.55, color="#222222", zorder=3)
-        axis.set_xticks((1, 2), (f"CORE03 (n={len(groups[0])})", f"Rest (n={len(groups[1])})"), rotation=15); axis.set_title(label); axis.set_ylabel("Radiomics value"); axis.grid(axis="y", alpha=.2)
-    for axis in axes[len(available):]: axis.set_axis_off()
-    figure.suptitle("CORE03 interpretable CT radiomics: CORE03 vs rest of cohort (descriptive)"); figure.tight_layout(); save_figure(figure, path); return len(available)
 
 
 def plot_umap(path, similarity, ids, cores, random_state):
@@ -676,7 +599,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
     from tools.subtype_review_common import clinical_table
     clinical_records = clinical_table(states); write_csv(output_root / "clinical_patient_records.csv", [{"case_id": case_id, "core_id": next((core for core, members in cores.items() if case_id in members), "non_core"), **record} for case_id, record in clinical_records.items()]); clinical_availability_rows, clinical_availability_summary = clinical_availability(clinical_records, cores, all_ids); write_csv(output_root / "clinical_availability.csv", clinical_availability_rows); write_json(output_root / "clinical_availability_summary.json", clinical_availability_summary); clinical_rows, clinical_pair_rows, survival_rows = clinical_analysis(clinical_records, cores, all_ids, clinical_availability_summary["eligible_variables"], clinical_availability_summary["survival_eligible"]); write_csv(output_root / "clinical_core_vs_rest.csv", clinical_rows); write_csv(output_root / "clinical_core_pairwise.csv", clinical_pair_rows); write_csv(output_root / "clinical_survival_core_vs_rest.csv", survival_rows)
     similarity_rows = update_pairwise_similarity(pairwise_similarity(cores, rna_rows, wxs_rows, cnv_cont, distance_matrices, co_run, co_k), rna_pair_rows, wxs_pair_rows, cnv_pair_cont); write_csv(output_root / "stable_core_pairwise_similarity.csv", similarity_rows)
-    core_order, main_order = sorted(cores), [row["set_id"] for row in main_sets]
+    core_order = sorted(cores)
     overview_rows = []
     for core in core_order:
         top_ct = sorted((row for row in ct_rows if row["core_id"] == core), key=lambda row: (row.get("q_value") is None, row.get("q_value") if row.get("q_value") is not None else 1, -abs(row.get("effect_size") or 0), row["feature"]))
@@ -687,14 +610,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
             top_signal = f'{top_clinical[0]["clinical_variable"]}={top_clinical[0].get("level", "")}' if top_clinical[0].get("level") else top_clinical[0]["clinical_variable"]
         overview_rows.append({"core_id": core, "core_n": len(cores[core]), "main_candidate": main.get("set_id", ""), "top_ct_radiomics_feature": top_ct[0]["feature"] if top_ct else "", "top_ct_radiomics_effect_size": top_ct[0].get("effect_size") if top_ct else None, "top_ct_radiomics_q_value": top_ct[0].get("q_value") if top_ct else None, "top_clinical_signal": top_signal, "top_clinical_q_value": top_clinical[0].get("q_value") if top_clinical else None, "overall_survival_q_value": next((row.get("q_value") for row in survival_rows if row["core_id"] == core), None)})
     write_csv(output_root / "stable_core_summary_multimodal.csv", overview_rows)
-    plot_stacked(figure_root / "core_main_composition", np.asarray([[composition[core].get(candidate, 0) for candidate in main_order] for core in core_order]), core_order, main_order); plot_core_k_alluvial(figure_root / "core_k_alluvial", core_runs, cores); plot_patient_coassignment(figure_root / "patient_core_coassignment_heatmap", core_runs, cores); selected_pathways = select_pathways(rna_rows, top_pathways); plot_patient_rna_heatmap(figure_root / "patient_rna_signature_heatmap", rna_scores, selected_pathways, cores, clinical_records); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_core03_ct_radiomics_boxplot(figure_root / "core03_ct_radiomics_boxplot", ct_table, all_ids, cores); plot_clinical_proportions(figure_root / "clinical_core_proportions", clinical_records, cores); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores}); plot_survival_km(figure_root / "clinical_overall_survival_km", clinical_records, cores)
-    parent_lookup = {(row["core_a"], row["core_b"]): row.get("conditional_same_parent_fraction") for row in similarity_rows}; pair_lookup = {(row["core_a"], row["core_b"]): row for row in similarity_rows}; parent_matrix = np.eye(len(core_order)); rna_matrix = np.eye(len(core_order)); cnv_matrix = np.eye(len(core_order)); mutation_matrix = np.eye(len(core_order)); fused_distance = np.zeros((len(core_order), len(core_order)))
-    for i, core_a in enumerate(core_order):
-        for j, core_b in enumerate(core_order):
-            if i == j: continue
-            pair = pair_lookup.get((core_a, core_b)) or pair_lookup.get((core_b, core_a)); parent_matrix[i, j] = parent_lookup.get((core_a, core_b), parent_lookup.get((core_b, core_a))) or 0
-            if pair: rna_matrix[i, j] = pair.get("rna_hallmark_profile_pearson") or 0; cnv_matrix[i, j] = pair.get("cnv_effect_profile_pearson") or 0; mutation_matrix[i, j] = pair.get("mutation_frequency_pearson") or 0; fused_distance[i, j] = pair.get("fused_mean_between_core_distance") or 0
-    plot_heatmap(figure_root / "core_same_parent_heatmap", parent_matrix, core_order, core_order, "Conditional same-parent fraction"); plot_heatmap(figure_root / "core_rna_similarity_heatmap", rna_matrix, core_order, core_order, "RNA Hallmark profile correlation", diverging=True); plot_heatmap(figure_root / "core_cnv_similarity_heatmap", cnv_matrix, core_order, core_order, "CNV effect profile correlation", diverging=True); plot_heatmap(figure_root / "core_mutation_similarity_heatmap", mutation_matrix, core_order, core_order, "Mutation frequency correlation", diverging=True); plot_heatmap(figure_root / "fused_between_core_distance_heatmap", fused_distance, core_order, core_order, "Fused mean between-core distance")
+    plot_patient_coassignment(figure_root / "patient_core_coassignment_heatmap", core_runs, cores); selected_pathways = select_pathways(rna_rows, top_pathways); plot_patient_rna_heatmap(figure_root / "patient_rna_signature_heatmap", rna_scores, selected_pathways, cores, clinical_records); rna_lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; pathway_matrix = np.asarray([[rna_lookup.get((core, pathway), {}).get("smd") or 0 for core in core_order] for pathway in selected_pathways]); stars = [["***" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .001 else "**" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .01 else "*" if (rna_lookup.get((core, pathway), {}).get("q_value") or 1) < .05 else "" for core in core_order] for pathway in selected_pathways]; plot_heatmap(figure_root / "pathway_smd_heatmap", pathway_matrix, selected_pathways, core_order, "Hallmark pathway SMD", stars, True); plot_bubbles(figure_root / "pathway_bubble_plot", rna_rows, core_order, selected_pathways); selected_cnv = select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; plot_heatmap(figure_root / "cnv_effect_heatmap", np.asarray([[cnv_lookup.get((core, feature), {}).get("cliffs_delta") or 0 for core in core_order] for feature in selected_cnv]), selected_cnv, core_order, "CNV continuous Cliff's delta", diverging=True); plot_oncoplot(figure_root / "driver_mutation_oncoplot", wxs_table, mutation_features, cores, all_ids, {core: max(main_sets, key=lambda item: composition[core].get(item["set_id"], 0), default={}).get("set_id", "") for core in cores}, {core: next((row.get("level", "") for row in confounds if row["core_id"] == core and row["field"] == "tissue_source_site" and row.get("q_value") is not None), "") for core in cores}); plot_survival_km(figure_root / "clinical_overall_survival_km", clinical_records, cores)
     projection_methods = {modality: plot_umap(figure_root / f"{modality}_core_umap", matrix, affinity_ids, cores, random_state) for modality, matrix in affinities.items()}; generated = sorted(str(path.relative_to(output_root)) for path in output_root.rglob("*") if path.is_file()); main_partition = data_root / "subtype_review/final_partition_sets.json"; manifest = {"core_count": len(cores), "patient_count": len(all_ids), "core_patient_count": len(core_ids), "non_core_patient_count": len(set(all_ids) - set(core_ids)), "source_multi_k_summary_sha256": file_sha256(experiment_root / "stable_core_summary.csv"), "source_main_partition_sha256": file_sha256(main_partition) if main_partition.exists() else None, "analysis_parameters": {"top_pathways": top_pathways, "top_cnv": top_cnv, "random_state": random_state, "permutations": 999, "projection_methods": projection_methods}, "generated_files": generated}; write_json(output_root / "stable_core_analysis_manifest.json", manifest); summary = build_summary(cores, all_ids, mapping_rows, separation_rows, confounds, ct_radiomics_core_vs_rest_rows=len(ct_rows), ct_radiomics_core_pairwise_rows=len(ct_pair_rows), clinical_patient_record_count=len(clinical_records), clinical_availability_rows=len(clinical_availability_rows), clinical_eligible_variables=clinical_availability_summary["eligible_variables"], clinical_excluded_variables=clinical_availability_summary["excluded_variables"], clinical_core_vs_rest_rows=len(clinical_rows), clinical_core_pairwise_rows=len(clinical_pair_rows), clinical_survival_rows=len(survival_rows)); write_json(output_root / "stable_core_analysis_summary.json", summary); return summary
 
 
