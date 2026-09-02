@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from scripts_2026_8_17 import experiment_macro_state_analysis as experiment
 
@@ -66,3 +67,20 @@ def test_evidence_table_reports_supported_pair_fraction():
     rows = experiment.evidence_table(cores, states, pair, pair, pair, pair, pair, pair, pair, pair, fused, fused)
     assert rows[0]["three_macro_state_total_pairs"] == 3
     assert rows[0]["three_macro_state_supported_fraction"] == .33333333
+
+
+def test_tss_adjustment_compares_beta_on_same_scale():
+    patients = ["TCGA-CJ-1", "TCGA-CJ-2", "TCGA-B0-3", "TCGA-B0-4", "TCGA-B8-5", "TCGA-B8-6"]
+    scores = pd.DataFrame({"P": [3, 4, 1, 2, 1, 2]}, index=patients)
+    rows = experiment.tss_adjusted_rna(scores, ["P"], {"STATE_C": patients[:2], "STATE_A": patients[2:]})
+    row = rows[0]
+    assert row["unadjusted_beta"] == row["unadjusted_smd"] or row["effect_attenuation"] is not None
+    assert abs(float(row["effect_attenuation"])) < 1
+
+
+def test_leave_out_tss_keeps_stable_core_universe():
+    stable_ids = ["TCGA-CJ-1", "TCGA-CJ-2", "TCGA-B0-3", "TCGA-B0-4"]
+    scores = pd.DataFrame({"P": [3, 4, 1, 2], "Q": [1, 2, 3, 4]}, index=stable_ids)
+    states = {"STATE_C": [stable_ids[0], stable_ids[2]], "STATE_A": [stable_ids[1], stable_ids[3]]}
+    rows, _ = experiment.leave_out_tss_rna({}, scores, ["P", "Q"], states, stable_ids, "CJ", Path("configs"))
+    assert {row["n_core"] + row["n_rest"] for row in rows} == {2}
