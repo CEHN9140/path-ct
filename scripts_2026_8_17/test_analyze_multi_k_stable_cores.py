@@ -89,20 +89,20 @@ def test_patient_core_visualizations_write_pngs(tmp_path):
     assert all((tmp_path / name).with_suffix(".png").exists() for name in ("coassignment", "rna_patient"))
 
 
-def test_fused_projection_uses_pcoa_or_mds_png(tmp_path):
+def test_fused_structure_comparison_uses_three_affinity_embeddings(tmp_path):
     similarity = np.array(
         [[1, .9, .2, .1], [.9, 1, .1, .2], [.2, .1, 1, .8], [.1, .2, .8, 1]],
         dtype=float,
     )
-    method = analysis.plot_pcoa_mds(
-        tmp_path / "fused_core_pcoa_mds",
+    methods = analysis.plot_fused_structure_comparison(
+        tmp_path / "fused_core_structure_comparison",
         similarity,
         ["a", "b", "c", "d"],
         {"CORE01": ["a", "b"], "CORE02": ["c", "d"]},
         random_state=42,
     )
-    assert method in {"pcoa", "mds"}
-    assert (tmp_path / "fused_core_pcoa_mds.png").exists()
+    assert methods == ["pcoa", "spectral", "diffusion"]
+    assert (tmp_path / "fused_core_structure_comparison.png").exists()
 
 
 def test_pathway_selection_keeps_any_significant_core_and_fills_by_max_effect():
