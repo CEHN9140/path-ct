@@ -52,3 +52,17 @@ def test_stage_number_parses_grouped_stage():
     assert experiment.stage_number("III") == 3
     assert experiment.stage_number("stage IV") == 4
     assert experiment.stage_number("unknown") is None
+
+
+def test_tss_code_parses_tcga_barcode():
+    assert experiment.tss_code("TCGA-B0-4698") == "B0"
+
+
+def test_evidence_table_reports_supported_pair_fraction():
+    cores = {f"CORE0{i}": [str(i)] for i in range(1, 6)}
+    states = {"STATE_A": ["1", "3"], "STATE_B": ["2", "5"], "STATE_C": ["4"]}
+    pair = [{"core_a": "a", "core_b": "b", "q_value": .01}]
+    fused = [{"median_group_silhouette": 0.1, "permanova_permanova_r2": .2}]
+    rows = experiment.evidence_table(cores, states, pair, pair, pair, pair, pair, pair, pair, pair, fused, fused)
+    assert rows[0]["three_macro_state_total_pairs"] == 3
+    assert rows[0]["three_macro_state_supported_fraction"] == .33333333

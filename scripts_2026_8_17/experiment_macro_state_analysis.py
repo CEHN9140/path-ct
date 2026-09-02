@@ -88,6 +88,37 @@ def stage_number(value):
     return {"I": 1, "II": 2, "III": 3, "IV": 4}.get(text)
 
 
+def tss_code(case_id):
+    parts = str(case_id).split("-")
+    return parts[1] if len(parts) > 2 else None
+
+
+def tss_adjusted_rna(scores, pathways, states):
+    import statsmodels.api as sm
+
+    rows = []
+    for state, members in states.items():
+        current = []
+        for pathway in pathways:
+            patients = [patient for patient in members if patient in scores.index and tss_code(patient)]
+            rest = [patient for other, group in states.items() if other != state for patient in group if patient in scores.index and tss_code(patient)]
+            patients, rest = [patient for patient in patients if base.finite(scores.loc[patient, pathway]) is not None], [patient for patient in rest if base.finite(scores.loc[patient, pathway]) is not None]
+            if not patients or not rest:
+                continue
+            selected = patients + rest; y = np.asarray([float(scores.loc[patient, pathway]) for patient in selected]); is_state = np.asarray([int(patient in patients) for patient in selected]); tss = [tss_code(patient) for patient in selected]; levels = sorted(set(tss)); design = np.column_stack([np.ones(len(selected)), is_state, *[np.asarray([int(value == level) for value in tss]) for level in levels[1:]]])
+            fit = sm.OLS(y, design).fit(); beta = float(fit.params[1]); ci = fit.conf_int()[1]; unadjusted, _ = base.numeric_test([float(scores.loc[patient, pathway]) for patient in patients], [float(scores.loc[patient, pathway]) for patient in rest]); current.append({"state_id": state, "pathway": pathway, "state_n": len(patients), "rest_n": len(rest), "tss_level_n": len(levels), "unadjusted_smd": unadjusted, "tss_adjusted_beta": base.rounded(beta), "tss_adjusted_ci_low": base.rounded(ci[0]), "tss_adjusted_ci_high": base.rounded(ci[1]), "tss_adjusted_p_value": base.rounded(fit.pvalues[1]), "effect_attenuation": base.rounded(1 - abs(beta) / abs(unadjusted)) if unadjusted not in (None, 0) else None, "tss_levels": ";".join(levels)})
+        for row, q_value in zip(current, base.bh([row["tss_adjusted_p_value"] for row in current])): row["tss_adjusted_q_value"] = q_value
+        rows.extend(current)
+    return rows
+
+
+def leave_out_tss_rna(states, scores, pathways, macro_states, excluded_tss, config_dir):
+    available = [patient for patient in scores.index if tss_code(patient) != excluded_tss]
+    groups = {state: [patient for patient in members if patient in available] for state, members in macro_states.items()}
+    rows, pairs = base.rna_analysis(states, config_dir, groups, available, pathways, scores)
+    return rows, pairs
+
+
 def stage_adjusted_survival(records, states):
     import pandas as pd
     from lifelines import CoxPHFitter
@@ -109,15 +140,27 @@ def evidence_table(five_cores, macro_states, five_rna, macro_rna, five_wxs, macr
         return sum(row.get("q_value") is not None and row["q_value"] < .05 for row in rows)
     def pair_count(rows):
         return len({(row.get("core_a"), row.get("core_b")) for row in rows if row.get("q_value") is not None and row["q_value"] < .05})
-    return [
+    def pair_summary(rows, groups):
+        total = len(groups) * (len(groups) - 1) // 2
+        supported = pair_count(rows)
+        return supported, total, base.rounded(supported / total) if total else None
+    rna_five, rna_five_total, rna_five_fraction = pair_summary(five_rna, five_cores)
+    rna_macro, rna_macro_total, rna_macro_fraction = pair_summary(macro_rna, macro_states)
+    wxs_five, wxs_five_total, wxs_five_fraction = pair_summary(five_wxs, five_cores)
+    wxs_macro, wxs_macro_total, wxs_macro_fraction = pair_summary(macro_wxs, macro_states)
+    cnv_five, cnv_five_total, cnv_five_fraction = pair_summary(five_cnv, five_cores)
+    cnv_macro, cnv_macro_total, cnv_macro_fraction = pair_summary(macro_cnv, macro_states)
+    clinical_five, clinical_five_total, clinical_five_fraction = pair_summary(five_clinical, five_cores)
+    clinical_macro, clinical_macro_total, clinical_macro_fraction = pair_summary(macro_clinical, macro_states)
+    rows = []
+    for evidence, five, macro in (("RNA", (rna_five, rna_five_total, rna_five_fraction), (rna_macro, rna_macro_total, rna_macro_fraction)), ("WXS", (wxs_five, wxs_five_total, wxs_five_fraction), (wxs_macro, wxs_macro_total, wxs_macro_fraction)), ("CNV", (cnv_five, cnv_five_total, cnv_five_fraction), (cnv_macro, cnv_macro_total, cnv_macro_fraction)), ("clinical", (clinical_five, clinical_five_total, clinical_five_fraction), (clinical_macro, clinical_macro_total, clinical_macro_fraction))):
+        rows.append({"evidence": f"{evidence} pairwise FDR support", "five_core_supported_pairs": five[0], "five_core_total_pairs": five[1], "five_core_supported_fraction": five[2], "three_macro_state_supported_pairs": macro[0], "three_macro_state_total_pairs": macro[1], "three_macro_state_supported_fraction": macro[2]})
+    rows.extend([
         {"evidence": "fused median group silhouette", "five_core": five_fused[0].get("median_group_silhouette"), "three_macro_state": macro_fused[0].get("median_group_silhouette")},
         {"evidence": "fused PERMANOVA R2", "five_core": five_fused[0].get("permanova_permanova_r2"), "three_macro_state": macro_fused[0].get("permanova_permanova_r2")},
-        {"evidence": "RNA pairwise FDR-supported pairs", "five_core": pair_count(five_rna), "three_macro_state": pair_count(macro_rna)},
-        {"evidence": "WXS pairwise FDR-supported pairs", "five_core": pair_count(five_wxs), "three_macro_state": pair_count(macro_wxs)},
-        {"evidence": "CNV pairwise FDR-supported pairs", "five_core": pair_count(five_cnv), "three_macro_state": pair_count(macro_cnv)},
-        {"evidence": "clinical pairwise FDR-supported pairs", "five_core": pair_count(five_clinical), "three_macro_state": pair_count(macro_clinical)},
         {"evidence": "minimum group n", "five_core": min(map(len, five_cores.values())), "three_macro_state": min(map(len, macro_states.values()))},
-    ]
+    ])
+    return rows
 
 
 def rename_rows(rows, key="core_id"):
@@ -134,7 +177,7 @@ def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v11/experim
     base.write_csv(output_root / "macro_state_definition.csv", [{"state_id": state, "source_cores": "+".join(MACRO_STATE_CORES[state]), "patient_n": len(members)} for state, members in macro_states.items()]); base.write_csv(output_root / "core_to_macro_state.csv", [{"core_id": core, "state_id": state} for state, core_ids in MACRO_STATE_CORES.items() for core in core_ids])
 
     ct_features, ct_table = base.ct_radiomics_table(states, stable_ids); ct_rows, ct_pairs = base.radiomics_analysis(ct_table, ct_features, macro_states, stable_ids); base.write_csv(output_root / "ct_radiomics_macro_state_vs_rest.csv", rename_rows(ct_rows)); base.write_csv(output_root / "ct_radiomics_macro_state_pairwise.csv", ct_pairs)
-    pathways, scores = base.load_expression_scores(states, config_dir); rna_rows, rna_pairs = base.rna_analysis(states, config_dir, macro_states, stable_ids, pathways, scores); base.write_csv(output_root / "rna_hallmark_macro_state_vs_rest.csv", rename_rows(rna_rows)); base.write_csv(output_root / "rna_hallmark_macro_state_pairwise.csv", rna_pairs)
+    pathways, scores = base.load_expression_scores(states, config_dir); rna_rows, rna_pairs = base.rna_analysis(states, config_dir, macro_states, stable_ids, pathways, scores); base.write_csv(output_root / "rna_hallmark_macro_state_vs_rest.csv", rename_rows(rna_rows)); base.write_csv(output_root / "rna_hallmark_macro_state_pairwise.csv", rna_pairs); base.write_csv(output_root / "rna_hallmark_tss_adjusted_macro_state.csv", tss_adjusted_rna(scores, pathways, macro_states)); leave_cj_rows, _ = leave_out_tss_rna(states, scores, pathways, macro_states, "CJ", config_dir); base.write_csv(output_root / "rna_hallmark_leave_CJ_out.csv", rename_rows(leave_cj_rows))
     wxs_features, wxs_table = base.load_table(data_root / "wxs/wxs_discovery_features.csv"); mutation_features = [feature for feature in wxs_features if feature.startswith("mutation::")]; wxs_rows, wxs_pairs = base.binary_analysis(wxs_table, mutation_features, macro_states, stable_ids, "mutation"); base.write_csv(output_root / "wxs_macro_state_vs_rest.csv", rename_rows(wxs_rows)); base.write_csv(output_root / "wxs_macro_state_pairwise.csv", wxs_pairs)
     cnv_features, cnv_table = base.load_table(data_root / "cnv/case_features.csv"); cnv_cont, cnv_event, cnv_pairs_cont, cnv_pairs_event = base.cnv_analysis(cnv_table, cnv_features, macro_states, stable_ids); base.write_csv(output_root / "cnv_continuous_macro_state_vs_rest.csv", rename_rows(cnv_cont)); base.write_csv(output_root / "cnv_gain_loss_macro_state_vs_rest.csv", rename_rows(cnv_event)); base.write_csv(output_root / "cnv_continuous_macro_state_pairwise.csv", cnv_pairs_cont); base.write_csv(output_root / "cnv_gain_loss_macro_state_pairwise.csv", cnv_pairs_event)
 
