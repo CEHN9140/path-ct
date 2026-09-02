@@ -83,6 +83,43 @@ def compare_fused_models(five_cores, macro_states, similarity, ids):
     return rows
 
 
+def stage_number(value):
+    text = str(value or "").upper().replace("STAGE ", "")
+    return {"I": 1, "II": 2, "III": 3, "IV": 4}.get(text)
+
+
+def stage_adjusted_survival(records, states):
+    import pandas as pd
+    from lifelines import CoxPHFitter
+
+    rows = [{"case_id": patient, "state": state, "stage_number": stage_number(records.get(patient, {}).get("stage_group")), "os_time": base.finite(records.get(patient, {}).get("os_time")), "os_event": int(records.get(patient, {}).get("os_event") or 0)} for state, members in states.items() for patient in members]
+    frame = pd.DataFrame(rows).dropna(subset=["stage_number", "os_time"])
+    frame = pd.get_dummies(frame.drop(columns="case_id"), columns=["state"], dtype=float)
+    state_columns = [f"state_{state}" for state in sorted(states) if f"state_{state}" in frame]
+    if len(frame) < 10 or frame.os_event.sum() < 3 or len(state_columns) < 2:
+        return [{"model": "state_plus_stage", "status": "not_estimable", "reason": "insufficient_events_or_covariates"}]
+    reference = state_columns[0]
+    frame = frame.drop(columns=reference)
+    model = CoxPHFitter(penalizer=.1).fit(frame, duration_col="os_time", event_col="os_event")
+    return [{"model": "state_plus_stage", "covariate": covariate, "status": "estimable", "hazard_ratio": base.rounded(np.exp(model.params_[covariate])), "ci_low": base.rounded(np.exp(model.confidence_intervals_.loc[covariate].iloc[0])), "ci_high": base.rounded(np.exp(model.confidence_intervals_.loc[covariate].iloc[1])), "p_value": base.rounded(model.summary.loc[covariate, "p"]), "reference_state": reference.removeprefix("state_"), "adjustment": "stage_group ordinal I=1, II=2, III=3, IV=4"} for covariate in ["stage_number", *sorted(set(state_columns) - {reference})]]
+
+
+def evidence_table(five_cores, macro_states, five_rna, macro_rna, five_wxs, macro_wxs, five_cnv, macro_cnv, five_clinical, macro_clinical, five_fused, macro_fused):
+    def count(rows):
+        return sum(row.get("q_value") is not None and row["q_value"] < .05 for row in rows)
+    def pair_count(rows):
+        return len({(row.get("core_a"), row.get("core_b")) for row in rows if row.get("q_value") is not None and row["q_value"] < .05})
+    return [
+        {"evidence": "fused median group silhouette", "five_core": five_fused[0].get("median_group_silhouette"), "three_macro_state": macro_fused[0].get("median_group_silhouette")},
+        {"evidence": "fused PERMANOVA R2", "five_core": five_fused[0].get("permanova_permanova_r2"), "three_macro_state": macro_fused[0].get("permanova_permanova_r2")},
+        {"evidence": "RNA pairwise FDR-supported pairs", "five_core": pair_count(five_rna), "three_macro_state": pair_count(macro_rna)},
+        {"evidence": "WXS pairwise FDR-supported pairs", "five_core": pair_count(five_wxs), "three_macro_state": pair_count(macro_wxs)},
+        {"evidence": "CNV pairwise FDR-supported pairs", "five_core": pair_count(five_cnv), "three_macro_state": pair_count(macro_cnv)},
+        {"evidence": "clinical pairwise FDR-supported pairs", "five_core": pair_count(five_clinical), "three_macro_state": pair_count(macro_clinical)},
+        {"evidence": "minimum group n", "five_core": min(map(len, five_cores.values())), "three_macro_state": min(map(len, macro_states.values()))},
+    ]
+
+
 def rename_rows(rows, key="core_id"):
     return [{"state_id": row[key], **{name: value for name, value in row.items() if name != key}} if key in row else dict(row) for row in rows]
 
@@ -101,10 +138,11 @@ def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v11/experim
     wxs_features, wxs_table = base.load_table(data_root / "wxs/wxs_discovery_features.csv"); mutation_features = [feature for feature in wxs_features if feature.startswith("mutation::")]; wxs_rows, wxs_pairs = base.binary_analysis(wxs_table, mutation_features, macro_states, stable_ids, "mutation"); base.write_csv(output_root / "wxs_macro_state_vs_rest.csv", rename_rows(wxs_rows)); base.write_csv(output_root / "wxs_macro_state_pairwise.csv", wxs_pairs)
     cnv_features, cnv_table = base.load_table(data_root / "cnv/case_features.csv"); cnv_cont, cnv_event, cnv_pairs_cont, cnv_pairs_event = base.cnv_analysis(cnv_table, cnv_features, macro_states, stable_ids); base.write_csv(output_root / "cnv_continuous_macro_state_vs_rest.csv", rename_rows(cnv_cont)); base.write_csv(output_root / "cnv_gain_loss_macro_state_vs_rest.csv", rename_rows(cnv_event)); base.write_csv(output_root / "cnv_continuous_macro_state_pairwise.csv", cnv_pairs_cont); base.write_csv(output_root / "cnv_gain_loss_macro_state_pairwise.csv", cnv_pairs_event)
 
-    affinity_paths = {"fused": data_root / "candidate_subtype/fused_similarity.npy"}; affinity_ids = json.loads((data_root / "candidate_subtype/affinity_patient_order.json").read_text(encoding="utf-8")); affinities = {name: np.load(path) for name, path in affinity_paths.items() if path.is_file()}; separation, distances, tests, audits = base.core_embedding_analysis(affinities, affinity_ids, macro_states); base.write_csv(output_root / "fused_macro_state_separation.csv", rename_rows(separation)); base.write_csv(output_root / "fused_macro_state_permanova.csv", [{"modality": "fused", **tests["fused"]["permanova"]}]); base.write_csv(output_root / "fused_macro_state_permdisp.csv", [{"modality": "fused", **tests["fused"]["permdisp"]}]); base.write_json(output_root / "fused_affinity_audit.json", audits); base.write_csv(output_root / "fused_model_comparison.csv", compare_fused_models(five_cores, macro_states, affinities["fused"], affinity_ids))
+    affinity_paths = {"fused": data_root / "candidate_subtype/fused_similarity.npy"}; affinity_ids = json.loads((data_root / "candidate_subtype/affinity_patient_order.json").read_text(encoding="utf-8")); affinities = {name: np.load(path) for name, path in affinity_paths.items() if path.is_file()}; separation, distances, tests, audits = base.core_embedding_analysis(affinities, affinity_ids, macro_states); base.write_csv(output_root / "fused_macro_state_separation.csv", rename_rows(separation)); base.write_csv(output_root / "fused_macro_state_permanova.csv", [{"modality": "fused", **tests["fused"]["permanova"]}]); base.write_csv(output_root / "fused_macro_state_permdisp.csv", [{"modality": "fused", **tests["fused"]["permdisp"]}]); base.write_json(output_root / "fused_affinity_audit.json", audits); fused_comparison = compare_fused_models(five_cores, macro_states, affinities["fused"], affinity_ids); base.write_csv(output_root / "fused_model_comparison.csv", fused_comparison)
 
     from tools.subtype_review_common import clinical_table
     clinical_records = clinical_table(states); availability_rows, availability = base.clinical_availability(clinical_records, macro_states, stable_ids); base.write_csv(output_root / "clinical_availability.csv", availability_rows); base.write_json(output_root / "clinical_availability_summary.json", availability); clinical_rows, clinical_pairs, survival_rows = base.clinical_analysis(clinical_records, macro_states, stable_ids, availability["eligible_variables"], availability["survival_eligible"]); base.write_csv(output_root / "clinical_macro_state_vs_rest.csv", rename_rows(clinical_rows)); base.write_csv(output_root / "clinical_macro_state_pairwise.csv", clinical_pairs); base.write_csv(output_root / "clinical_survival_macro_state_vs_rest.csv", rename_rows(survival_rows)); base.write_csv(output_root / "clinical_patient_records.csv", [{"case_id": patient, "state_id": next(state for state, members in macro_states.items() if patient in members), **clinical_records[patient]} for patient in stable_ids if patient in clinical_records])
+    five_rna, five_rna_pairs = base.rna_analysis(states, config_dir, five_cores, stable_ids, pathways, scores); five_wxs, five_wxs_pairs = base.binary_analysis(wxs_table, mutation_features, five_cores, stable_ids, "mutation"); five_cnv, _, five_cnv_pairs, _ = base.cnv_analysis(cnv_table, cnv_features, five_cores, stable_ids); _, five_clinical_pairs, _ = base.clinical_analysis(clinical_records, five_cores, stable_ids); base.write_csv(output_root / "technical_confounder_macro_state.csv", rename_rows(base.core_confounds(data_root, config_dir, states, macro_states))); base.write_csv(output_root / "stage_adjusted_survival.csv", stage_adjusted_survival(clinical_records, macro_states)); base.write_csv(output_root / "five_core_vs_three_state_evidence.csv", evidence_table(five_cores, macro_states, five_rna_pairs, rna_pairs, five_wxs_pairs, wxs_pairs, five_cnv_pairs, cnv_pairs_cont, five_clinical_pairs, clinical_pairs, fused_comparison[:1], fused_comparison[1:]))
 
     core_order = sorted(macro_states); selected_pathways = base.select_pathways(rna_rows, top_pathways); lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}; matrix = np.asarray([[lookup.get((state, pathway), {}).get("smd") or 0 for state in core_order] for pathway in selected_pathways]); stars = [["***" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .001 else "**" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .01 else "*" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .05 else "" for state in core_order] for pathway in selected_pathways]; base.plot_heatmap(figures / "macro_state_pathway_smd_heatmap", matrix, selected_pathways, core_order, "Candidate macro-state Hallmark pathway SMD", stars, True); base.plot_bubbles(figures / "macro_state_pathway_bubble_plot", rna_rows, core_order, selected_pathways)
     selected_cnv = base.select_cnv_heatmap_features(cnv_cont, top_cnv); cnv_lookup = {(row["core_id"], row["feature"]): row for row in cnv_cont}; base.plot_heatmap(figures / "macro_state_cnv_effect_heatmap", np.asarray([[cnv_lookup.get((state, feature), {}).get("cliffs_delta") or 0 for state in core_order] for feature in selected_cnv]), selected_cnv, core_order, "Candidate macro-state CNV Cliff's delta", diverging=True); base.plot_oncoplot(figures / "macro_state_driver_mutation_oncoplot", wxs_table, mutation_features, macro_states, stable_ids, {state: "" for state in core_order}, {state: "" for state in core_order}); base.plot_survival_km(figures / "macro_state_overall_survival_km", clinical_records, macro_states); projection = plot_macro_fused_structure(figures / "macro_state_fused_structure", affinities["fused"], affinity_ids, macro_states, random_state)

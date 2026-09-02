@@ -46,3 +46,9 @@ def test_model_comparison_contains_five_core_and_three_state_rows():
         ["a", "b", "c", "d", "e", "f", "g", "h"],
     )
     assert {row["model"] for row in rows} == {"five_core", "three_macro_state"}
+
+
+def test_stage_number_parses_grouped_stage():
+    assert experiment.stage_number("III") == 3
+    assert experiment.stage_number("stage IV") == 4
+    assert experiment.stage_number("unknown") is None
