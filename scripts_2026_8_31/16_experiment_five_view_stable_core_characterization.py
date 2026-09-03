@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -15,6 +18,7 @@ from scripts_2026_8_31.analyze_multi_k_stable_cores import (
     run as characterize_stable_cores,
     wsi_embedding_table,
 )
+from scripts_2026_8_31.five_view_experiment import load_five_view_inputs
 
 
 def main():
@@ -36,6 +40,30 @@ def main():
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    if args.output_root.exists() and any(args.output_root.iterdir()) and not args.force:
+        raise FileExistsError(f"Output exists; pass --force: {args.output_root}")
+    if args.force and args.output_root.exists():
+        shutil.rmtree(args.output_root)
+    args.output_root.mkdir(parents=True, exist_ok=True)
+    patient_ids, matrices, _, _ = load_five_view_inputs(
+        args.data_root,
+        args.stable_core_root,
+        args.output_root,
+        args.config_dir,
+    )
+    fused_path = args.stable_core_root / "fused_similarity_5view.npy"
+    order_path = args.stable_core_root / "affinity_patient_order.npy"
+    if not fused_path.is_file() or not order_path.is_file():
+        raise FileNotFoundError("15号5-view实验缺少fused similarity或patient order")
+    saved_ids = [str(item) for item in np.load(order_path, allow_pickle=True).tolist()]
+    if saved_ids != patient_ids:
+        raise ValueError("15号5-view patient order does not match affinity inputs")
+    fused = np.load(fused_path)
+    affinities = {
+        name: matrices[name]
+        for name in ("ct", "wsi", "rna", "wxs", "cnv")
+    }
+    affinities["fused"] = fused
     result = characterize_stable_cores(
         args.data_root,
         args.stable_core_root,
@@ -44,7 +72,10 @@ def main():
         args.top_pathways,
         args.top_cnv,
         args.random_state,
-        args.force,
+        False,
+        affinities,
+        patient_ids,
+        ROOT / "output_kirc_v12/14_five_view_primary_discovery",
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
