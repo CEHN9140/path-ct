@@ -1,0 +1,289 @@
+[
+  {
+    "set_id": "C0001",
+    "membership": [
+      "TCGA-B0-4712",
+      "TCGA-B0-5085",
+      "TCGA-BP-4995",
+      "TCGA-BP-5181"
+    ],
+    "drop_reason": "C0001 has only 4 members, and biological evidence is extremely weak: no significant RNA pathways, no significant CNV features, and only a single WXS gene enrichment (TSC2) based on 2 mutated cases with a very wide confidence interval. Cross-modal silhouettes are near zero or negative, and the structural probe is degenerate. No coherent biological identity is supported, and no extra evidence is available to resolve this. Dropping is better supported than retaining a set with insufficient positive identity evidence.",
+    "key_evidence": [
+      {
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "RNA Hallmark ssGSEA significant_q05",
+            "finding": "0 of 50 pathways significant at q<0.05; minimum q=0.968"
+          },
+          {
+            "metric": "WXS mutation enrichment significant_q05",
+            "finding": "1 of 22 genes significant; TSC2 mutation frequency 50% vs 0% rest, OR=199, 95% CI [7.4, 5318], q=0.025"
+          },
+          {
+            "metric": "CNV continuous significant_q05",
+            "finding": "0 of 49 features significant; top chr14q Cliff's delta=0.48, q=1.0"
+          }
+        ],
+        "statistical_interpretation": "RNA pathway analysis shows no significant enrichment after FDR correction, with all q-values near 1.0, indicating weak or absent transcriptional signal. WXS shows one significant enrichment (TSC2) with a very large odds ratio but extremely wide confidence interval due to small set size (n=4, 2 mutated). CNV analysis shows no significant continuous or gain/loss differences after FDR correction; effect sizes are moderate but not significant.",
+        "medical_interpretation": "The set has a small sample size (n=4) limiting statistical power. The TSC2 mutation enrichment is notable but confidence intervals are wide, and no coherent pathway or CNV pattern supports a distinct molecular subtype. The set may represent a rare molecular feature but evidence is insufficient.",
+        "limitations": [
+          "Small set size (n=4) leads to unstable estimates and low power.",
+          "RNA and CNV analyses show no significant findings.",
+          "TSC2 enrichment is based on only 2 mutated cases."
+        ],
+        "tool_refs": [
+          "cnv_characterization",
+          "mutation_enrichment",
+          "pathway_enrichment"
+        ],
+        "metric_refs": [
+          "tool_results.cnv_characterization.metrics.per_comparison_cnv.C0001_vs_rest",
+          "tool_results.mutation_enrichment.metrics.per_set_wxs_feature_enrichment.C0001",
+          "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment.C0001"
+        ]
+      },
+      {
+        "dimension": "confounder_exclusion",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "Global TSS Cramer's V",
+            "finding": "V=0.104, q=0.315"
+          },
+          {
+            "metric": "Global CT phase Cramer's V",
+            "finding": "V=0.193, q=0.104"
+          },
+          {
+            "metric": "Set-specific CT phase CE_UNSPECIFIED",
+            "finding": "frequency diff=0.399, OR=8.9, q=1.0"
+          }
+        ],
+        "statistical_interpretation": "Global tests show no significant technical associations after FDR correction. Set-specific tests show no significant associations (all q=1.0). The set has a higher fraction of CE_UNSPECIFIED phase (50% vs 10%) but not significant.",
+        "medical_interpretation": "No technical confounder is significantly associated with this set. The observed imbalance in CT phase is not statistically significant and unlikely to explain any biological pattern.",
+        "limitations": [
+          "Small set size (n=4) limits power to detect associations.",
+          "Global tests are not significant."
+        ],
+        "tool_refs": [
+          "confound_test"
+        ],
+        "metric_refs": [
+          "tool_results.confound_test.metrics.sets.C0001"
+        ]
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "scope": "set_identity",
+        "target_ids": [
+          "C0001"
+        ],
+        "observations": [
+          {
+            "metric": "Median silhouette CT",
+            "finding": "0.006"
+          },
+          {
+            "metric": "Median silhouette WSI",
+            "finding": "0.038"
+          },
+          {
+            "metric": "Median silhouette RNA",
+            "finding": "-0.053"
+          },
+          {
+            "metric": "Median silhouette genomic",
+            "finding": "0.003"
+          },
+          {
+            "metric": "Patient support count distribution",
+            "finding": "support 2:1 patient, support 3:3 patients, median=3"
+          }
+        ],
+        "statistical_interpretation": "Median silhouettes are near zero or negative across modalities, indicating weak cluster cohesion. Patient support counts are moderate (median 3 of 4 modalities positive), but all_estimable_positive_fraction is 0.0, meaning no patient has positive silhouette in all modalities. Internal structure not estimable due to singleton child.",
+        "medical_interpretation": "The set shows weak and inconsistent cross-modal support. While most patients have positive support in 3 modalities, the negative RNA silhouettes and lack of all-positive patients suggest the set is not strongly cohesive across modalities.",
+        "limitations": [
+          "Small set size (n=4) limits reliability.",
+          "Internal structure not estimable.",
+          "Negative PCoA eigenvalues discarded."
+        ],
+        "tool_refs": [
+          "multimodal_consistency_check"
+        ],
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.partition",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C0001"
+        ]
+      },
+      {
+        "dimension": "known_label_echo",
+        "scope": "partition",
+        "target_ids": [],
+        "observations": [
+          {
+            "metric": "Stage ARI",
+            "finding": "0.044"
+          },
+          {
+            "metric": "Stage homogeneity",
+            "finding": "0.113"
+          },
+          {
+            "metric": "Stage completeness",
+            "finding": "0.071"
+          },
+          {
+            "metric": "Grade ARI",
+            "finding": "0.002"
+          },
+          {
+            "metric": "Grade homogeneity",
+            "finding": "0.078"
+          },
+          {
+            "metric": "Grade completeness",
+            "finding": "0.044"
+          }
+        ],
+        "statistical_interpretation": "For stage, ARI is near zero (0.044), homogeneity and completeness are low (0.113 and 0.071), indicating minimal overlap between partition and stage labels. For grade, ARI is essentially zero (0.002), homogeneity and completeness are low (0.078 and 0.044), indicating minimal overlap with grade labels.",
+        "medical_interpretation": "The partition shows very low correspondence with both stage and grade. This suggests the clusters are not simple echoes of these clinical labels. However, low overlap does not prove molecular novelty; it only indicates that the partition is not driven by stage or grade.",
+        "limitations": [
+          "Only stage and grade are assessable.",
+          "Published molecular ccRCC subtype taxonomies were not evaluated.",
+          "Low overlap does not establish molecular novelty."
+        ],
+        "tool_refs": [
+          "known_label_echo_test"
+        ],
+        "metric_refs": [
+          "tool_results.known_label_echo_test.metrics.assessable_labels",
+          "tool_results.known_label_echo_test.metrics.by_label",
+          "tool_results.known_label_echo_test.metrics.limitations"
+        ]
+      }
+    ],
+    "decision_trace": [
+      {
+        "round": 0,
+        "node": "prepare_round",
+        "event": "prepared",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "tools",
+        "tools": [
+          "pathway_enrichment",
+          "mutation_enrichment",
+          "cnv_characterization",
+          "multimodal_consistency_check",
+          "confound_test",
+          "known_label_echo_test"
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "audit_payload_size",
+        "request_chars": 3488,
+        "history_chars": 265824,
+        "tool_message_chars": [
+          0,
+          17519,
+          24010,
+          35906,
+          109854,
+          76977,
+          1558
+        ]
+      },
+      {
+        "round": 0,
+        "node": "verifier",
+        "event": "reports",
+        "count": 22
+      },
+      {
+        "round": 0,
+        "node": "router",
+        "event": "decision",
+        "plan": {
+          "actions": [
+            {
+              "action": "drop",
+              "target_ids": [
+                "C0001"
+              ],
+              "tool_requests": [],
+              "reason": "C0001 has only 4 members, and biological evidence is extremely weak: no significant RNA pathways, no significant CNV features, and only a single WXS gene enrichment (TSC2) based on 2 mutated cases with a very wide confidence interval. Cross-modal silhouettes are near zero or negative, and the structural probe is degenerate. No coherent biological identity is supported, and no extra evidence is available to resolve this. Dropping is better supported than retaining a set with insufficient positive identity evidence."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0002"
+              ],
+              "tool_requests": [],
+              "reason": "C0002 has a coherent genomic identity defined by significant depletion of VHL and PBRM1 mutations, a pattern that is biologically meaningful in ccRCC and not explained by measured technical confounders. Although RNA and CNV are not significant, the mutational signal is strong and consistent. Cross-modal silhouettes are weak but do not actively contradict the genomic identity, and no structural correction is positively supported. Retaining this discovery-stage candidate is better supported than dropping or merging."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0003"
+              ],
+              "tool_requests": [],
+              "reason": "C0003 has significant enrichment of PTEN and FLG mutations with large effect sizes, providing a coherent genomic identity. The set-specific NEPH CT phase association is a measured technical factor, but it does not plausibly explain the molecular mutation signal. RNA and CNV are not significant, but absence of support is not active contradiction. Cross-modal silhouettes are weak but not disqualifying, and no split or merge is positively supported. Retaining this candidate is better supported than dropping."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0004"
+              ],
+              "tool_requests": [],
+              "reason": "C0004 has a strong and biologically coherent genomic identity defined by significant BAP1 enrichment and PBRM1 depletion, a known mutually exclusive pattern in ccRCC. RNA shows a trend toward interferon response but is not significant, and CNV is not significant; however, the mutational signal is robust and not explained by technical confounders. Cross-modal silhouettes are mixed but do not contradict the genomic identity. No structural correction is positively supported. Retaining this candidate is better supported than dropping."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0005"
+              ],
+              "tool_requests": [],
+              "reason": "C0005 has strong multi-modal biological support: 13 significant RNA pathways with coherent up-regulation, significant ATM and PBRM1 mutation enrichment, and significant chr16p loss. This coherent transcriptional and genomic identity is not explained by technical confounders. Cross-modal silhouettes are weak in some modalities but RNA provides positive support, and the structural probe shows high stability. No split or merge is positively supported. Retaining this candidate is better supported than dropping."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0006"
+              ],
+              "tool_requests": [],
+              "reason": "C0006 has a strong genomic identity defined by universal PBRM1 mutation (100% of 12 cases), which is significant and biologically meaningful. RNA shows a trend toward MYC activation but is not significant, and CNV is not significant; however, the mutational signal is robust and not explained by technical confounders. Cross-modal silhouettes are weak but do not contradict the genomic identity. No structural correction is positively supported. Retaining this candidate is better supported than dropping."
+            },
+            {
+              "action": "accept",
+              "target_ids": [
+                "C0007"
+              ],
+              "tool_requests": [],
+              "reason": "C0007 has a genomic identity defined by universal VHL mutation, which is significant, but VHL mutation is common in ccRCC and thus not highly specific. RNA and CNV provide no significant support, and cross-modal silhouettes are weak. However, the set has a coherent identity as a VHL-mutant group, and no technical confounder or structural correction is positively supported. The evidence is sufficient to retain this discovery-stage candidate for downstream validation, though it is the weakest of the accepted sets."
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
