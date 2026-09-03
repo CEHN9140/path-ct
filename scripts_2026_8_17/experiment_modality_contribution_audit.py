@@ -88,7 +88,7 @@ def core_recovery(cores, partitions, view):
     for core, members in sorted(cores.items()):
         member_set = set(members); values = []
         for partition_id, clusters in partitions.items():
-            best = max((set(cluster) for cluster in clusters.values()), key=lambda cluster: (len(member_set & cluster), -len(cluster)), default=set()); intersection = len(member_set & best); union = len(member_set | best)
+            best = max((set(cluster) for cluster in clusters.values()), key=lambda cluster: (len(member_set & cluster) / len(member_set | cluster) if member_set | cluster else 0, len(member_set & cluster), -len(cluster)), default=set()); intersection = len(member_set & best); union = len(member_set | best)
             values.append({"view": view, "core_id": core, "partition": partition_id, "best_jaccard": rounded(intersection / union if union else 0), "best_overlap_coefficient": rounded(intersection / min(len(member_set), len(best))) if member_set and best else 0, "best_recall": rounded(intersection / len(member_set)) if member_set else None, "best_precision": rounded(intersection / len(best)) if best else None})
         rows.extend(values)
     return rows
@@ -108,8 +108,11 @@ def affinity_audit(views, patient_ids, k=10):
 
 
 def conditional_core_boundary(affinities, patient_ids, cores, pairs):
+    from tools.multimodal_consistency_check import normalized_affinity_with_audit
+
     rows = []
     for modality, matrix in affinities.items():
+        matrix = normalized_affinity_with_audit(matrix)[0]
         for core_a, core_b in pairs:
             left = [patient_ids.index(patient) for patient in cores[core_a] if patient in patient_ids]; right = [patient_ids.index(patient) for patient in cores[core_b] if patient in patient_ids]
             if not left or not right: continue
@@ -136,10 +139,20 @@ def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v11/experim
         for k in k_values:
             all_labels = json.loads(next(row["labels"] for row in partition_rows if row["view"] == "ALL" and row["initial_k"] == k)); labels = json.loads(next(row["labels"] for row in partition_rows if row["view"] == view and row["initial_k"] == k)); rows.append({"view": view, "initial_k": k, "ari_vs_all": rounded(adjusted_rand_score(all_labels, labels)), "nmi_vs_all": rounded(normalized_mutual_info_score(all_labels, labels))})
     write_csv(output_root / "modality_ablation_partition_similarity.csv", rows)
+    baseline = {(int(row["partition"][1:]), row["core_id"]): row["best_jaccard"] for row in core_recovery(cores, partitions["ALL"], "ALL")}
     recovery = []
     for view in VIEWS:
-        recovery.extend(core_recovery(cores, partitions[view], view))
+        current = core_recovery(cores, partitions[view], view)
+        for row in current:
+            base_value = baseline.get((int(row["partition"][1:]), row["core_id"]))
+            row["jaccard_retention"] = rounded(row["best_jaccard"] / base_value) if base_value not in (None, 0) else None
+            row["delta_jaccard"] = rounded(row["best_jaccard"] - base_value) if base_value is not None else None
+        recovery.extend(current)
     affinity_rows = affinity_audit(views, patient_ids, knn); write_csv(output_root / "modality_ablation_core_recovery.csv", recovery); write_csv(output_root / "modality_fused_affinity_similarity.csv", affinity_rows); write_csv(output_root / "conditional_core_boundary.csv", conditional_core_boundary({name: matrices[name] for name in MODALITIES}, patient_ids, cores, (("CORE01", "CORE03"), ("CORE02", "CORE05"))))
+    recomputed = []
+    for k in k_values:
+        labels = candidate_partition(views["ALL"], k, config, 20260614); original = json.loads(next(row["labels"] for row in partition_rows if row["view"] == "ALL" and row["initial_k"] == k)); recomputed.append({"initial_k": k, "ari_recomputed_vs_original": rounded(adjusted_rand_score(original, labels)), "nmi_recomputed_vs_original": rounded(normalized_mutual_info_score(original, labels))})
+    write_csv(output_root / "all_recomputed_vs_original.csv", recomputed)
     summary_rows = []
     for view in VIEWS:
         similarity_rows = [row for row in rows if row["view"] == view]; recovery_rows = [row for row in recovery if row["view"] == view]; affinity_row = next(row for row in affinity_rows if row["view"] == view); summary_rows.append({"view": view, "mean_ari_vs_all": rounded(np.mean([row["ari_vs_all"] for row in similarity_rows])), "mean_nmi_vs_all": rounded(np.mean([row["nmi_vs_all"] for row in similarity_rows])), "mean_core_best_jaccard": rounded(np.mean([row["best_jaccard"] for row in recovery_rows])), "mean_core_best_recall": rounded(np.mean([row["best_recall"] for row in recovery_rows])), "spearman_vs_all": affinity_row["spearman_vs_all"], "mean_knn_jaccard_vs_all": affinity_row["mean_knn_jaccard_vs_all"]})

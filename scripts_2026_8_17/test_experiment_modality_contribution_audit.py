@@ -20,6 +20,15 @@ def test_core_recovery_uses_best_cluster_overlap():
     assert rows[0]["best_recall"] == 1.0
 
 
+def test_core_recovery_selects_jaccard_not_intersection_count():
+    rows = experiment.core_recovery(
+        {"CORE01": ["a", "b", "c", "d"]},
+        {"k2": {"large": ["a", "b", "c", "d", "x", "y"], "tight": ["a", "b", "c"]}},
+        "RNA_only",
+    )
+    assert rows[0]["best_jaccard"] == .75
+
+
 def test_affinity_audit_returns_correlation_and_knn_overlap():
     matrix = np.eye(4)
     rows = experiment.affinity_audit(
