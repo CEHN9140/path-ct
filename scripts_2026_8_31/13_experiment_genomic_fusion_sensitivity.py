@@ -127,7 +127,35 @@ def bootstrap_boundary(matrix_a, matrix_b, left, right, rng, n_bootstrap):
     return observed, float(np.quantile(values, .025)) if values else np.nan, float(np.quantile(values, .975)) if values else np.nan
 
 
-def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v12/03_multi_k_accepted_core_stability_v11"), output_root=Path("output_kirc_v12/13_genomic_fusion_sensitivity"), config_dir=Path("configs"), k_values=range(2, 9), knn=10, bootstrap=1000, force=False):
+def candidate_sets(labels, patient_ids, initial_k):
+    return [{"cluster_id": f"C{i + 1:04d}", "member_ids": [patient_ids[j] for j, label in enumerate(labels) if label == value], "source_views": ["ct", "wsi", "rna", "wxs", "cnv"], "generator": {"algorithm": "consensus_clustering", "n_clusters": initial_k, "partition_id": f"five_view_K{initial_k}"}} for i, value in enumerate(sorted(set(labels)))]
+
+
+def run_agent_reviews(output_root, data_root, config_dir, patient_ids, partitions, repeats, initial_ks, force):
+    from agents.subtype_review.graph import save_review_outputs
+    from agents.subtype_review.runner import run_subtype_review
+    from scripts_2026_8_31.experiment_initial_k_review_sensitivity import load_patient_states
+
+    patient_states = list(load_patient_states(data_root).values())
+    rows = []
+    for repeat in repeats:
+        for k in initial_ks:
+            run_root = output_root / "agent_discovery" / f"run{repeat}" / f"K{k}"
+            summary_path = run_root / "final_review_summary.json"
+            if summary_path.exists() and not force:
+                rows.append(json.loads(summary_path.read_text(encoding="utf-8")))
+                continue
+            if run_root.exists(): shutil.rmtree(run_root)
+            run_root.mkdir(parents=True)
+            initial_sets = candidate_sets(partitions["M5_independent_wxs_cnv"][k], patient_ids, k)
+            write_json(run_root / "initial_partition.json", {"initial_k": k, "repeat": repeat, "view": "M5_independent_wxs_cnv", "candidate_sets": initial_sets})
+            state = run_subtype_review(initial_sets, patient_states, str(data_root), str(config_dir), artifact_root=str(run_root))
+            summary = save_review_outputs(state, str(run_root), direct=True)
+            rows.append(summary)
+    write_json(output_root / "agent_discovery_summary.json", {"view": "M5_independent_wxs_cnv", "initial_k": list(initial_ks), "repeats": list(repeats), "runs": rows, "note": "Forced initial-K Agent discovery; no best-K selector is applied in robustness mode."})
+
+
+def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v12/03_multi_k_accepted_core_stability_v11"), output_root=Path("output_kirc_v12/13_genomic_fusion_sensitivity"), config_dir=Path("configs"), k_values=range(2, 9), knn=10, bootstrap=1000, force=False, run_agent=False, repeats=(1, 2, 3)):
     if output_root.exists() and any(output_root.iterdir()) and not force: raise FileExistsError(f"Output exists; pass --force: {output_root}")
     if force and output_root.exists(): shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -179,12 +207,15 @@ def run(data_root=Path("output_kirc"), stable_root=Path("output_kirc_v12/03_mult
     write_csv(output_root / "genomic_fusion_boundary_bootstrap.csv", boundary_bootstrap)
     modality_similarity = [dict(variant=variant, modality=modality, **upper_metrics(matrix, variants[variant], knn)) for variant, matrix in variants.items() for modality, matrix in matrices.items() if modality in NETWORK_NAMES]; write_csv(output_root / "genomic_fusion_modality_affinity_similarity.csv", modality_similarity)
     write_csv(output_root / "genomic_fusion_modality_knn_overlap.csv", [{"variant": variant, "modality": modality, **upper_metrics(matrix, variants[variant], knn)} for variant, matrix in variants.items() for modality, matrix in matrices.items() if modality in NETWORK_NAMES])
-    write_json(output_root / "experiment_manifest.json", {"experiment": "genomic_fusion_sensitivity", "patient_count": len(ids), "k_values": list(k_values), "seed": 20260614, "knn": knn, "variants": VARIANTS, "snf_config": dict(snf), "feature_reextraction": False, "hyperparameter_optimization": False, "agent_calls": False})
+    write_json(output_root / "experiment_manifest.json", {"experiment": "genomic_fusion_sensitivity", "patient_count": len(ids), "k_values": list(k_values), "seed": 20260614, "knn": knn, "variants": VARIANTS, "snf_config": dict(snf), "feature_reextraction": False, "hyperparameter_optimization": False, "agent_calls": bool(run_agent)})
+    np.save(output_root / "fused_similarity_5view.npy", variants["M5_independent_wxs_cnv"])
+    if run_agent:
+        run_agent_reviews(output_root, data_root, config_dir, ids, partitions, repeats, k_values, force)
     summary = [{"variant": variant, "mean_ari_vs_M4": float(np.mean([adjusted_rand_score(partitions[variant][k], partitions["M4_recomputed"][k]) for k in k_values])), "mean_cross_k_ari": float(np.mean([row["ari"] for row in stability_rows if row["variant"] == variant])), "mean_cross_k_nmi": float(np.mean([row["nmi"] for row in stability_rows if row["variant"] == variant])), "spearman_with_wxs": upper_metrics(variants[variant], matrices["wxs"], knn)["spearman"], "spearman_with_cnv": upper_metrics(variants[variant], matrices["cnv"], knn)["spearman"]} for variant in variants]; write_csv(output_root / "genomic_fusion_summary.csv", summary); write_json(output_root / "genomic_fusion_summary.json", {"variants": list(variants), "patient_count": len(ids), "k_values": list(k_values), "bootstrap_requested": bootstrap, "note": "Descriptive representation sensitivity audit; no winner or same-subtype probability is computed."}); return {"output_root": str(output_root), "variants": list(variants), "patient_count": len(ids), "k_values": list(k_values)}
 
 
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument("--data-root", type=Path, default=Path("output_kirc")); parser.add_argument("--stable-root", type=Path, default=Path("output_kirc_v12/03_multi_k_accepted_core_stability_v11")); parser.add_argument("--output-root", type=Path, default=Path("output_kirc_v12/13_genomic_fusion_sensitivity")); parser.add_argument("--config-dir", type=Path, default=Path("configs")); parser.add_argument("--knn", type=int, default=10); parser.add_argument("--bootstrap", type=int, default=1000); parser.add_argument("--force", action="store_true"); print(json.dumps(run(**vars(parser.parse_args())), ensure_ascii=False, indent=2))
+    parser = argparse.ArgumentParser(); parser.add_argument("--data-root", type=Path, default=Path("output_kirc")); parser.add_argument("--stable-root", type=Path, default=Path("output_kirc_v12/03_multi_k_accepted_core_stability_v11")); parser.add_argument("--output-root", type=Path, default=Path("output_kirc_v12/13_genomic_fusion_sensitivity")); parser.add_argument("--config-dir", type=Path, default=Path("configs")); parser.add_argument("--knn", type=int, default=10); parser.add_argument("--bootstrap", type=int, default=1000); parser.add_argument("--repeat", dest="repeats", type=int, action="append", default=[1, 2, 3]); parser.add_argument("--run-agent", action="store_true"); parser.add_argument("--force", action="store_true"); print(json.dumps(run(**vars(parser.parse_args())), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__": main()

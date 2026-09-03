@@ -15,6 +15,17 @@ def test_variants_keep_genomic_fusion_controls_separate():
     assert experiment.VARIANTS["M_dupGenomic"] == ("ct", "wsi", "rna", "genomic", "genomic")
 
 
+def test_candidate_sets_keep_five_view_source_annotation():
+    sets = experiment.candidate_sets(np.array([1, 1, 2]), ["a", "b", "c"], 2)
+    assert [item["cluster_id"] for item in sets] == ["C0001", "C0002"]
+    assert all(item["source_views"] == ["ct", "wsi", "rna", "wxs", "cnv"] for item in sets)
+
+
+def test_agent_mode_is_explicit_and_uses_forced_initial_k():
+    assert "M5_independent_wxs_cnv" in experiment.VARIANTS
+    assert experiment.VARIANTS["M5_independent_wxs_cnv"][-2:] == ("wxs", "cnv")
+
+
 def test_coassignment_is_averaged_over_all_k():
     result = experiment.coassignment({2: np.array([0, 0, 1]), 3: np.array([0, 1, 1])})
     assert result[0, 1] == .5
