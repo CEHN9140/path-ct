@@ -22,3 +22,14 @@ def test_wsi_embedding_table_uses_case_level_embedding_features():
     features, table = MODULE.wsi_embedding_table(states, ["A", "B"])
     assert features == ["embedding_0000", "embedding_0001"]
     assert table["A"]["embedding_0000"] == 1.0
+
+
+def test_validate_stable_cores_rejects_wrong_core_sizes(tmp_path):
+    membership = tmp_path / "stable_core_membership.csv"
+    membership.write_text("core_id,patient_id\nCORE01,A\n", encoding="utf-8")
+    try:
+        MODULE.validate_stable_cores(tmp_path, {"A"})
+    except ValueError as exc:
+        assert "6组固定规模" in str(exc)
+    else:
+        raise AssertionError("invalid stable-core membership was accepted")

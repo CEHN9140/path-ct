@@ -15,10 +15,23 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from scripts_2026_8_31.analyze_multi_k_stable_cores import (
+    load_cores,
     run as characterize_stable_cores,
     wsi_embedding_table,
 )
 from scripts_2026_8_31.five_view_experiment import load_five_view_inputs
+
+
+def validate_stable_cores(stable_core_root, patient_ids):
+    cores, _ = load_cores(stable_core_root)
+    members = [patient_id for values in cores.values() for patient_id in values]
+    if len(cores) != 6 or sorted(map(len, cores.values())) != [5, 9, 10, 14, 14, 17]:
+        raise ValueError("15号stable-core名单不是预期的6组固定规模")
+    if len(members) != 69 or len(set(members)) != 69:
+        raise ValueError("15号stable-core病例必须是互不重叠的69例")
+    if not set(members).issubset(patient_ids):
+        raise ValueError("stable-core病例不完全存在于5-view patient order中")
+    return cores
 
 
 def main():
@@ -45,6 +58,7 @@ def main():
     if args.force and args.output_root.exists():
         shutil.rmtree(args.output_root)
     args.output_root.mkdir(parents=True, exist_ok=True)
+    validate_stable_cores(args.stable_core_root, set(np.load(args.stable_core_root / "affinity_patient_order.npy", allow_pickle=True).tolist()))
     patient_ids, matrices, _, _ = load_five_view_inputs(
         args.data_root,
         args.stable_core_root,
@@ -72,11 +86,14 @@ def main():
         args.top_pathways,
         args.top_cnv,
         args.random_state,
-        False,
+        True,
         affinities,
         patient_ids,
         ROOT / "output_kirc_v12/14_five_view_primary_discovery",
     )
+    old_mapping = args.output_root / "stable_core_main_mapping.csv"
+    if old_mapping.exists():
+        old_mapping.replace(args.output_root / "five_view_core_to_four_view_primary_mapping.csv")
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
