@@ -110,14 +110,35 @@ def affinity_audit(views, patient_ids, k=10):
 def conditional_core_boundary(affinities, patient_ids, cores, pairs):
     from tools.multimodal_consistency_check import normalized_affinity_with_audit
 
+    patient_index = {patient: index for index, patient in enumerate(patient_ids)}
     rows = []
     for modality, matrix in affinities.items():
         matrix = normalized_affinity_with_audit(matrix)[0]
         for core_a, core_b in pairs:
-            left = [patient_ids.index(patient) for patient in cores[core_a] if patient in patient_ids]; right = [patient_ids.index(patient) for patient in cores[core_b] if patient in patient_ids]
+            left = [patient_index[patient] for patient in cores[core_a] if patient in patient_index]
+            right = [patient_index[patient] for patient in cores[core_b] if patient in patient_index]
             if not left or not right: continue
-            left_within = matrix[np.ix_(left, left)]; right_within = matrix[np.ix_(right, right)]; between = matrix[np.ix_(left, right)]; left_values = left_within[~np.eye(len(left), dtype=bool)] if len(left) > 1 else np.array([]); right_values = right_within[~np.eye(len(right), dtype=bool)] if len(right) > 1 else np.array([]); margins = list(left_within.mean(axis=1) - between.mean(axis=1)) + list(right_within.mean(axis=1) - between.mean(axis=0))
-            rows.append({"modality": modality, "core_a": core_a, "core_b": core_b, "core_a_n": len(left), "core_b_n": len(right), "within_a": rounded(np.mean(left_values)) if left_values.size else None, "within_b": rounded(np.mean(right_values)) if right_values.size else None, "between": rounded(between.mean()), "median_margin": rounded(np.median(margins)), "fraction_margin_positive": rounded(np.mean(np.asarray(margins) > 0))})
+            left_within = matrix[np.ix_(left, left)]
+            right_within = matrix[np.ix_(right, right)]
+            between = matrix[np.ix_(left, right)]
+            left_values = left_within[~np.eye(len(left), dtype=bool)] if len(left) > 1 else np.array([])
+            right_values = right_within[~np.eye(len(right), dtype=bool)] if len(right) > 1 else np.array([])
+            left_margins = [matrix[index, [other for other in left if other != index]].mean() - matrix[index, right].mean() for index in left] if len(left) > 1 else []
+            right_margins = [matrix[index, [other for other in right if other != index]].mean() - matrix[index, left].mean() for index in right] if len(right) > 1 else []
+            margins = np.asarray(left_margins + right_margins)
+            rows.append({
+                "modality": modality, "core_a": core_a, "core_b": core_b,
+                "core_a_n": len(left), "core_b_n": len(right),
+                "within_a": rounded(np.mean(left_values)) if left_values.size else None,
+                "within_b": rounded(np.mean(right_values)) if right_values.size else None,
+                "between": rounded(between.mean()),
+                "core_a_median_margin": rounded(np.median(left_margins)) if left_margins else None,
+                "core_b_median_margin": rounded(np.median(right_margins)) if right_margins else None,
+                "core_a_fraction_margin_positive": rounded(np.mean(np.asarray(left_margins) > 0)) if left_margins else None,
+                "core_b_fraction_margin_positive": rounded(np.mean(np.asarray(right_margins) > 0)) if right_margins else None,
+                "median_margin": rounded(np.median(margins)) if margins.size else None,
+                "fraction_margin_positive": rounded(np.mean(margins > 0)) if margins.size else None,
+            })
     return rows
 
 

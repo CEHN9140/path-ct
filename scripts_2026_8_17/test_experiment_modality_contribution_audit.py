@@ -37,3 +37,24 @@ def test_affinity_audit_returns_correlation_and_knn_overlap():
     row = next(item for item in rows if item["view"] == "RNA_only")
     assert row["spearman_vs_all"] == 1.0
     assert row["mean_knn_jaccard_vs_all"] == 1.0
+
+
+def test_conditional_core_boundary_excludes_self_affinity():
+    matrix = np.array([
+        [1.0, .2, .1, .1],
+        [.2, 1.0, .1, .1],
+        [.1, .1, 1.0, .2],
+        [.1, .1, .2, 1.0],
+    ])
+    rows = experiment.conditional_core_boundary(
+        {"rna": matrix}, ["a", "b", "c", "d"],
+        {"CORE01": ["a", "b"], "CORE03": ["c", "d"]},
+        (("CORE01", "CORE03"),),
+    )
+    row = rows[0]
+    assert row["within_a"] == .2
+    assert row["within_b"] == .2
+    assert row["core_a_median_margin"] == .1
+    assert row["core_b_median_margin"] == .1
+    assert row["core_a_fraction_margin_positive"] == 1.0
+    assert row["core_b_fraction_margin_positive"] == 1.0
