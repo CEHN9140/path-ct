@@ -141,6 +141,29 @@ def ct_radiomics_table(states: dict[str, dict], all_ids: list[str]) -> tuple[lis
     return features, table
 
 
+def wsi_embedding_table(states: dict[str, dict], all_ids: list[str]) -> tuple[list[str], dict[str, dict[str, float]]]:
+    width = max((len(dict(states.get(case_id, {}).get("wsi_evidence", {}) or {}).get("features", []) or []) for case_id in all_ids), default=0)
+    features = [f"embedding_{index:04d}" for index in range(width)]
+    table = {}
+    for case_id in all_ids:
+        embedding = list(dict(states.get(case_id, {}).get("wsi_evidence", {}) or {}).get("features", []) or [])
+        table[case_id] = {feature: finite(embedding[index]) if index < len(embedding) else None for index, feature in enumerate(features)}
+    return features, table
+
+
+def pairwise_numeric_table(table: dict[str, dict[str, float]], features: list[str], cores: dict[str, list[str]]) -> list[dict]:
+    rows = []
+    for core_a, core_b in combinations(sorted(cores), 2):
+        current = []
+        for feature in features:
+            left, right = values(table, cores[core_a], feature), values(table, cores[core_b], feature)
+            effect, p_value = numeric_test(left, right)
+            current.append({"core_a": core_a, "core_b": core_b, "feature": feature, "n_core_a": len(left), "n_core_b": len(right), "smd_a_vs_b": effect, "p_value": p_value, "q_value": None, "median_a": rounded(np.median(left)) if left else None, "median_b": rounded(np.median(right)) if right else None})
+        for row, q_value in zip(current, bh([row["p_value"] for row in current])): row["q_value"] = q_value
+        rows.extend(current)
+    return rows
+
+
 def values(table: dict[str, dict[str, float]], ids: list[str], feature: str) -> list[float]:
     return [value for case_id in ids if (value := table.get(case_id, {}).get(feature)) is not None]
 
@@ -610,7 +633,7 @@ def run(data_root: Path, experiment_root: Path, output_root: Path, config_dir: P
     if output_root.exists() and any(output_root.iterdir()) and not force: raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     if force and output_root.exists(): shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True); figure_root = output_root / "figures"; figure_root.mkdir(); states, all_ids = load_states(data_root); cores, core_ids = load_cores(experiment_root); main_sets = load_main_sets(data_root); mapping_rows, composition = main_mapping(cores, main_sets); write_csv(output_root / "stable_core_main_mapping.csv", mapping_rows); write_csv(output_root / "stable_core_main_composition.csv", [{"core_id": core, **counts} for core, counts in composition.items()])
-    ct_features, ct_table = ct_radiomics_table(states, all_ids); ct_rows, ct_pair_rows = radiomics_analysis(ct_table, ct_features, cores, all_ids); write_csv(output_root / "ct_radiomics_core_vs_rest.csv", ct_rows); write_csv(output_root / "ct_radiomics_core_pairwise.csv", ct_pair_rows)
+    ct_features, ct_table = ct_radiomics_table(states, all_ids); ct_rows, ct_pair_rows = radiomics_analysis(ct_table, ct_features, cores, all_ids); write_csv(output_root / "ct_radiomics_core_vs_rest.csv", ct_rows); write_csv(output_root / "ct_radiomics_core_pairwise.csv", ct_pair_rows); wsi_features, wsi_table = wsi_embedding_table(states, all_ids); wsi_rows = core_rest_rows(wsi_table, wsi_features, cores, all_ids); wsi_pair_rows = pairwise_numeric_table(wsi_table, wsi_features, cores); write_csv(output_root / "wsi_embedding_core_vs_rest.csv", wsi_rows); write_csv(output_root / "wsi_embedding_core_pairwise.csv", wsi_pair_rows)
     rna_pathways, rna_scores = load_expression_scores(states, config_dir); rna_rows, rna_pair_rows = rna_analysis(states, config_dir, cores, all_ids, rna_pathways, rna_scores); write_csv(output_root / "rna_hallmark_core_vs_rest.csv", rna_rows); write_csv(output_root / "rna_hallmark_core_pairwise.csv", rna_pair_rows); wxs_features, wxs_table = load_table(data_root / "wxs/wxs_discovery_features.csv"); mutation_features = [x for x in wxs_features if x.startswith("mutation::")]; wxs_rows, wxs_pair_rows = binary_analysis(wxs_table, mutation_features, cores, all_ids, "mutation"); write_csv(output_root / "wxs_core_vs_rest.csv", wxs_rows); write_csv(output_root / "wxs_core_pairwise.csv", wxs_pair_rows); cnv_features, cnv_table = load_table(data_root / "cnv/case_features.csv"); cnv_cont, cnv_event, cnv_pair_cont, cnv_pair_event = cnv_analysis(cnv_table, cnv_features, cores, all_ids); write_csv(output_root / "cnv_continuous_core_vs_rest.csv", cnv_cont); write_csv(output_root / "cnv_gain_loss_core_vs_rest.csv", cnv_event); write_csv(output_root / "cnv_continuous_core_pairwise.csv", cnv_pair_cont); write_csv(output_root / "cnv_gain_loss_core_pairwise.csv", cnv_pair_event)
     affinity_paths = {"ct": data_root / "candidate_subtype/ct_affinity.npy", "wsi": data_root / "candidate_subtype/wsi_affinity.npy", "rna": data_root / "candidate_subtype/rna_affinity.npy", "genomic": data_root / "wxs/genomic_affinity.npy", "fused": data_root / "candidate_subtype/fused_similarity.npy"}; affinity_ids = json.loads((data_root / "candidate_subtype/affinity_patient_order.json").read_text(encoding="utf-8")); affinities = {name: np.load(path) for name, path in affinity_paths.items() if path.is_file()}; separation_rows, distance_matrices, tests, audits = core_embedding_analysis(affinities, affinity_ids, cores); write_csv(output_root / "embedding_core_separation.csv", separation_rows); [write_csv(output_root / f"{modality}_core_distance_matrix.csv", [{"core_id": core, **values} for core, values in matrix.items()]) for modality, matrix in distance_matrices.items()]; write_json(output_root / "affinity_audit.json", audits); write_csv(output_root / "core_permanova.csv", [{"modality": modality, **tests[modality]["permanova"]} for modality in tests]); write_csv(output_root / "core_permdisp.csv", [{"modality": modality, **tests[modality]["permdisp"]} for modality in tests])
     core_runs = load_core_runs(experiment_root); co_run, co_k = cooccurrence_from_runs(core_runs, cores); write_csv(output_root / "stable_core_cooccurrence_by_run.csv", co_run); write_csv(output_root / "stable_core_cooccurrence_by_k.csv", co_k); confounds = core_confounds(data_root, config_dir, states, cores); write_csv(output_root / "stable_core_confounders.csv", confounds)
