@@ -22,12 +22,12 @@ from utils.io import write_json
 INITIAL_KS = tuple(range(2, 9))
 
 
+def parse_repeats(values):
+    return tuple(sorted(set(values or (1, 2, 3))))
+
+
 def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int, ...], force: bool = False, run_agent: bool = False):
-    if output_root.exists() and any(output_root.iterdir()) and not force:
-        raise FileExistsError(f"Output exists; pass --force: {output_root}")
-    if force and output_root.exists():
-        shutil.rmtree(output_root)
-    output_root.mkdir(parents=True)
+    output_root.mkdir(parents=True, exist_ok=True)
     stable_root = ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11"
     patient_ids, _, fused, config = load_five_view_inputs(data_root, stable_root, output_root, config_dir)
     records, _ = build_consensus(fused, config, output_root, patient_ids)
@@ -46,9 +46,13 @@ def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int
         for repeat in repeats:
             for initial_k in INITIAL_KS:
                 run_root = output_root / f"run{repeat}" / f"K{initial_k}"
+                if force and run_root.exists():
+                    shutil.rmtree(run_root)
                 if run_root.exists() and not force:
                     summary_path = run_root / "final_review_summary.json"
-                    if summary_path.exists():
+                    metadata_path = run_root / "run_metadata.json"
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+                    if summary_path.exists() and metadata.get("repeat") == repeat and metadata.get("initial_k") == initial_k:
                         rows.append(json.loads(summary_path.read_text(encoding="utf-8")))
                         continue
                 run_root.mkdir(parents=True, exist_ok=True)
@@ -83,10 +87,11 @@ def main():
     parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v12/15_five_view_multi_k_stability")
-    parser.add_argument("--repeat", dest="repeats", type=int, action="append", default=[1, 2, 3])
+    parser.add_argument("--repeat", dest="repeats", type=int, action="append")
     parser.add_argument("--run-agent", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    args.repeats = parse_repeats(args.repeats)
     print(json.dumps(run(**vars(args)), ensure_ascii=False, indent=2))
 
 
