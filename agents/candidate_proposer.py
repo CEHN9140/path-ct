@@ -74,6 +74,113 @@ def calculate_pac(consensus_values: np.ndarray, *, lower: float, upper: float) -
     return float(np.mean((values > float(lower)) & (values < float(upper))))
 
 
+def consensus_records_from_similarity(
+    similarity: np.ndarray,
+    clustering_config: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run the production consensus-clustering algorithm on a supplied SNF matrix."""
+    from sklearn.cluster import AgglomerativeClustering, SpectralClustering
+
+    similarity = np.asarray(similarity, dtype=float)
+    if similarity.ndim != 2 or similarity.shape[0] != similarity.shape[1]:
+        raise ValueError("similarity must be a square matrix")
+    n_cases = similarity.shape[0]
+    if n_cases < 2:
+        raise ValueError("at least two cases are required for candidate clustering")
+    similarity = np.clip((similarity + similarity.T) / 2.0, 0.0, 1.0)
+    np.fill_diagonal(similarity, 1.0)
+    distance = 1.0 - similarity
+    np.fill_diagonal(distance, 0.0)
+
+    repeat_count = int(clustering_config["repeat_count"])
+    max_clusters = min(int(clustering_config["max_clusters"]), n_cases)
+    if repeat_count < 1 or max_clusters < 2:
+        raise ValueError("invalid candidate clustering configuration")
+    algorithms_config = dict(clustering_config["algorithms"])
+    rng = np.random.default_rng(int(clustering_config["random_seed"]))
+    jobs = []
+    for algorithm in ("hierarchical", "spectral", "kmedoids"):
+        if algorithm not in algorithms_config:
+            continue
+        algorithm_config = dict(algorithms_config[algorithm])
+        for n_clusters in range(2, max_clusters + 1):
+            for run_index in range(1, repeat_count + 1):
+                run_config = dict(algorithm_config)
+                if algorithm == "hierarchical":
+                    options = list(run_config.pop("linkage_options"))
+                    run_config["linkage"] = str(rng.choice(options))
+                elif algorithm == "spectral":
+                    options = list(run_config.pop("assign_labels_options"))
+                    run_config["assign_labels"] = str(rng.choice(options))
+                else:
+                    options = list(run_config.pop("init_options"))
+                    run_config["init"] = str(rng.choice(options))
+                jobs.append({
+                    "algorithm": algorithm,
+                    "run_index": run_index,
+                    "n_clusters": n_clusters,
+                    "seed": int(rng.integers(0, np.iinfo(np.int32).max)),
+                    "algorithm_config": run_config,
+                })
+
+    partition_records = []
+    for job in jobs:
+        algorithm = job["algorithm"]
+        n_clusters = int(job["n_clusters"])
+        config = dict(job["algorithm_config"])
+        record = dict(job, partition_id=f"{algorithm}_run{job['run_index']:03d}_K{n_clusters}_S{job['seed']}")
+        try:
+            if algorithm == "hierarchical":
+                labels = AgglomerativeClustering(
+                    n_clusters=n_clusters, metric="precomputed", linkage=str(config["linkage"])
+                ).fit_predict(distance)
+            elif algorithm == "spectral":
+                labels = SpectralClustering(
+                    n_clusters=n_clusters, affinity="precomputed",
+                    assign_labels=str(config["assign_labels"]), random_state=int(job["seed"])
+                ).fit_predict(similarity)
+            else:
+                labels = fit_kmedoids(
+                    distance, n_clusters=n_clusters, init=str(config["init"]), seed=int(job["seed"])
+                )
+            labels = np.asarray(labels, dtype=int)
+            labels = canonical_partition(labels) if labels.shape == (n_cases,) else tuple()
+            valid = len(set(labels)) == n_clusters and len(labels) == n_cases
+            partition_records.append({**record, "labels": labels, "valid": valid, "skip_reason": "" if valid else "cluster_count_mismatch"})
+        except Exception as exc:
+            partition_records.append({**record, "labels": tuple(), "valid": False, "skip_reason": f"{type(exc).__name__}: {exc}"})
+
+    valid_by_k: dict[int, list[tuple[int, ...]]] = {}
+    for record in partition_records:
+        if record["valid"]:
+            valid_by_k.setdefault(int(record["n_clusters"]), []).append(tuple(record["labels"]))
+    records = []
+    previous_cdf_area = 0.0
+    linkage_name = str(clustering_config["consensus_linkage"])
+    for n_clusters in sorted(valid_by_k):
+        partitions = valid_by_k[n_clusters]
+        consensus = consensus_matrix_from_partitions(partitions)
+        values = np.nan_to_num(consensus[np.triu_indices(n_cases, k=1)], nan=0.0)
+        pac = calculate_pac(values, lower=float(clustering_config["pac_lower"]), upper=float(clustering_config["pac_upper"]))
+        thresholds, cdf, cdf_area = calculate_consensus_cdf(values)
+        delta_area, relative_delta_area = calculate_delta_area(cdf_area, previous_cdf_area=previous_cdf_area)
+        previous_cdf_area = cdf_area
+        consensus_distance = 1.0 - consensus
+        np.fill_diagonal(consensus_distance, 0.0)
+        labels = canonical_partition(AgglomerativeClustering(
+            n_clusters=n_clusters, metric="precomputed", linkage=linkage_name
+        ).fit_predict(consensus_distance))
+        records.append({
+            "n_clusters": n_clusters, "partition_count": len(partitions), "consensus": consensus,
+            "cdf_thresholds": thresholds.tolist(), "cdf_values": cdf.astype(float).tolist(),
+            "cdf_area": float(cdf_area), "delta_area": float(delta_area),
+            "relative_delta_area": float(relative_delta_area),
+            "pac": float(pac), "cluster_sizes": cluster_sizes_from_labels(labels),
+            "consensus_silhouette": consensus_silhouette_score(consensus, labels), "labels": labels,
+        })
+    return records, partition_records
+
+
 # ── LLM K selection ──────────────────────────────────────────────────────
 
 
