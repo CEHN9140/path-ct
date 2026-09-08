@@ -34,7 +34,7 @@ def ct_feature_filter_audit(
     }
 
 
-def build_ct_affinity(
+def build_ct_discovery_feature_matrix(
     patient_states: Sequence[Mapping[str, Any]],
     *,
     config_dir: str = "",
@@ -44,8 +44,6 @@ def build_ct_affinity(
     import json
     import numpy as np
     import pandas as pd
-    from scipy.spatial.distance import cdist
-    from snf.compute import affinity_matrix
     from tools.confound import confounder_values
     from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 
@@ -75,7 +73,7 @@ def build_ct_affinity(
                 raise ValueError(f"CT CCC feature names mismatch for {state.get('case_id')}, binWidth={label}")
             comparison[label].append([float(values[name]) for name in feature_names])
     if not vectors:
-        return {"affinity": np.eye(0), "patient_ids": [], "audit": {}}
+        return {"matrix": np.empty((0, 0)), "patient_ids": [], "feature_names": [], "audit": {}}
     if any(current != names[0] for current in names[1:]):
         raise ValueError("CT feature names differ across patients")
     matrix = np.asarray(vectors, dtype=float)
@@ -155,12 +153,6 @@ def build_ct_affinity(
     means = corrected.mean(axis=0, keepdims=True)
     stds = corrected.std(axis=0, keepdims=True)
     corrected = np.divide(corrected - means, stds, out=np.zeros_like(corrected), where=stds > 0)
-    distance = cdist(corrected, corrected, metric="euclidean")
-    affinity = (
-        np.ones((1, 1), dtype=float)
-        if len(case_ids) == 1
-        else affinity_matrix(distance, K=min(max(int(snf_config["neighbor_count"]), 1), len(case_ids) - 1), mu=float(snf_config["mu"]))
-    )
     audit = ct_feature_filter_audit(
         original_names=names[0],
         ccc_names=ccc_feature_names,
@@ -176,7 +168,37 @@ def build_ct_affinity(
         "confound_correction_enabled": bool(correction_config.get("enabled", True)),
         "confound_fields": fields,
     })
-    return {"affinity": np.asarray(affinity, dtype=float), "patient_ids": case_ids, "feature_names": corrected_names, "audit": audit}
+    return {"matrix": corrected, "patient_ids": case_ids, "feature_names": corrected_names, "audit": audit}
+
+
+def build_ct_affinity(
+    patient_states: Sequence[Mapping[str, Any]],
+    *,
+    config_dir: str = "",
+    output_root: str = "",
+) -> dict[str, Any]:
+    """Build the production CT affinity from the shared discovery matrix."""
+    import numpy as np
+    from scipy.spatial.distance import cdist
+    from snf.compute import affinity_matrix
+    from utils.llm_utils import load_candidate_proposer_config
+
+    payload = build_ct_discovery_feature_matrix(
+        patient_states, config_dir=config_dir, output_root=output_root
+    )
+    snf_config = load_candidate_proposer_config(config_dir or "configs")["snf"]
+    matrix = payload["matrix"]
+    distance = cdist(matrix, matrix, metric="euclidean")
+    affinity = (
+        np.ones((1, 1), dtype=float)
+        if len(payload["patient_ids"]) == 1
+        else affinity_matrix(
+            distance,
+            K=min(max(int(snf_config["neighbor_count"]), 1), len(payload["patient_ids"]) - 1),
+            mu=float(snf_config["mu"]),
+        )
+    )
+    return {**payload, "affinity": np.asarray(affinity, dtype=float)}
 
 
 def run_ct_radiomics(
