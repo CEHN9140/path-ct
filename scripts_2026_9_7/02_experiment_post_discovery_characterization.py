@@ -118,12 +118,13 @@ def clinical_outputs(records, groups, output_root, permutations, bootstrap_itera
     if age_omnibus[0]["q_value"] is not None and age_omnibus[0]["q_value"] < .05:
         posthoc.extend(stats.continuous_posthoc(continuous["age"], ["age"], groups))
     for variable in selected_categorical:
-        posthoc.extend(stats.categorical_posthoc(records, variable, groups))
+        posthoc.extend(stats.categorical_posthoc(records, variable, groups, permutations, 20260908))
     base.write_csv(output_root / "clinical_posthoc.csv", posthoc)
     survival_global, survival_pairs = stats.survival_analysis(records, groups)
     survival_global["q_value"] = survival_global["p_value"]
     base.write_csv(output_root / "survival_global.csv", [survival_global])
     base.write_csv(output_root / "survival_posthoc.csv", survival_pairs if survival_global["p_value"] is not None and survival_global["p_value"] < .05 else [])
+    base.write_csv(output_root / "stage_adjusted_survival_secondary.csv", stats.stage_adjusted_survival(records, groups))
     return age_omnibus + categorical, posthoc, survival_global
 
 
@@ -153,7 +154,7 @@ def characterize_groups(data_root, stable_root, output_root, config_dir, groups,
         omnibus = stats.continuous_omnibus(table, features, groups)
         selected = [row["feature"] for row in omnibus if row["q_value"] is not None and row["q_value"] < .05]
         posthoc = stats.continuous_posthoc(table, selected, groups, bootstrap_iterations, 20260908)
-        descriptive = stats.continuous_state_vs_rest_descriptive(table, features, groups, 0)
+        descriptive = stats.continuous_state_vs_rest_descriptive(table, features, groups, bootstrap_iterations)
         base.write_csv(output_root / f"{modality}_omnibus.csv", omnibus)
         base.write_csv(output_root / f"{modality}_posthoc.csv", posthoc)
         base.write_csv(output_root / f"{modality}_state_vs_rest_descriptive.csv", descriptive)

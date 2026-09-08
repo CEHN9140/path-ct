@@ -21,7 +21,10 @@ def stable_analysis_universe(groups: Mapping[str, Sequence[str]]) -> list[str]:
 
 
 def bh_adjust(values: Sequence[float | None]) -> list[float | None]:
-    valid = sorted((index, float(value)) for index, value in enumerate(values) if value is not None and np.isfinite(value))
+    valid = sorted(
+        ((index, float(value)) for index, value in enumerate(values) if value is not None and np.isfinite(value)),
+        key=lambda item: item[1],
+    )
     result = [None] * len(values)
     running = 1.0
     for rank, (index, value) in reversed(list(enumerate(valid, 1))):
@@ -31,7 +34,10 @@ def bh_adjust(values: Sequence[float | None]) -> list[float | None]:
 
 
 def holm_adjust(values: Sequence[float | None]) -> list[float | None]:
-    valid = sorted((index, float(value)) for index, value in enumerate(values) if value is not None and np.isfinite(value))
+    valid = sorted(
+        ((index, float(value)) for index, value in enumerate(values) if value is not None and np.isfinite(value)),
+        key=lambda item: item[1],
+    )
     result = [None] * len(values)
     running = 0.0
     count = len(valid)
@@ -67,6 +73,17 @@ def _values(table, ids, feature):
     return [float(table[case_id][feature]) for case_id in ids if table.get(case_id, {}).get(feature) is not None and np.isfinite(float(table[case_id][feature]))]
 
 
+def _binary_value(table, case_id, feature):
+    value = table.get(case_id, {}).get(feature)
+    if value is None or str(value).strip().upper() in {"", "NA", "N/A", "UNKNOWN"}:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(value > 0) if np.isfinite(value) else None
+
+
 def _rounded(value):
     return round(float(value), 8) if value is not None and np.isfinite(value) else None
 
@@ -77,17 +94,19 @@ def continuous_omnibus(table, features, groups):
     rows = []
     for feature in features:
         samples = [_values(table, members, feature) for members in groups.values()]
-        samples = [sample for sample in samples if sample]
         total_n = sum(map(len, samples))
-        row = {"feature": feature, "group_count": len(samples), "available_n": total_n, "group_sizes": ";".join(map(str, map(len, samples))), "kruskal_h": None, "p_value": None, "q_value": None, "epsilon_squared": None}
-        if len(samples) >= 2 and total_n > len(samples):
+        row = {"feature": feature, "group_count": len(groups), "available_n": total_n, "group_sizes": ";".join(map(str, map(len, samples))), "comparison_status": "not_estimable", "not_estimable_reason": "", "kruskal_h": None, "p_value": None, "q_value": None, "epsilon_squared": None}
+        if any(not sample for sample in samples):
+            row["not_estimable_reason"] = "one_or_more_groups_have_no_valid_values"
+        elif len(samples) >= 2 and total_n > len(samples):
             try:
                 statistic, p_value = kruskal(*samples)
+                row["comparison_status"] = "estimable"
                 row["kruskal_h"] = _rounded(statistic)
                 row["p_value"] = _rounded(p_value)
                 row["epsilon_squared"] = _rounded(max(0.0, min(1.0, (statistic - len(samples) + 1) / (total_n - len(samples)))))
             except ValueError:
-                pass
+                row["not_estimable_reason"] = "kruskal_wallis_failed"
         rows.append(row)
     for row, q_value in zip(rows, bh_adjust([row["p_value"] for row in rows])):
         row["q_value"] = _rounded(q_value)
@@ -144,16 +163,22 @@ def _chi_square(table):
 
 
 def binary_permutation_omnibus(table, features, groups, permutations=9999, seed=20260908):
-    labels = np.asarray([group for group, members in groups.items() for _ in members])
-    group_sizes = np.asarray([len(members) for members in groups.values()], dtype=float)
-    group_mask = np.asarray([[int(label == group) for label in labels] for group in groups], dtype=float)
+    case_ids = [case_id for members in groups.values() for case_id in members]
     rows = []
     for feature_index, feature in enumerate(features):
-        values = np.asarray([int(float(table[case_id].get(feature, 0) or 0) > 0) for members in groups.values() for case_id in members])
+        values = [_binary_value(table, case_id, feature) for case_id in case_ids]
+        valid = np.asarray([value is not None for value in values])
+        values = np.asarray([value for value in values if value is not None], dtype=float)
+        valid_ids = [case_id for case_id, keep in zip(case_ids, valid) if keep]
+        labels = np.asarray([next(group for group, members in groups.items() if case_id in members) for case_id in valid_ids])
+        group_names = [group for group in groups if np.any(labels == group)]
+        group_sizes = np.asarray([int(np.sum(labels == group)) for group in group_names], dtype=float)
+        group_mask = np.asarray([[int(label == group) for label in labels] for group in group_names], dtype=float)
         observed_mutated = values @ group_mask.T
         contingency = np.column_stack((observed_mutated, group_sizes - observed_mutated)).astype(int)
-        statistic = _chi_square(contingency) if contingency.shape[0] > 1 else None
+        statistic = _chi_square(contingency) if len(group_names) > 1 else None
         p_value = None
+        status = "estimable" if statistic is not None else "not_estimable"
         if statistic is not None:
             rng = np.random.default_rng(seed + feature_index)
             shuffled = values[rng.random((permutations, len(values))).argsort(axis=1)]
@@ -167,7 +192,7 @@ def binary_permutation_omnibus(table, features, groups, permutations=9999, seed=
             chi = np.nan_to_num(chi, nan=0.0, posinf=0.0, neginf=0.0)
             exceed = int(np.count_nonzero(chi >= statistic))
             p_value = (exceed + 1) / (permutations + 1)
-        rows.append({"feature": feature, "group_count": len(groups), "mutated_n": int(values.sum()), "total_n": len(values), "chi_square": _rounded(statistic), "p_value": _rounded(p_value), "q_value": None, "permutations": permutations})
+        rows.append({"feature": feature, "group_count": len(groups), "available_n": len(values), "missing_n": len(case_ids) - len(values), "mutated_n": int(values.sum()), "total_n": len(values), "comparison_status": status, "chi_square": _rounded(statistic), "p_value": _rounded(p_value), "q_value": None, "permutations": permutations})
     for row, q_value in zip(rows, bh_adjust([row["p_value"] for row in rows])):
         row["q_value"] = _rounded(q_value)
     return rows
@@ -180,12 +205,12 @@ def binary_posthoc(table, features, groups):
     for feature in features:
         current = []
         for group_a, group_b in combinations(groups, 2):
-            left = [int(float(table[case_id].get(feature, 0) or 0) > 0) for case_id in groups[group_a]]
-            right = [int(float(table[case_id].get(feature, 0) or 0) > 0) for case_id in groups[group_b]]
+            left = [value for case_id in groups[group_a] if (value := _binary_value(table, case_id, feature)) is not None]
+            right = [value for case_id in groups[group_b] if (value := _binary_value(table, case_id, feature)) is not None]
             a, b, c, d = sum(left), len(left) - sum(left), sum(right), len(right) - sum(right)
             p_value = float(fisher_exact([[a, b], [c, d]])[1]) if left and right else None
             odds, low, high = _odds_ratio_ci(a, b, c, d) if left and right else (None, None, None)
-            current.append({"feature": feature, "group_a": group_a, "group_b": group_b, "n_a": len(left), "n_b": len(right), "frequency_a": a / len(left) if left else None, "frequency_b": c / len(right) if right else None, "frequency_difference": a / len(left) - c / len(right) if left and right else None, "odds_ratio": _rounded(odds), "ci_low": _rounded(low), "ci_high": _rounded(high), "fisher_p": _rounded(p_value), "p_adjusted_holm": None})
+            current.append({"feature": feature, "group_a": group_a, "group_b": group_b, "n_a": len(left), "n_b": len(right), "missing_n_a": len(groups[group_a]) - len(left), "missing_n_b": len(groups[group_b]) - len(right), "frequency_a": a / len(left) if left else None, "frequency_b": c / len(right) if right else None, "frequency_difference": a / len(left) - c / len(right) if left and right else None, "odds_ratio": _rounded(odds), "ci_low": _rounded(low), "ci_high": _rounded(high), "fisher_p": _rounded(p_value), "p_adjusted_holm": None})
         for row, adjusted in zip(current, holm_adjust([row["fisher_p"] for row in current])):
             row["p_adjusted_holm"] = _rounded(adjusted)
         rows.extend(current)
@@ -211,19 +236,66 @@ def categorical_omnibus(records, variable, groups, permutations=9999, seed=20260
     return row
 
 
-def categorical_posthoc(records, variable, groups):
-    from scipy.stats import chi2_contingency
-
+def categorical_posthoc(records, variable, groups, permutations=9999, seed=20260908):
     rows = []
-    for group_a, group_b in combinations(groups, 2):
+    for pair_index, (group_a, group_b) in enumerate(combinations(groups, 2)):
         values = {case_id: str(records.get(case_id, {}).get(variable, "")).strip() for case_id in groups[group_a] + groups[group_b]}
         values = {case_id: value for case_id, value in values.items() if value and value.upper() not in {"UNKNOWN", "NA", "N/A", "NX", "MX", "TX"}}
-        levels = sorted(set(values.values())); table = np.asarray([[sum(values.get(case_id) == level for case_id in groups[group_a]) for level in levels], [sum(values.get(case_id) == level for case_id in groups[group_b]) for level in levels]])
-        p_value = float(chi2_contingency(table, correction=False)[1]) if len(levels) > 1 and table.shape[1] > 1 and np.all(table.sum(axis=0) > 0) else None
-        rows.append({"clinical_variable": variable, "group_a": group_a, "group_b": group_b, "n_a": sum(case_id in values for case_id in groups[group_a]), "n_b": sum(case_id in values for case_id in groups[group_b]), "levels": ";".join(levels), "p_value": _rounded(p_value), "p_adjusted_holm": None})
+        left_ids = [case_id for case_id in groups[group_a] if case_id in values]
+        right_ids = [case_id for case_id in groups[group_b] if case_id in values]
+        levels = sorted(set(values.values()))
+        observed_values = np.asarray([values[case_id] for case_id in left_ids + right_ids])
+        n_left = len(left_ids)
+        table = np.asarray([[sum(values.get(case_id) == level for case_id in groups[group_a]) for level in levels], [sum(values.get(case_id) == level for case_id in groups[group_b]) for level in levels]])
+        statistic = _chi_square(table) if len(levels) > 1 and n_left and len(right_ids) else None
+        p_value = None
+        if statistic is not None:
+            rng = np.random.default_rng(seed + pair_index)
+            exceed = 0
+            for _ in range(permutations):
+                shuffled = rng.permutation(observed_values)
+                perm = np.asarray([[np.sum(shuffled[:n_left] == level), np.sum(shuffled[n_left:] == level)] for level in levels]).T
+                if _chi_square(perm) >= statistic:
+                    exceed += 1
+            p_value = (exceed + 1) / (permutations + 1)
+        rows.append({"clinical_variable": variable, "group_a": group_a, "group_b": group_b, "n_a": n_left, "n_b": len(right_ids), "missing_n_a": len(groups[group_a]) - n_left, "missing_n_b": len(groups[group_b]) - len(right_ids), "levels": ";".join(levels), "chi_square": _rounded(statistic), "p_value": _rounded(p_value), "p_adjusted_holm": None, "permutations": permutations})
     for row, adjusted in zip(rows, holm_adjust([row["p_value"] for row in rows])):
         row["p_adjusted_holm"] = _rounded(adjusted)
     return rows
+
+
+def stage_adjusted_survival(records, groups):
+    import pandas as pd
+    from lifelines import CoxPHFitter
+
+    stage_values = {"I": 1, "II": 2, "III": 3, "IV": 4}
+    rows = []
+    for group, members in groups.items():
+        for case_id in members:
+            record = records.get(case_id, {})
+            stage = str(record.get("stage_group") or "").strip().upper()
+            try:
+                os_time = float(record.get("os_time"))
+            except (TypeError, ValueError):
+                continue
+            if stage not in stage_values or not np.isfinite(os_time):
+                continue
+            rows.append({"case_id": case_id, "state": group, "stage_number": stage_values[stage], "os_time": os_time, "os_event": int(record.get("os_event") or 0)})
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return [{"model": "state_plus_stage", "status": "not_estimable", "reason": "no_usable_survival_records", "analysis_role": "secondary_exploratory"}]
+    frame = pd.get_dummies(frame.drop(columns="case_id"), columns=["state"], dtype=float)
+    state_columns = [f"state_{group}" for group in sorted(groups) if f"state_{group}" in frame]
+    if len(frame) < 10 or frame["os_event"].sum() < 3 or len(state_columns) < 2:
+        return [{"model": "state_plus_stage", "status": "not_estimable", "reason": "insufficient_events_or_covariates", "available_n": len(frame), "events": int(frame["os_event"].sum()), "analysis_role": "secondary_exploratory"}]
+    reference = state_columns[0]
+    frame = frame.drop(columns=reference)
+    model = CoxPHFitter(penalizer=.1).fit(frame, duration_col="os_time", event_col="os_event")
+    output = []
+    for covariate in ["stage_number", *sorted(set(state_columns) - {reference})]:
+        interval = model.confidence_intervals_.loc[covariate].to_numpy()
+        output.append({"model": "state_plus_stage", "covariate": covariate, "status": "estimable", "hazard_ratio": _rounded(np.exp(model.params_[covariate])), "ci_low": _rounded(np.exp(interval[0])), "ci_high": _rounded(np.exp(interval[1])), "p_value": _rounded(model.summary.loc[covariate, "p"]), "reference_state": reference.removeprefix("state_") if covariate != "stage_number" else None, "adjustment": "stage_group ordinal I=1, II=2, III=3, IV=4", "available_n": len(frame), "events": int(frame["os_event"].sum()), "analysis_role": "secondary_exploratory"})
+    return output
 
 
 def survival_analysis(records, groups):
