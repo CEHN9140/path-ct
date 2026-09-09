@@ -72,6 +72,11 @@ def test_contingency_and_bias_corrected_cramers_v_are_deterministic():
     assert MAPPING.bias_corrected_cramers_v(table) == 1.0
 
 
+def test_bias_corrected_cramers_v_uses_nonempty_contingency_dimensions():
+    table = np.array([[0, 8, 3, 2], [0, 1, 3, 1]])
+    assert np.isclose(MAPPING.bias_corrected_cramers_v(table), 0.1961161351)
+
+
 def test_enrichment_bh_is_applied_across_one_partition_reference_family():
     rows = [
         {"state": "A", "reference_subtype": "m1", "fisher_p": 0.01},

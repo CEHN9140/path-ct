@@ -63,7 +63,13 @@ def test_missing_reference_labels_are_not_in_contingency():
 def test_status_low_information_and_unresolved_require_at_least_five_labels():
     assert MAPPING.evidence_status(4, []) == "low_information"
     assert MAPPING.evidence_status(5, []) == "no_fdr_supported_enrichment"
-    assert MAPPING.unresolved_by_both_references(4, "no_fdr_supported_enrichment", 8, "no_fdr_supported_enrichment") is False
+    assert MAPPING.no_fdr_supported_enrichment_in_either_reference(4, "no_fdr_supported_enrichment", 8, "no_fdr_supported_enrichment") is False
+
+
+def test_component_heterogeneity_uses_one_bh_family_across_all_rows():
+    rows = [{"permutation_p": value} for value in (0.001, 0.01, 0.02, 0.03, 0.2, 0.9)]
+    MAPPING.attach_component_bh(rows)
+    assert [row["bh_q"] for row in rows] == [0.006, 0.03, 0.04, 0.045, 0.24, 0.9]
 
 
 def test_component_heterogeneity_only_returns_multi_core_macros():

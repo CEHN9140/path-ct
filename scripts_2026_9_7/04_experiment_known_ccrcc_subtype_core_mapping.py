@@ -131,7 +131,7 @@ def evidence_status(label_n, enrichment_rows):
     return "no_fdr_supported_enrichment"
 
 
-def unresolved_by_both_references(mrna_label_n, mrna_status, clearcode_label_n, clearcode_status):
+def no_fdr_supported_enrichment_in_either_reference(mrna_label_n, mrna_status, clearcode_label_n, clearcode_status):
     return bool(mrna_label_n >= 5 and clearcode_label_n >= 5 and mrna_status == "no_fdr_supported_enrichment" and clearcode_status == "no_fdr_supported_enrichment")
 
 
@@ -157,6 +157,10 @@ def component_heterogeneity_rows(partition, macros, cores, labels, reference, re
         chi, p_value = BASE.permutation_chi_square(table, permutations, 20260940)
         rows.append({"partition": partition, "macro_state": macro_state, "component_cores": "+".join(components), "reference": reference, "matched_n": int(table.sum()), "chi_square": chi, "permutation_p": p_value, "cramers_v_raw": BASE.cramers_v_raw(table), "cramers_v_bias_corrected": BASE.bias_corrected_cramers_v(table)})
     return rows
+
+
+def attach_component_bh(rows):
+    BASE.attach_bh(rows, "permutation_p", "bh_q")
 
 
 def macro_mixing_row(partition, macro_state, components, component_info, macro_counts, reference_labels, heterogeneity_p, heterogeneity_v):
@@ -275,7 +279,9 @@ def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/04_known_cc
     write_csv(output_root / "reference_missingness_by_core.csv", missingness)
     four_results, four_component_rows, four_mixing_rows = run_partition("4V-5core", four_cores, FOUR_MACRO, output_root / "4view_5core", mrna, clearcode, permutations)
     five_results, five_component_rows, five_mixing_rows = run_partition("5V-6core", five_cores, FIVE_MACRO, output_root / "5view_6core", mrna, clearcode, permutations)
-    write_csv(output_root / "macro_component_reference_heterogeneity.csv", four_component_rows + five_component_rows)
+    component_rows = four_component_rows + five_component_rows
+    attach_component_bh(component_rows)
+    write_csv(output_root / "macro_component_reference_heterogeneity.csv", component_rows)
     write_csv(output_root / "macro_merge_mixing_diagnostics.csv", four_mixing_rows + five_mixing_rows)
     summary_rows = []
     for partition, results in (("4V-5core", four_results), ("5V-6core", five_results)):
@@ -287,7 +293,7 @@ def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/04_known_cc
                 best_row = min(rows, key=lambda row: (row["bh_q"] is None, row["bh_q"] if row["bh_q"] is not None else 1, row["fisher_p"] if row["fisher_p"] is not None else 1), default={})
                 best.update({f"{slug}_best_enriched_subtype": best_row.get("reference_subtype"), f"{slug}_best_OR": best_row.get("odds_ratio"), f"{slug}_best_q": best_row.get("bh_q")})
             summary_rows.append({"partition": partition, "core_id": core_id, "core_total_n": len((four_cores if partition.startswith("4V") else five_cores)[core_id]), "mRNA_label_n": values["mRNA"]["label_n"], "mRNA_missing_n": values["mRNA"]["missing_n"], "mRNA_dominant": values["mRNA"]["dominant_reference_subtype"], "mRNA_purity": values["mRNA"]["purity"], "mRNA_entropy": values["mRNA"]["normalized_entropy"], "mRNA_status": evidence_status(values["mRNA"]["label_n"], [row for row in results["mRNA"]["enrichment"] if row["core_id"] == core_id]), "ClearCode_label_n": values["ClearCode34"]["label_n"], "ClearCode_missing_n": values["ClearCode34"]["missing_n"], "ClearCode_dominant": values["ClearCode34"]["dominant_reference_subtype"], "ClearCode_purity": values["ClearCode34"]["purity"], "ClearCode_entropy": values["ClearCode34"]["normalized_entropy"], "ClearCode_status": evidence_status(values["ClearCode34"]["label_n"], [row for row in results["ClearCode34"]["enrichment"] if row["core_id"] == core_id]), **best})
-            summary_rows[-1]["unresolved_by_both_references"] = unresolved_by_both_references(values["mRNA"]["label_n"], summary_rows[-1]["mRNA_status"], values["ClearCode34"]["label_n"], summary_rows[-1]["ClearCode_status"])
+            summary_rows[-1]["no_fdr_supported_enrichment_in_either_reference"] = no_fdr_supported_enrichment_in_either_reference(values["mRNA"]["label_n"], summary_rows[-1]["mRNA_status"], values["ClearCode34"]["label_n"], summary_rows[-1]["ClearCode_status"])
     write_csv(output_root / "core_mapping_interpretation_summary.csv", summary_rows)
     write_csv(output_root / "mapping_summary.csv", [row[reference]["global"] for partition, row in (("4V-5core", four_results), ("5V-6core", five_results)) for reference in row])
     manifest = {"experiment": "known_ccrcc_subtype_core_mapping", "reference_labels_used_in_discovery": False, "stable_core_memberships_frozen": True, "macro_state_definitions_frozen": True, "no_reclustering": True, "no_agent_rerun": True, "reference_labels_reused_from_experiment_03": True, "permutations": permutations, "four_view_stable_n": 59, "five_view_stable_n": 69, "input_sha256": {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in inputs.items()}}

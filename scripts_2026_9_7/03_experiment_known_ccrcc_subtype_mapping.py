@@ -257,6 +257,8 @@ def chi_square_stat(table):
 
 def bias_corrected_cramers_v(table):
     table = np.asarray(table, dtype=float)
+    table = table[table.sum(axis=1) > 0]
+    table = table[:, table.sum(axis=0) > 0] if table.size else table
     n = table.sum()
     if n <= 1 or table.shape[0] < 2 or table.shape[1] < 2:
         return None
@@ -272,6 +274,8 @@ def bias_corrected_cramers_v(table):
 
 def cramers_v_raw(table):
     table = np.asarray(table, dtype=float)
+    table = table[table.sum(axis=1) > 0]
+    table = table[:, table.sum(axis=0) > 0] if table.size else table
     chi = chi_square_stat(table)
     n = table.sum()
     denominator = n * min(table.shape[0] - 1, table.shape[1] - 1)
