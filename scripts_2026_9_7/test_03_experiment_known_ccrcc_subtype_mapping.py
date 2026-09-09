@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 
 SCRIPT = Path(__file__).with_name("03_experiment_known_ccrcc_subtype_mapping.py")
@@ -79,3 +80,19 @@ def test_enrichment_bh_is_applied_across_one_partition_reference_family():
     ]
     MAPPING.attach_bh(rows, "fisher_p", "bh_q")
     assert [row["bh_q"] for row in rows] == [0.03, 0.03, 0.5]
+
+
+def test_holm_adjust_for_clearcode_posthoc():
+    assert MAPPING.holm_adjust([0.01, 0.02, 0.5]) == [0.03, 0.04, 0.5]
+
+
+def test_raw_cramers_v_for_3x4_table():
+    table = MAPPING.build_contingency(
+        {"a1": "A", "a2": "A", "b1": "B", "b2": "B", "c1": "C", "c2": "C"},
+        {"a1": "m1", "a2": "m1", "b1": "m2", "b2": "m2", "c1": "m3", "c2": "m3"},
+        ["A", "B", "C"],
+        ["m1", "m2", "m3", "m4"],
+    )
+    chi = MAPPING.chi_square_stat(table)
+    expected = (chi / (table.sum() * min(table.shape[0] - 1, table.shape[1] - 1))) ** 0.5
+    assert np.isclose(MAPPING.cramers_v_raw(table), expected)

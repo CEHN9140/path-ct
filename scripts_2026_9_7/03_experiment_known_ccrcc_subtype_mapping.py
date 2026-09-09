@@ -68,6 +68,19 @@ def bh_adjust(values):
     return output
 
 
+def holm_adjust(values):
+    valid = sorted(
+        ((index, float(value)) for index, value in enumerate(values) if value is not None and np.isfinite(value)),
+        key=lambda item: item[1],
+    )
+    output = [None] * len(values)
+    running = 0.0
+    for rank, (index, value) in enumerate(valid):
+        running = max(running, min(1.0, (len(valid) - rank) * value))
+        output[index] = rounded(running)
+    return output
+
+
 def attach_bh(rows, p_field, q_field):
     for row, q_value in zip(rows, bh_adjust([row.get(p_field) for row in rows])):
         row[q_field] = q_value
@@ -257,6 +270,14 @@ def bias_corrected_cramers_v(table):
     return rounded(math.sqrt(phi2_corr / denominator)) if denominator > 0 else None
 
 
+def cramers_v_raw(table):
+    table = np.asarray(table, dtype=float)
+    chi = chi_square_stat(table)
+    n = table.sum()
+    denominator = n * min(table.shape[0] - 1, table.shape[1] - 1)
+    return rounded(math.sqrt(chi / denominator)) if chi is not None and denominator > 0 else None
+
+
 def permutation_chi_square(table, permutations=9999, seed=20260909):
     observed = chi_square_stat(table)
     if observed is None:
@@ -363,7 +384,7 @@ def clearcode_score_analysis(state_labels, labels, output_prefix):
                 right = samples[groups.index(group_b)]
                 p_value = float(mannwhitneyu(left, right, alternative="two-sided").pvalue)
                 posthoc.append({"partition": output_prefix, "group_a": group_a, "group_b": group_b, "n_a": len(left), "n_b": len(right), "median_a": rounded(np.median(left)), "median_b": rounded(np.median(right)), "p_value": rounded(p_value)})
-        for row, value in zip(posthoc, bh_adjust([row["p_value"] for row in posthoc])):
+        for row, value in zip(posthoc, holm_adjust([row["p_value"] for row in posthoc])):
             row["holm_p"] = value
     return omnibus, posthoc
 
@@ -391,7 +412,7 @@ def analyze_partition(name, state_labels, mrna, clearcode, output_root, permutat
         write_csv(output_root / f"{prefix}_contingency_row_pct.csv", [{"state": state, **{label: rounded(value) for label, value in zip(reference_labels, row)}} for state, row in zip(states, percentages(table, 1))])
         write_csv(output_root / f"{prefix}_contingency_col_pct.csv", [{"reference_subtype": label, **{state: rounded(value) for state, value in zip(states, row)}} for label, row in zip(reference_labels, percentages(table, 0).T)])
         chi, p_value = permutation_chi_square(table, permutations, 20260910)
-        global_row = {"partition": name, "reference": reference, "matched_n": int(table.sum()), "group_count": len(states), "reference_class_count": len(reference_labels), "chi_square": chi, "permutation_p": p_value, "cramers_v_raw": rounded(math.sqrt(chi / table.sum())) if chi is not None and table.sum() else None, "cramers_v_bias_corrected": bias_corrected_cramers_v(table)}
+        global_row = {"partition": name, "reference": reference, "matched_n": int(table.sum()), "group_count": len(states), "reference_class_count": len(reference_labels), "chi_square": chi, "permutation_p": p_value, "cramers_v_raw": cramers_v_raw(table), "cramers_v_bias_corrected": bias_corrected_cramers_v(table)}
         write_csv(output_root / f"{prefix}_global_association.csv", [global_row])
         labels_a = [state_labels[case_id] for case_id in usable]
         labels_b = [usable[case_id] for case_id in usable]
@@ -411,7 +432,7 @@ def analyze_partition(name, state_labels, mrna, clearcode, output_root, permutat
                 confident_table = build_contingency(state_labels, {case_id: item["reference_subtype"] for case_id, item in confident.items()}, states, reference_labels)
                 c, q = permutation_chi_square(confident_table, permutations, int(threshold * 1000))
                 sensitivity_rows.append({"partition": name, "confidence_threshold": threshold, "matched_n": int(confident_table.sum()), "chi_square": c, "permutation_p": q, "cramers_v_bias_corrected": bias_corrected_cramers_v(confident_table)})
-                rows.append({"partition": name, "reference": f"ClearCode34_confidence_{threshold}", "matched_n": int(confident_table.sum()), "group_count": len(states), "reference_class_count": 2, "chi_square": c, "permutation_p": q, "cramers_v_raw": rounded(math.sqrt(c / confident_table.sum())) if c is not None and confident_table.sum() else None, "cramers_v_bias_corrected": bias_corrected_cramers_v(confident_table), "ari": None, "nmi": None})
+                rows.append({"partition": name, "reference": f"ClearCode34_confidence_{threshold}", "matched_n": int(confident_table.sum()), "group_count": len(states), "reference_class_count": 2, "chi_square": c, "permutation_p": q, "cramers_v_raw": cramers_v_raw(confident_table), "cramers_v_bias_corrected": bias_corrected_cramers_v(confident_table), "ari": None, "nmi": None})
             write_csv(output_root / f"{prefix}_confidence_sensitivity.csv", sensitivity_rows)
     return rows
 
