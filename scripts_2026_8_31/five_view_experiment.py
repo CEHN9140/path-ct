@@ -2,30 +2,34 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 
 import numpy as np
 
-from agents.candidate_proposer import (
-    consensus_records_from_similarity,
-    fuse_affinities,
-)
+from agents.candidate_proposer import consensus_records_from_similarity
+from utils.llm_utils import load_candidate_proposer_config
 from utils.io import write_json
 
 
-def load_five_view_inputs(data_root: Path, stable_root: Path, output_root: Path, config_dir: Path):
-    module_path = Path(__file__).with_name("13_experiment_genomic_fusion_sensitivity.py")
-    spec = importlib.util.spec_from_file_location("genomic_fusion_sensitivity", module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    order, matrices, _, config, snf, _ = module.load_inputs(
-        data_root, stable_root, config_dir
-    )
-    fused = fuse_affinities([matrices[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")], snf)
-    np.save(output_root / "fused_similarity_5view.npy", fused)
-    np.save(output_root / "affinity_patient_order.npy", np.asarray(order, dtype=object))
+def load_five_view_inputs(data_root: Path, config_dir: Path):
+    candidate_dir = data_root / "candidate_subtype"
+    order = [str(item) for item in json.loads(
+        (candidate_dir / "affinity_patient_order.json").read_text(encoding="utf-8")
+    )]
+    cache = json.loads((candidate_dir / "affinity_cache.json").read_text(encoding="utf-8"))
+    if [str(item) for item in cache.get("patient_ids", [])] != order:
+        raise ValueError("Canonical affinity cache patient order mismatch.")
+    paths = dict(cache.get("paths", {}) or {})
+    view_names = ("ct", "wsi", "rna", "wxs", "cnv")
+    if any(name not in paths for name in view_names):
+        raise ValueError("Canonical 5-view affinity cache is incomplete.")
+    matrices = {name: np.asarray(np.load(paths[name]), dtype=float) for name in view_names}
+    fused = np.asarray(np.load(candidate_dir / "fused_similarity.npy"), dtype=float)
+    expected_shape = (len(order), len(order))
+    if fused.shape != expected_shape or any(matrix.shape != expected_shape for matrix in matrices.values()):
+        raise ValueError("Canonical 5-view affinity shapes do not match patient order.")
+    config = load_candidate_proposer_config(config_dir)
     return order, matrices, fused, config
 
 

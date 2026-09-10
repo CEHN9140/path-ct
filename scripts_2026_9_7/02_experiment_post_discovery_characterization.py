@@ -40,7 +40,7 @@ def groups_from_cores(cores, mapping):
 
 def load_saved_affinities(data_root, stable_root, output_root, config_dir, five_view):
     if five_view:
-        patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, stable_root, output_root, config_dir)
+        patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, config_dir)
         saved_fused = np.load(stable_root / "fused_similarity_5view.npy")
         if not np.allclose(fused, saved_fused, rtol=1e-6, atol=1e-8):
             raise RuntimeError("Recomputed 5-view fused affinity does not match the saved 15号 artifact")

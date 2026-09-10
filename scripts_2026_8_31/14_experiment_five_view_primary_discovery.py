@@ -31,8 +31,7 @@ def run(data_root: Path, config_dir: Path, output_root: Path, force: bool = Fals
     if force and output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True)
-    stable_root = ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11"
-    patient_ids, _, fused, config = load_five_view_inputs(data_root, stable_root, output_root, config_dir)
+    patient_ids, _, fused, config = load_five_view_inputs(data_root, config_dir)
     records, partition_records = build_consensus(fused, config, output_root, patient_ids)
     decision = select_k_with_llm(
         records,

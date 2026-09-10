@@ -22,20 +22,26 @@ from utils.io import write_json
 INITIAL_KS = tuple(range(2, 9))
 
 
+def parse_initial_ks(values):
+    return tuple(sorted(set(values or INITIAL_KS)))
+
+
 def parse_repeats(values):
     return tuple(sorted(set(values or (1, 2, 3))))
 
 
-def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int, ...], force: bool = False, run_agent: bool = False):
+def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int, ...], force: bool = False, run_agent: bool = False, initial_ks: tuple[int, ...] = INITIAL_KS):
     output_root.mkdir(parents=True, exist_ok=True)
-    stable_root = ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11"
-    patient_ids, _, fused, config = load_five_view_inputs(data_root, stable_root, output_root, config_dir)
+    patient_ids, _, fused, config = load_five_view_inputs(data_root, config_dir)
     records, _ = build_consensus(fused, config, output_root, patient_ids)
     record_by_k = {int(record["n_clusters"]): record for record in records}
+    missing_ks = sorted(set(initial_ks) - set(record_by_k))
+    if missing_ks:
+        raise ValueError(f"Requested initial K values are unavailable: {missing_ks}")
     write_json(output_root / "experiment_manifest.json", {
         "experiment": "five_view_multi_k_stability",
         "view": "ct_wsi_rna_wxs_cnv",
-        "initial_k": list(INITIAL_KS),
+        "initial_k": list(initial_ks),
         "repeats": list(repeats),
         "patient_count": len(patient_ids),
         "agent_calls_enabled": run_agent,
@@ -44,7 +50,7 @@ def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int
         patient_states = load_patient_states(data_root)
         rows = []
         for repeat in repeats:
-            for initial_k in INITIAL_KS:
+            for initial_k in initial_ks:
                 run_root = output_root / f"run{repeat}" / f"K{initial_k}"
                 if force and run_root.exists():
                     shutil.rmtree(run_root)
@@ -75,11 +81,11 @@ def run(data_root: Path, config_dir: Path, output_root: Path, repeats: tuple[int
         analyze(
             output_root,
             patient_ids,
-            INITIAL_KS,
+            initial_ks,
             repeats,
             min_core_size=5,
         )
-    return {"output_root": str(output_root), "initial_k": list(INITIAL_KS), "repeats": list(repeats), "agent_calls_enabled": run_agent}
+    return {"output_root": str(output_root), "initial_k": list(initial_ks), "repeats": list(repeats), "agent_calls_enabled": run_agent}
 
 
 def main():
@@ -88,9 +94,11 @@ def main():
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v12/15_five_view_multi_k_stability")
     parser.add_argument("--repeat", dest="repeats", type=int, action="append")
+    parser.add_argument("--initial-k", dest="initial_ks", type=int, action="append")
     parser.add_argument("--run-agent", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    args.initial_ks = parse_initial_ks(args.initial_ks)
     args.repeats = parse_repeats(args.repeats)
     print(json.dumps(run(**vars(args)), ensure_ascii=False, indent=2))
 

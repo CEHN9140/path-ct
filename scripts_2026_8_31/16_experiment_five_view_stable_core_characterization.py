@@ -61,8 +61,6 @@ def main():
     validate_stable_cores(args.stable_core_root, set(np.load(args.stable_core_root / "affinity_patient_order.npy", allow_pickle=True).tolist()))
     patient_ids, matrices, _, _ = load_five_view_inputs(
         args.data_root,
-        args.stable_core_root,
-        args.output_root,
         args.config_dir,
     )
     fused_path = args.stable_core_root / "fused_similarity_5view.npy"

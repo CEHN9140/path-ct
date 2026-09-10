@@ -1,5 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
+
+import numpy as np
 
 
 SCRIPT = Path(__file__).with_name("15_experiment_five_view_multi_k_stability.py")
@@ -12,3 +15,33 @@ def test_repeat_selection_does_not_append_to_default_repeats():
     assert MODULE.parse_repeats(None) == (1, 2, 3)
     assert MODULE.parse_repeats([1, 2]) == (1, 2)
 
+
+def test_initial_k_selection_supports_pilot_values():
+    assert MODULE.parse_initial_ks(None) == tuple(range(2, 9))
+    assert MODULE.parse_initial_ks([8, 2, 4, 4]) == (2, 4, 8)
+
+
+def test_loader_reads_canonical_five_view_artifacts(tmp_path):
+    candidate_dir = tmp_path / "candidate_subtype"
+    candidate_dir.mkdir()
+    patient_ids = ["P1", "P2"]
+    paths = {}
+    for name in ("ct", "wsi", "rna", "wxs", "cnv"):
+        path = candidate_dir / f"{name}_affinity.npy"
+        np.save(path, np.eye(2))
+        paths[name] = str(path)
+    fused_path = candidate_dir / "fused_similarity.npy"
+    np.save(fused_path, np.eye(2))
+    (candidate_dir / "affinity_patient_order.json").write_text(
+        json.dumps(patient_ids), encoding="utf-8"
+    )
+    (candidate_dir / "affinity_cache.json").write_text(
+        json.dumps({"patient_ids": patient_ids, "paths": paths}), encoding="utf-8"
+    )
+
+    loaded_ids, matrices, fused, _ = MODULE.load_five_view_inputs(
+        tmp_path, MODULE.ROOT / "configs"
+    )
+    assert loaded_ids == patient_ids
+    assert set(matrices) == {"ct", "wsi", "rna", "wxs", "cnv"}
+    assert fused.shape == (2, 2)
