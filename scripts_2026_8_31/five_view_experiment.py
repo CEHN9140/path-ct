@@ -26,11 +26,7 @@ def load_five_view_inputs(data_root: Path, config_dir: Path):
         raise ValueError("Canonical 5-view affinity cache is incomplete.")
     def resolve_path(name: str) -> Path:
         recorded = Path(paths[name])
-        candidates = [
-            recorded,
-            candidate_dir / recorded.name,
-            data_root / "wxs" / recorded.name,
-        ]
+        candidates = [candidate_dir / recorded.name] if name in {"ct", "wsi", "rna"} else [data_root / "wxs" / recorded.name]
         for path in candidates:
             if path.is_file():
                 return path

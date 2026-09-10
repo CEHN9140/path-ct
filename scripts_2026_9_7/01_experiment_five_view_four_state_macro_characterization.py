@@ -87,8 +87,8 @@ def evidence_comparison_rows(
         ("CNV", seven_cnv, four_cnv),
         ("clinical", seven_clinical, four_clinical),
     ):
-        seven_supported = len({(row.get("core_a"), row.get("core_b")) for row in seven_table if (row.get("q_value") or 1) < .05})
-        four_supported = len({(row.get("core_a"), row.get("core_b")) for row in four_table if (row.get("q_value") or 1) < .05})
+        seven_supported = len({(row.get("core_a"), row.get("core_b")) for row in seven_table if base.q_below(row)})
+        four_supported = len({(row.get("core_a"), row.get("core_b")) for row in four_table if base.q_below(row)})
         rows.append({
             "evidence": f"{name} pairwise FDR support",
             "seven_core_supported_pairs": seven_supported,
@@ -99,6 +99,28 @@ def evidence_comparison_rows(
             "four_state_supported_fraction": base.rounded(four_supported / max(four_total, 1)),
         })
     return rows
+
+
+def validate_multi_k_binding(multi_k_root, data_root):
+    candidate_dir = Path(data_root) / "candidate_subtype"
+    hashes = {
+        "fused_similarity_sha256": base.file_sha256(candidate_dir / "fused_similarity.npy"),
+        "patient_order_sha256": base.file_sha256(candidate_dir / "affinity_patient_order.json"),
+    }
+    metadata_paths = sorted(Path(multi_k_root).glob("run*/K*/run_metadata.json"))
+    expected_count = len(stability.INITIAL_KS) * len(stability.REPEATS)
+    if len(metadata_paths) != expected_count:
+        raise ValueError(
+            f"Expected {expected_count} multi-K run metadata files, found {len(metadata_paths)}"
+        )
+    for metadata_path in metadata_paths:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        for key, value in hashes.items():
+            if metadata.get(key) != value:
+                raise ValueError(
+                    f"{metadata_path} does not match current raw five-view {key}"
+                )
+    return hashes, len(metadata_paths)
 
 
 def rename_rows(rows, key="core_id"):
@@ -138,6 +160,7 @@ def run(
     states, _ = base.load_states(data_root)
     patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, config_dir)
     multi_k_root = Path(multi_k_root)
+    input_hashes, run_count = validate_multi_k_binding(multi_k_root, data_root)
     build_five_view_stable_core_root(multi_k_root, patient_ids)
     source_cores, _ = base.load_cores(multi_k_root)
     validate_stable_cores(source_cores, set(patient_ids))
@@ -246,7 +269,7 @@ def run(
     selected_pathways = base.select_pathways(rna_rows, top_pathways)
     lookup = {(row["core_id"], row["pathway"]): row for row in rna_rows}
     matrix = np.asarray([[lookup.get((state, pathway), {}).get("smd") or 0 for state in state_order] for pathway in selected_pathways])
-    stars = [["***" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .001 else "**" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .01 else "*" if (lookup.get((state, pathway), {}).get("q_value") or 1) < .05 else "" for state in state_order] for pathway in selected_pathways]
+    stars = [["***" if base.q_below(lookup.get((state, pathway), {}), .001) else "**" if base.q_below(lookup.get((state, pathway), {}), .01) else "*" if base.q_below(lookup.get((state, pathway), {})) else "" for state in state_order] for pathway in selected_pathways]
     base.plot_heatmap(figures / "macro_state_pathway_smd_heatmap", matrix, selected_pathways, state_order, "Four macro-state Hallmark pathway SMD", stars, True)
     base.plot_bubbles(figures / "macro_state_pathway_bubble_plot", rna_rows, state_order, selected_pathways)
     selected_cnv = base.select_cnv_heatmap_features(cnv_cont, top_cnv)
@@ -266,6 +289,9 @@ def run(
         "state_sizes": {state: len(members) for state, members in macro_states.items()},
         "projection_methods": projection,
         "analysis_scope": "77 five-view stable-core patients",
+        "multi_k_run_count": run_count,
+        "source_data_root": str(Path(data_root).resolve()),
+        **input_hashes,
         "taxonomy_limitation": "No external ClearCode34, ccA/ccB, or TCGA molecular subtype labels were supplied; this experiment does not claim known-taxonomy recovery.",
         "source_stable_core_sha256": base.file_sha256(multi_k_root / "stable_core_membership.csv"),
     }
@@ -274,6 +300,10 @@ def run(
         "macro_state_cores": MACRO_STATE_CORES,
         "analysis_parameters": {"top_pathways": top_pathways, "top_cnv": top_cnv, "random_state": random_state, "modalities": list(affinities)},
         "source_five_view_multi_k_root": str(multi_k_root),
+        "source_data_root": str(Path(data_root).resolve()),
+        "source_fused_similarity_sha256": input_hashes["fused_similarity_sha256"],
+        "source_patient_order_sha256": input_hashes["patient_order_sha256"],
+        "multi_k_run_count": run_count,
         "generated_files": generated,
     })
     base.write_json(output_root / "macro_state_analysis_summary.json", summary)
