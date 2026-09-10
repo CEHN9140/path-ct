@@ -11,6 +11,7 @@ from tools.wxs import (
     load_complete_cnv_matrix,
     read_wxs_mutations,
 )
+from utils.omics_utils import collect_case_file_paths
 
 
 def test_binary_mutation_distance_uses_zero_for_two_empty_vectors():
@@ -67,3 +68,16 @@ def test_wxs_selects_highest_depth_aliquot(tmp_path):
     )
 
     assert selected == [("A", str(paths[1]))]
+
+
+def test_collect_case_file_paths_uses_existing_record(tmp_path):
+    existing = tmp_path / "valid.tsv"
+    existing.write_text("ok", encoding="utf-8")
+    rows = collect_case_file_paths(
+        [{"Case_ID": "A", "RNA_Seq": [
+            {"File Path": str(tmp_path / "missing.tsv")},
+            {"File Path": str(existing)},
+        ]}],
+        "RNA_Seq",
+    )
+    assert rows == [("A", str(existing))]

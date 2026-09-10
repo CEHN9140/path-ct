@@ -9,7 +9,7 @@ def build_wsi_affinity(
 ) -> dict[str, Any]:
     import numpy as np
     from scipy.spatial.distance import cdist
-    from snf.compute import affinity_matrix
+    from tools.evidence_features import distance_to_affinity
     from utils.llm_utils import load_candidate_proposer_config
 
     config = load_candidate_proposer_config(config_dir).get("snf", {})
@@ -29,11 +29,7 @@ def build_wsi_affinity(
         affinity = np.ones((1, 1), dtype=float)
     else:
         distance = cdist(matrix, matrix, metric="cosine")
-        affinity = affinity_matrix(
-            distance,
-            K=min(max(int(config["neighbor_count"]), 1), len(case_ids) - 1),
-            mu=float(config["mu"]),
-        )
+        affinity = distance_to_affinity(distance, config)
     return {
         "affinity": np.asarray(affinity, dtype=float),
         "patient_ids": case_ids,

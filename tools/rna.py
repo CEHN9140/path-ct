@@ -22,7 +22,7 @@ def build_rna_affinity(
     config_dir: str = "",
 ) -> dict[str, Any]:
     from scipy.spatial.distance import cdist
-    from snf.compute import affinity_matrix
+    from tools.evidence_features import distance_to_affinity
 
     config = load_candidate_proposer_config(config_dir).get("snf", {})
     states = [dict(state) for state in patient_states if state.get("qc") == "success"]
@@ -34,7 +34,8 @@ def build_rna_affinity(
         table = pd.read_csv(path).set_index("case_id")
         rows.append(table.loc[case_id].to_numpy(float))
     matrix = np.asarray(rows, dtype=float)
-    matrix = np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.isfinite(matrix).all():
+        raise ValueError("RNA feature matrix contains non-finite values")
     matrix -= matrix.mean(axis=0, keepdims=True)
     std = matrix.std(axis=0, keepdims=True)
     matrix = np.divide(matrix, std, out=np.zeros_like(matrix), where=std > 0)
@@ -46,11 +47,7 @@ def build_rna_affinity(
             "audit": {"feature_count": int(matrix.shape[1]), "normalization": "cohort_zscore", "metric": "correlation"},
         }
     distance = cdist(matrix, matrix, metric="correlation")
-    affinity = affinity_matrix(
-        distance,
-        K=min(max(int(config["neighbor_count"]), 1), len(case_ids) - 1),
-        mu=float(config["mu"]),
-    )
+    affinity = distance_to_affinity(distance, config)
     return {
         "affinity": np.asarray(affinity, dtype=float),
         "patient_ids": case_ids,

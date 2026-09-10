@@ -17,6 +17,7 @@ from utils.candidate_clustering_outputs import (
 from utils.cluster_store import save_candidate_clusters
 from utils.llm_utils import load_candidate_proposer_config, resolve_api_key
 from utils.patient_store import save_patient_states
+from tools.evidence_features import fuse_affinities
 
 CANDIDATE_VIEWS = ("ct", "wsi", "rna", "wxs", "cnv")
 
@@ -141,6 +142,31 @@ def consensus_records_from_similarity(
     for record in partition_records:
         if record["valid"]:
             valid_by_k.setdefault(int(record["n_clusters"]), []).append(tuple(record["labels"]))
+    diversity_by_k = {}
+    for n_clusters in sorted(valid_by_k):
+        diversity_by_k[n_clusters] = [
+            {
+                "algorithm": algorithm,
+                "attempted": sum(
+                    int(record["n_clusters"]) == n_clusters and record["algorithm"] == algorithm
+                    for record in partition_records
+                ),
+                "valid": sum(
+                    int(record["n_clusters"]) == n_clusters
+                    and record["algorithm"] == algorithm
+                    and record["valid"]
+                    for record in partition_records
+                ),
+                "unique": len({
+                    tuple(record["labels"])
+                    for record in partition_records
+                    if record["algorithm"] == algorithm
+                    and int(record["n_clusters"]) == n_clusters
+                    and record["valid"]
+                }),
+            }
+            for algorithm in sorted(algorithms_config)
+        ]
     records = []
     previous_cdf_area = 0.0
     linkage_name = str(clustering_config["consensus_linkage"])
@@ -159,6 +185,7 @@ def consensus_records_from_similarity(
         ).fit_predict(consensus_distance))
         records.append({
             "n_clusters": n_clusters, "partition_count": len(partitions), "consensus": consensus,
+            "partition_diversity": diversity_by_k[n_clusters],
             "cdf_thresholds": thresholds.tolist(), "cdf_values": cdf.astype(float).tolist(),
             "cdf_area": float(cdf_area), "delta_area": float(delta_area),
             "relative_delta_area": float(relative_delta_area),
@@ -499,8 +526,12 @@ def build_feature_store_payload(
             raise ValueError(f"{name} affinity shape does not match the patient cohort")
         if not np.isfinite(matrix).all():
             raise ValueError(f"{name} affinity contains non-finite values")
-        if np.min(matrix) < 0 or not np.allclose(matrix, matrix.T, atol=1e-8):
-            raise ValueError(f"{name} affinity must be nonnegative and symmetric")
+        if (
+            np.min(matrix) < 0
+            or np.max(matrix) > 1.0 + 1e-8
+            or not np.allclose(matrix, matrix.T, atol=1e-8)
+        ):
+            raise ValueError(f"{name} affinity must be finite, symmetric, and in [0, 1]")
     audit_path = Path(str(eligible[0]["omics_evidence"].get("multimodal_audit_path", "")))
     audit = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path.is_file() else {}
     empty = np.zeros((len(patient_ids), 0), dtype=float)
@@ -790,20 +821,3 @@ def candidate_proposer(
         "affinity_patient_order_path": str(affinity_order_path),
         "fused_similarity_path": str(fused_similarity_path),
     }
-def fuse_affinities(networks: list[np.ndarray], snf_config: Mapping[str, Any]) -> np.ndarray:
-    import snf
-
-    n_cases = len(networks[0])
-    fused = snf.snf(
-        *networks,
-        K=min(max(int(snf_config["neighbor_count"]), 1), n_cases - 1),
-        t=int(snf_config["iterations"]),
-        alpha=float(snf_config["alpha"]),
-    )
-    fused = np.maximum((np.asarray(fused) + np.asarray(fused).T) / 2.0, 0.0)
-    off_diagonal = ~np.eye(n_cases, dtype=bool)
-    maximum = float(fused[off_diagonal].max()) if off_diagonal.any() else 0.0
-    if maximum > 1:
-        fused[off_diagonal] /= maximum
-    np.fill_diagonal(fused, 1.0)
-    return fused

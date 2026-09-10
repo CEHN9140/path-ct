@@ -128,8 +128,17 @@ def build_ct_discovery_feature_matrix(
             series = pd.Series([str(item or "missing") for item in raw])
             encoded = pd.get_dummies(series, dtype=float)
             design_parts.append(encoded.to_numpy(float))
-            design_audit[field] = {"type": "categorical", "levels": sorted(series.unique().tolist()), "missing_count": missing_count}
+            counts = series.value_counts().sort_index().to_dict()
+            design_audit[field] = {
+                "type": "categorical",
+                "levels": sorted(series.unique().tolist()),
+                "level_counts": {str(key): int(value) for key, value in counts.items()},
+                "singleton_levels": [str(key) for key, value in counts.items() if value == 1],
+                "rare_levels": [str(key) for key, value in counts.items() if value < 5],
+                "missing_count": missing_count,
+            }
     design = np.column_stack([np.ones(len(case_ids)), *design_parts]) if design_parts else np.ones((len(case_ids), 1))
+    design_rank = int(np.linalg.matrix_rank(design))
     original_matrix = matrix.copy()
     coefficients = np.linalg.lstsq(design, matrix, rcond=None)[0]
     corrected = matrix - design @ coefficients
@@ -146,6 +155,9 @@ def build_ct_discovery_feature_matrix(
         return {"median_r2": float(np.median(r2)), "q90_r2": float(np.quantile(r2, .9)), "max_r2": float(np.max(r2))}
     confound_metrics = {
         "fields": design_audit,
+        "design_shape": [int(value) for value in design.shape],
+        "design_rank": design_rank,
+        "residual_df": max(len(case_ids) - design_rank, 0),
         "technical_r2_before": explained_variance(original_matrix),
         "technical_r2_after": explained_variance(corrected),
         "correction": "least_squares_residualization_with_intercept",
@@ -180,7 +192,7 @@ def build_ct_affinity(
     """Build the production CT affinity from the shared discovery matrix."""
     import numpy as np
     from scipy.spatial.distance import cdist
-    from snf.compute import affinity_matrix
+    from tools.evidence_features import distance_to_affinity
     from utils.llm_utils import load_candidate_proposer_config
 
     payload = build_ct_discovery_feature_matrix(
@@ -192,11 +204,7 @@ def build_ct_affinity(
     affinity = (
         np.ones((1, 1), dtype=float)
         if len(payload["patient_ids"]) == 1
-        else affinity_matrix(
-            distance,
-            K=min(max(int(snf_config["neighbor_count"]), 1), len(payload["patient_ids"]) - 1),
-            mu=float(snf_config["mu"]),
-        )
+        else distance_to_affinity(distance, snf_config)
     )
     return {**payload, "affinity": np.asarray(affinity, dtype=float)}
 

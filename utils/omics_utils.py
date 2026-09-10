@@ -18,8 +18,9 @@ def collect_case_file_paths(
         records = list(case.get(modality_key, []) or [])
         file_path = ""
         for record in records:
-            file_path = str(record.get("File Path", "") or "").strip()
-            if file_path:
+            candidate = str(record.get("File Path", "") or "").strip()
+            if candidate and Path(candidate).exists():
+                file_path = candidate
                 break
         if file_path:
             rows.append((case_id, file_path))

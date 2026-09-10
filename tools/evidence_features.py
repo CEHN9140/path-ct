@@ -8,6 +8,33 @@ import json
 import numpy as np
 
 
+def distance_to_affinity(distance: np.ndarray, config: Mapping[str, Any]) -> np.ndarray:
+    from snf.compute import affinity_matrix
+
+    values = np.asarray(distance, dtype=float)
+    if values.ndim != 2 or values.shape[0] != values.shape[1]:
+        raise ValueError("distance must be a square matrix")
+    if not np.isfinite(values).all():
+        raise ValueError("distance contains non-finite values")
+    values = (values + values.T) / 2.0
+    if np.min(values) < 0:
+        raise ValueError("distance must be nonnegative")
+    np.fill_diagonal(values, 0.0)
+    if len(values) < 2:
+        return np.ones(values.shape, dtype=float)
+    affinity = np.asarray(
+        affinity_matrix(
+            values,
+            K=min(max(int(config["neighbor_count"]), 1), len(values) - 1),
+            mu=float(config["mu"]),
+        ),
+        dtype=float,
+    )
+    affinity = np.clip((affinity + affinity.T) / 2.0, 0.0, 1.0)
+    np.fill_diagonal(affinity, 1.0)
+    return affinity
+
+
 def build_modality_affinity_artifacts(
     patient_states: Sequence[Mapping[str, Any]],
     *,
@@ -167,15 +194,31 @@ def build_legacy_feature_payload(
 def fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, Any]) -> np.ndarray:
     import snf
 
-    networks = [np.nan_to_num(affinities[name], nan=0.0, posinf=0.0, neginf=0.0) for name in ("ct", "wsi", "rna", "wxs", "cnv")]
+    networks = list(affinities.values()) if isinstance(affinities, Mapping) else list(affinities)
+    if not networks:
+        raise ValueError("at least one affinity network is required")
+    networks = [np.asarray(network, dtype=float) for network in networks]
+    shape = networks[0].shape
+    if len(shape) != 2 or shape[0] != shape[1]:
+        raise ValueError("affinity networks must be square")
+    for network in networks:
+        if network.shape != shape or not np.isfinite(network).all():
+            raise ValueError("affinity networks must have equal finite shapes")
+        if np.min(network) < 0 or not np.allclose(network, network.T, atol=1e-8):
+            raise ValueError("affinity networks must be nonnegative and symmetric")
+    networks = [np.clip((network + network.T) / 2.0, 0.0, 1.0) for network in networks]
+    for network in networks:
+        np.fill_diagonal(network, 1.0)
     if len(networks) == 1:
         return networks[0]
+    if shape[0] < 2:
+        return np.ones(shape, dtype=float)
     fused = snf.snf(
         *networks,
-        K=min(max(int(config["neighbor_count"]), 1), len(networks[0]) - 1),
+        K=min(max(int(config["neighbor_count"]), 1), shape[0] - 1),
         t=int(config["iterations"]),
         alpha=float(config["alpha"]),
     )
-    fused = np.maximum((np.asarray(fused) + np.asarray(fused).T) / 2.0, 0.0)
+    fused = np.clip((np.asarray(fused) + np.asarray(fused).T) / 2.0, 0.0, 1.0)
     np.fill_diagonal(fused, 1.0)
     return fused

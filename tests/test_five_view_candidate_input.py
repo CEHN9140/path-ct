@@ -17,7 +17,7 @@ def test_candidate_payload_uses_independent_five_views(tmp_path, monkeypatch):
     matrices = {}
     for index, name in enumerate(("ct", "wsi", "rna", "wxs", "cnv"), 1):
         path = tmp_path / f"{name}.npy"
-        matrices[name] = np.full((3, 3), index, dtype=float)
+        matrices[name] = np.full((3, 3), index / 10, dtype=float)
         np.fill_diagonal(matrices[name], 1.0)
         np.save(path, matrices[name])
         paths[name] = str(path)
@@ -111,3 +111,12 @@ def test_candidate_payload_rejects_corrupt_affinity(tmp_path):
         proposer.build_feature_store_payload(
             states, config_dir=str(config_dir), output_root=str(tmp_path)
         )
+
+
+def test_fusion_rejects_nonfinite_network():
+    from tools.evidence_features import fuse_affinities
+
+    with pytest.raises(ValueError, match="finite"):
+        fuse_affinities([np.array([[1.0, np.nan], [np.nan, 1.0]])], {
+            "neighbor_count": 1, "iterations": 1, "alpha": 1.0,
+        })

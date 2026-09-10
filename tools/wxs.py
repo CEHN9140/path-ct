@@ -9,7 +9,6 @@ from typing import Any, Mapping, Sequence
 import pandas as pd
 import numpy as np
 from scipy.spatial.distance import cdist
-from snf.compute import affinity_matrix
 
 from utils.io import ensure_dir, write_json
 from utils.cache_utils import hash_payload, semantic_config
@@ -86,26 +85,9 @@ def load_wxs_config(config_dir: str) -> dict[str, Any]:
 
 
 def wxs_distance_affinity(distance: np.ndarray, snf_config: Mapping[str, Any]) -> np.ndarray:
-    values = np.asarray(distance, dtype=float)
-    if len(values) < 2:
-        return np.ones(values.shape)
-    values = np.nan_to_num((values + values.T) / 2.0, nan=1.0, posinf=1.0, neginf=1.0)
-    np.fill_diagonal(values, 0.0)
-    scale = float(values.max())
-    if scale > 0:
-        values /= scale
-    affinity = np.asarray(
-        affinity_matrix(
-            values,
-            K=min(max(int(snf_config.get("neighbor_count", 20)), 1), len(values) - 1),
-            mu=float(snf_config.get("mu", 0.5)),
-        ),
-        dtype=float,
-    )
-    diagonal = np.sqrt(np.maximum(np.diag(affinity)[:, None] * np.diag(affinity)[None, :], 1e-12))
-    affinity = np.clip((affinity / diagonal + (affinity / diagonal).T) / 2.0, 0.0, 1.0)
-    np.fill_diagonal(affinity, 1.0)
-    return affinity
+    from tools.evidence_features import distance_to_affinity
+
+    return distance_to_affinity(distance, snf_config)
 
 
 def binary_mutation_distance(binary: np.ndarray, empty_mutation_distance: float) -> np.ndarray:
