@@ -23,6 +23,7 @@ from utils.tool_utils import (
     safe_identifier,
     save_snapshot,
 )
+from agents.inventory import missing_five_view_reasons
 
 
 WSI_EMBEDDING_RUNTIME_KEYS = {
@@ -487,6 +488,58 @@ def save_modality_affinity_artifacts(
     return paths
 
 
+def filter_five_view_states(
+    patient_states: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    updated_states = []
+    complete_states = []
+    audit = {
+        "pre_qc_count": len(patient_states),
+        "ct_wsi_pass_count": sum(state.get("qc") == "success" for state in patient_states),
+    }
+    for reason in (
+        "missing_ct",
+        "missing_wsi",
+        "missing_rna",
+        "missing_wxs",
+        "missing_cnv",
+        "missing_ct_feature",
+        "missing_wsi_embedding",
+        "ct_wsi_qc_failed",
+    ):
+        audit[f"excluded_{reason}"] = []
+    excluded = {}
+    for state in patient_states:
+        updated = dict(state)
+        reasons = set(str(item) for item in list(state.get("missing_view_reason", []) or []))
+        if state.get("qc") != "success":
+            if not reasons:
+                reasons.add("ct_wsi_qc_failed")
+        else:
+            reasons.update(missing_five_view_reasons(dict(state.get("inventory", {}) or {})))
+            if not Path(str(dict(state.get("ct_evidence", {}) or {}).get("feature_path", "") or "")).is_file():
+                reasons.add("missing_ct_feature")
+            if not Path(str(dict(state.get("wsi_evidence", {}) or {}).get("feature_path", "") or "")).is_file():
+                reasons.add("missing_wsi_embedding")
+        if reasons:
+            reason_list = sorted(reasons)
+            updated["qc"] = "fail"
+            updated["missing_view_reason"] = reason_list
+            case_id = str(updated.get("case_id", "") or dict(updated.get("inventory", {}) or {}).get("Case_ID", ""))
+            for reason in reason_list:
+                excluded.setdefault(reason, []).append(case_id)
+        else:
+            complete_states.append(updated)
+        updated_states.append(updated)
+    audit.update(
+        {
+            "five_view_complete_count": len(complete_states),
+            **{f"excluded_{reason}": sorted(case_ids) for reason, case_ids in excluded.items()},
+        }
+    )
+    return updated_states, complete_states, audit
+
+
 def build_evidence_states(
     patient_states: list[dict[str, Any]], *, output_root: str, config_dir: str = ""
 ) -> list[dict[str, Any]]:
@@ -502,10 +555,13 @@ def build_evidence_states(
         run_case_cnv_features,
     )
 
+    patient_states, complete_states, cohort_audit = filter_five_view_states(patient_states)
+    Path(output_root).mkdir(parents=True, exist_ok=True)
+    (Path(output_root) / "five_view_cohort_audit.json").write_text(
+        json.dumps(cohort_audit, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     cohort_cases = []
-    for patient_state in patient_states:
-        if patient_state.get("qc") != "success":
-            continue
+    for patient_state in complete_states:
         inventory = dict(patient_state.get("inventory", {}) or {})
         cohort_cases.append(
             {

@@ -646,13 +646,19 @@ def ct_qc(
 ) -> list[dict[str, Any]]:
     from tools.ct_qc import run_ct_qc
 
-    cases = [case_from_state(item) for item in patient_states]
+    eligible_states = [item for item in patient_states if item.get("qc") == "success"]
+    if not eligible_states:
+        return [dict(item) for item in patient_states]
+    cases = [case_from_state(item) for item in eligible_states]
     ct_result = run_ct_qc(cases, output_root=output_root, config_dir=config_dir)
     summaries = dict(ct_result.get("selection_summaries", {}) or {})
     updated_states = []
     for patient_state in patient_states:
         case = case_from_state(patient_state)
         case_id = str(case.get("Case_ID", "") or "unknown_case")
+        if patient_state.get("qc") != "success":
+            updated_states.append(dict(patient_state))
+            continue
         if not case.get("CT"):
             updated_states.append({**build_patient_state(case, overall="fail"), "qc": "fail"})
             continue

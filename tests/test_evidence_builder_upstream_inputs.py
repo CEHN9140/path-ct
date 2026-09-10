@@ -79,7 +79,14 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
     state = {
         "case_id": "A",
         "qc": "success",
-        "inventory": {"Case_ID": "A"},
+        "inventory": {
+            "Case_ID": "A",
+            "CT": [{"File Path": str(tmp_path / "ct.json")}],
+            "WSI": [{"File Path": str(tmp_path / "wsi.npy")}],
+            "RNA_Seq": [{"File Path": str(tmp_path / "rna.csv")}],
+            "WXS": [{"File Path": str(tmp_path / "wxs.npy")}],
+            "CNV": [{"File Path": str(tmp_path / "cnv.csv")}],
+        },
         "ct_evidence": {
             "features": {f"feature_{index}": index for index in range(500)},
             "feature_path": str(tmp_path / "ct.json"),
