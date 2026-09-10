@@ -108,6 +108,20 @@ def wxs_distance_affinity(distance: np.ndarray, snf_config: Mapping[str, Any]) -
     return affinity
 
 
+def binary_mutation_distance(binary: np.ndarray, empty_mutation_distance: float) -> np.ndarray:
+    values = np.asarray(binary, dtype=bool)
+    inter = values.astype(int) @ values.astype(int).T
+    union = values.sum(1)[:, None] + values.sum(1)[None, :] - inter
+    distance = np.divide(
+        union - inter,
+        union,
+        out=np.full_like(union, float(empty_mutation_distance), dtype=float),
+        where=union > 0,
+    )
+    np.fill_diagonal(distance, 0.0)
+    return distance
+
+
 def read_wxs_mutations(manifest_path: Path, patient_ids: list[str]) -> pd.DataFrame:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     paths = {str(row["case_id"]): Path(row["file_path"]) for row in manifest["input_cases"]}
@@ -189,10 +203,7 @@ def build_wxs_cnv_artifacts(
     validation_features.index.name = "case_id"
     validation_features.reset_index().to_csv(validation, index=False)
     binary = discovery_features.to_numpy(bool)
-    inter = binary.astype(int) @ binary.astype(int).T
-    union = binary.sum(1)[:, None] + binary.sum(1)[None, :] - inter
-    distance = np.divide(union - inter, union, out=np.full_like(inter, float(config["empty_mutation_distance"]), dtype=float), where=union > 0)
-    np.fill_diagonal(distance, 0.0)
+    distance = binary_mutation_distance(binary, config["empty_mutation_distance"])
     wxs_affinity = wxs_distance_affinity(distance, snf)
     cnv = pd.read_csv(cnv_cache["case_features_path"]).set_index("case_id").reindex(patients).to_numpy(float)
     median = np.median(cnv, axis=0, keepdims=True)
@@ -212,6 +223,10 @@ def build_wxs_cnv_artifacts(
         "wxs_feature_count": int(discovery_features.shape[1]),
         "cnv_feature_count": int(cnv.shape[1]),
         "cnv_zero_variance_count": int(np.sum(iqr.reshape(-1) == 0)),
+        "distance_metric": "jaccard_binary",
+        "empty_mutation_distance": float(config["empty_mutation_distance"]),
+        "zero_vector_patient_count": int(np.sum(binary.sum(axis=1) == 0)),
+        "zero_zero_pair_count": int(np.triu(np.outer(binary.sum(axis=1) == 0, binary.sum(axis=1) == 0), 1).sum()),
     }, indent=2), encoding="utf-8")
     return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "wxs_affinity_path": str(wxs_path), "cnv_affinity_path": str(cnv_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}
 

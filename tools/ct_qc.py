@@ -24,7 +24,7 @@ PHASE_PRIORITY = {
     "NEPH": 0, "MAIN_CE_HIGH": 1, "MAIN_CE_MEDIUM": 2,
     "CE_UNSPECIFIED": 3, "ART": 4, "DEL": 5, "NC": 6, "UNKNOWN": 6,
 }
-CT_QC_CACHE_VERSION = 3
+CT_QC_CACHE_VERSION = 4
 CT_QC_RUNTIME_KEYS = {
     "device",
     "devices",
@@ -184,7 +184,7 @@ def technical_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
 def select_best_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        if candidate_pass(row):
+        if candidate_pass(row) and pretreatment_pass(row):
             grouped.setdefault(str(row.get("case_id", "")), []).append(row)
     selected = {case_id: min(items, key=lambda row: (phase_priority(row), technical_key(row))) for case_id, items in grouped.items()}
     assert len(selected) == len(grouped)
@@ -513,7 +513,13 @@ def prepare_ct_cases(cases: list[Mapping[str, Any]], ct_qc_dir: Path, config: Ma
 def build_case_summary(case_id: str, records: list[dict[str, Any]], prefilter_report_path: str) -> dict[str, Any]:
     records = annotate_phases(records)
     selected = select_best_series(records).get(case_id)
-    selected_ok = bool(selected and pretreatment_pass(selected))
+    if selected is not None and not pretreatment_pass(selected):
+        raise AssertionError("select_best_series returned a post-treatment CT series")
+    selected_ok = bool(selected)
+    candidate_records = [row for row in records if candidate_pass(row)]
+    post_treatment_excluded_count = sum(
+        not pretreatment_pass(row) for row in candidate_records
+    )
     case_output_dir = Path(prefilter_report_path).parent
     selected_file = ""
     selected_series = {}
@@ -554,6 +560,13 @@ def build_case_summary(case_id: str, records: list[dict[str, Any]], prefilter_re
             else ["no_valid_candidate_series"]
         ),
         "dicom_prefilter_report_path": prefilter_report_path,
+        "series_selection": {
+            "total_series_count": len(records),
+            "qc_eligible_count_before_treatment_filter": len(candidate_records),
+            "post_treatment_excluded_count": post_treatment_excluded_count,
+            "pretreatment_eligible_count": len(candidate_records) - post_treatment_excluded_count,
+            "selection_rule": "pretreatment_filter_then_phase_and_technical_ranking",
+        },
         "series_summaries": [{**row, "selected_by_current_qc": bool(selected and row.get("series_uid") == selected.get("series_uid"))} for row in records],
         "selected_series": selected_series,
         "selected_files": [selected_entry] if selected else [],

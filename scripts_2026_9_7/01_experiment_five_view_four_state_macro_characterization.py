@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from scripts_2026_8_31 import analyze_multi_k_stable_cores as base
+from scripts_2026_8_31 import experiment_multi_k_accepted_core_stability as stability
 from scripts_2026_8_31 import experiment_macro_state_analysis as previous_macro
 from scripts_2026_8_31.five_view_experiment import load_five_view_inputs
 
@@ -47,6 +48,22 @@ def validate_stable_cores(cores, patient_ids):
     if not set(members).issubset(patient_ids):
         raise ValueError("stable-core病例不完全存在于5-view patient order中")
     return cores
+
+
+def build_five_view_stable_core_root(multi_k_root, patient_ids):
+    result = stability.analyze(
+        multi_k_root,
+        patient_ids,
+        stability.INITIAL_KS,
+        stability.REPEATS,
+        min_core_size=5,
+    )
+    if result.get("analysis_status") != "complete":
+        raise RuntimeError(
+            "Five-view multi-K review is incomplete: "
+            f"{result.get('valid_run_count', 0)}/{result.get('expected_run_count', 21)} valid runs."
+        )
+    return multi_k_root
 
 
 def evidence_comparison_rows(
@@ -100,7 +117,7 @@ def write_distance_matrices(output_root, distances):
 
 def run(
     data_root=ROOT / "output_kirc",
-    stable_root=ROOT / "output_kirc_v12/15_five_view_multi_k_stability",
+    multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review",
     output_root=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization",
     config_dir=ROOT / "configs",
     top_pathways=25,
@@ -117,11 +134,10 @@ def run(
     figures.mkdir()
 
     states, _ = base.load_states(data_root)
-    source_cores, _ = base.load_cores(stable_root)
-    order_path = stable_root / "affinity_patient_order.npy"
-    if not order_path.is_file():
-        raise FileNotFoundError(f"Missing 5-view patient order: {order_path}")
-    patient_ids = [str(value) for value in np.load(order_path, allow_pickle=True).tolist()]
+    patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, config_dir)
+    multi_k_root = Path(multi_k_root)
+    build_five_view_stable_core_root(multi_k_root, patient_ids)
+    source_cores, _ = base.load_cores(multi_k_root)
     validate_stable_cores(source_cores, set(patient_ids))
     macro_states = build_macro_states(source_cores)
     stable_ids = sorted(set().union(*(set(values) for values in macro_states.values())))
@@ -143,11 +159,6 @@ def run(
         for case_id in members
     ])
 
-    patient_order, matrices, fused, _ = load_five_view_inputs(
-        data_root, stable_root, output_root, config_dir
-    )
-    if patient_order != patient_ids:
-        raise ValueError("5-view patient order changed while loading affinity inputs")
     affinities = {name: matrices[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")}
     affinities["fused"] = fused
 
@@ -188,7 +199,7 @@ def run(
     base.write_csv(output_root / "macro_state_permanova.csv", [{"modality": modality, **tests[modality]["permanova"]} for modality in tests])
     base.write_csv(output_root / "macro_state_permdisp.csv", [{"modality": modality, **tests[modality]["permdisp"]} for modality in tests])
 
-    core_runs = base.load_core_runs(stable_root)
+    core_runs = base.load_core_runs(multi_k_root)
     co_run, co_k = base.cooccurrence_from_runs(core_runs, macro_states)
     base.write_csv(output_root / "macro_state_cooccurrence_by_run.csv", co_run)
     base.write_csv(output_root / "macro_state_cooccurrence_by_k.csv", co_k)
@@ -254,13 +265,13 @@ def run(
         "projection_methods": projection,
         "analysis_scope": "69 five-view stable-core patients",
         "taxonomy_limitation": "No external ClearCode34, ccA/ccB, or TCGA molecular subtype labels were supplied; this experiment does not claim known-taxonomy recovery.",
-        "source_stable_core_sha256": base.file_sha256(stable_root / "stable_core_membership.csv"),
+        "source_stable_core_sha256": base.file_sha256(multi_k_root / "stable_core_membership.csv"),
     }
     generated = sorted(str(path.relative_to(output_root)) for path in output_root.rglob("*") if path.is_file())
     base.write_json(output_root / "macro_state_analysis_manifest.json", {
         "macro_state_cores": MACRO_STATE_CORES,
         "analysis_parameters": {"top_pathways": top_pathways, "top_cnv": top_cnv, "random_state": random_state, "modalities": list(affinities)},
-        "source_stable_core_root": str(stable_root),
+        "source_five_view_multi_k_root": str(multi_k_root),
         "generated_files": generated,
     })
     base.write_json(output_root / "macro_state_analysis_summary.json", summary)
@@ -270,7 +281,7 @@ def run(
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc")
-    parser.add_argument("--stable-root", type=Path, default=ROOT / "output_kirc_v12/15_five_view_multi_k_stability")
+    parser.add_argument("--multi-k-root", type=Path, default=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--top-pathways", type=int, default=25)

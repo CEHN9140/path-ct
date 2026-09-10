@@ -85,6 +85,20 @@ def test_formal_qc_rejects_explicit_post_treatment():
     assert pretreatment_pass({"series_description": "RENAL CT"}) is True
 
 
+def test_selection_filters_post_treatment_before_ranking():
+    post_treatment = make_series("A", "post", "NEPH", thickness=1)
+    post_treatment["study_description"] = "STATUS POST RIGHT NEPHRECTOMY"
+    pretreatment = make_series("A", "pre", "ART", thickness=2)
+    pretreatment["study_description"] = "PREOPERATIVE CT"
+    assert select_best_series([post_treatment, pretreatment])["A"]["series_uid"] == "pre"
+
+
+def test_selection_returns_no_series_when_all_candidates_are_post_treatment():
+    post = make_series("A", "post", "NEPH")
+    post["study_description"] = "STATUS POST RIGHT NEPHRECTOMY"
+    assert select_best_series([post]) == {}
+
+
 def test_ct_qc_rebuilds_series_rows_when_config_changes(tmp_path, monkeypatch):
     import json
     import tools.ct_qc as ct_qc

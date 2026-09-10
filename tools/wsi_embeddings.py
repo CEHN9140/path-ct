@@ -135,6 +135,7 @@ def load_gigapath_models(shared_config: Mapping[str, Any]) -> dict[str, Any]:
             Path(str(shared_config["slide_encoder_checkpoint_path"])).expanduser()
         ),
         "slide_encoder_arch": str(shared_config["slide_encoder_arch"]),
+        "global_pool": bool(shared_config.get("global_pool", True)),
         "flash_attention_available": flash_attention_available,
         "flash_attention_error": flash_attention_error,
     }
@@ -228,12 +229,20 @@ def run_gigapath_slide(
                 models["slide_encoder_checkpoint_path"],
                 models["slide_encoder_arch"],
                 embedding_dim,
+                global_pool=bool(models["global_pool"]),
             )
         models["slide_encoder"].eval().to(device)
         models["tile_embedding_dim"] = embedding_dim
     elif embedding_dim != models["tile_embedding_dim"]:
         raise RuntimeError(
             f"Tile embedding dimension changed from {models['tile_embedding_dim']} to {embedding_dim}."
+        )
+
+    actual_global_pool = getattr(models["slide_encoder"], "global_pool", None)
+    if actual_global_pool is not True:
+        raise RuntimeError(
+            "Prov-GigaPath slide encoder must use global_pool=True "
+            f"for slide embedding extraction, got {actual_global_pool!r}"
         )
 
     with quiet_tool_logs(), torch.no_grad():
@@ -261,7 +270,8 @@ def run_gigapath_slide(
         "tile_embedding_dim": embedding_dim,
         "slide_embedding_dim": int(slide_embedding.shape[-1]),
         "flash_attention_available": models["flash_attention_available"],
-        "slide_embedding_mode": "gigapath_slide_encoder",
+        "slide_embedding_mode": "gigapath_slide_encoder_global_pool",
+        "global_pool": True,
         "device": str(device),
         "batch_size": batch_size,
         "num_workers": loader_options["num_workers"],
@@ -276,6 +286,7 @@ def run_gigapath_slide(
             "patch_count": patch_count,
             "tile_embedding_dim": embedding_dim,
             "slide_embedding_dim": int(slide_embedding.shape[-1]),
+            "global_pool": True,
             "elapsed_seconds": elapsed_seconds,
         },
         "artifacts": {
@@ -307,7 +318,7 @@ def run_embedding_worker(payload: dict[str, Any]) -> int:
                 payload={
                     **slide_result["payload"],
                     "cache_signature": str(run_config.get("cache_signature") or ""),
-                    "semantic_cache_version": 1,
+                    "semantic_cache_version": 3,
                 },
             )
         except Exception as exc:
@@ -355,6 +366,7 @@ def run_wsi_embeddings_cohort(
         "tile_encoder_checkpoint_path": str(checkpoint_dir / "pytorch_model.bin"),
         "slide_encoder_checkpoint_path": str(checkpoint_dir / "slide_encoder.pth"),
         "slide_encoder_arch": str(config["slide_encoder_arch"]),
+        "global_pool": bool(config.get("global_pool", True)),
     }
     runs = []
     for request_value in requests:

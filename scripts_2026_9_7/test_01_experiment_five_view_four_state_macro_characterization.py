@@ -57,3 +57,25 @@ def test_evidence_comparison_uses_four_state_pair_denominator():
     assert rows[0]["four_state_total_pairs"] == 6
     assert rows[0]["six_core_supported_pairs"] == 1
     assert rows[0]["four_state_supported_pairs"] == 0
+
+
+def test_five_view_stability_is_aggregated_from_multi_k_root(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_analyze(root, patient_ids, initial_ks, repeats, min_core_size):
+        calls.append((root, patient_ids, initial_ks, repeats, min_core_size))
+        return {"analysis_status": "complete"}
+
+    monkeypatch.setattr(experiment.stability, "analyze", fake_analyze)
+    assert experiment.build_five_view_stable_core_root(tmp_path, ["P1"]) == tmp_path
+    assert calls == [(tmp_path, ["P1"], experiment.stability.INITIAL_KS, experiment.stability.REPEATS, 5)]
+
+
+def test_five_view_stability_rejects_incomplete_multi_k_results(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        experiment.stability,
+        "analyze",
+        lambda *args, **kwargs: {"analysis_status": "partial", "valid_run_count": 3, "expected_run_count": 21},
+    )
+    with pytest.raises(RuntimeError, match="3/21"):
+        experiment.build_five_view_stable_core_root(tmp_path, ["P1"])

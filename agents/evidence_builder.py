@@ -50,7 +50,7 @@ def wsi_embedding_cache_signature(
     )
     return hash_payload(
         {
-            "cache_version": 2,
+            "cache_version": 3,
             "semantic_config": signature_config,
             "upstream": {
                 "wsi_tumor_seg": str(
@@ -268,7 +268,7 @@ def wsi_embeddings(
         {
             "slide_path": context["selected_slide_path"],
             "cache_signature": context["current_cache_signature"],
-            "semantic_cache_version": 2,
+            "semantic_cache_version": 3,
         }
     )
     save_snapshot(
