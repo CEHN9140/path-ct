@@ -144,6 +144,7 @@ def build_genomic_discovery_artifacts(
     out = ensure_dir(Path(output_root) / "wxs")
     discovery = out / "wxs_discovery_features.csv"
     validation = out / "wxs_validation_features.csv"
+    wxs_path = out / "wxs_affinity.npy"
     cnv_path, genomic_path = out / "cnv_affinity.npy", out / "genomic_affinity.npy"
     order_path, audit_path = out / "wxs_discovery_patient_order.json", out / "wxs_discovery_audit.json"
     signature = hash_payload(
@@ -160,9 +161,9 @@ def build_genomic_discovery_artifacts(
             "patient_ids": patients,
         }
     )
-    if audit_path.is_file() and genomic_path.is_file() and cnv_path.is_file() and order_path.is_file() and discovery.is_file() and validation.is_file():
+    if audit_path.is_file() and wxs_path.is_file() and genomic_path.is_file() and cnv_path.is_file() and order_path.is_file() and discovery.is_file() and validation.is_file():
         if json.loads(audit_path.read_text()).get("artifact_signature") == signature:
-            return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "cnv_affinity_path": str(cnv_path), "genomic_affinity_path": str(genomic_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}
+            return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "wxs_affinity_path": str(wxs_path), "cnv_affinity_path": str(cnv_path), "genomic_affinity_path": str(genomic_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}
     mutations = read_wxs_mutations(Path(wxs_cache["manifest_path"]), patients)
     if mutations.empty:
         mutations = pd.DataFrame(columns=["patient_id", "gene", "classification", "variant_type", "chromosome", "start"])
@@ -198,7 +199,7 @@ def build_genomic_discovery_artifacts(
     cnv = np.divide(cnv - median, iqr, out=np.zeros_like(cnv), where=iqr > 0)
     cnv_affinity = wxs_distance_affinity(cdist(cnv, cnv), snf)
     genomic = combine_genomic_affinities(wxs_affinity, cnv_affinity, snf)
-    np.save(cnv_path, cnv_affinity); np.save(genomic_path, genomic)
+    np.save(wxs_path, wxs_affinity); np.save(cnv_path, cnv_affinity); np.save(genomic_path, genomic)
     order_path.write_text(json.dumps(patients, indent=2), encoding="utf-8")
     audit_path.write_text(json.dumps({
         "artifact_signature": signature,
@@ -217,7 +218,7 @@ def build_genomic_discovery_artifacts(
         "cnv_feature_count": int(cnv.shape[1]),
         "cnv_zero_variance_count": int(np.sum(iqr.reshape(-1) == 0)),
     }, indent=2), encoding="utf-8")
-    return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "cnv_affinity_path": str(cnv_path), "genomic_affinity_path": str(genomic_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}
+    return {"wxs_discovery_feature_path": str(discovery), "wxs_validation_feature_path": str(validation), "wxs_affinity_path": str(wxs_path), "cnv_affinity_path": str(cnv_path), "genomic_affinity_path": str(genomic_path), "wxs_patient_order_path": str(order_path), "wxs_discovery_audit_path": str(audit_path)}
 
 
 def read_cnv_case_features(file_path: str, threshold: float = 0.2) -> dict[str, float]:

@@ -9,7 +9,7 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
     import tools.rna as rna
     import tools.wxs as wxs
 
-    for name in ("ct.json", "wsi.npy", "rna.csv", "cnv.csv", "genomic.npy", "order.json"):
+    for name in ("ct.json", "wsi.npy", "rna.csv", "cnv.csv", "wxs.npy", "genomic.npy", "order.json"):
         (tmp_path / name).write_text("[]", encoding="utf-8")
     (tmp_path / "candidate_proposer.yaml").write_text("snf: {}\n", encoding="utf-8")
     (tmp_path / "candidate_subtype").mkdir()
@@ -33,6 +33,8 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
         wxs,
         "build_genomic_discovery_artifacts",
         lambda *args, **kwargs: {
+            "wxs_affinity_path": str(tmp_path / "wxs.npy"),
+            "cnv_affinity_path": str(tmp_path / "cnv.csv"),
             "genomic_affinity_path": str(tmp_path / "genomic.npy"),
             "wxs_patient_order_path": str(tmp_path / "order.json"),
         },
@@ -55,7 +57,7 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
         evidence_features,
         "build_modality_affinity_artifacts",
         lambda *args, **kwargs: {
-            "modality_affinities": {"ct": None, "wsi": None, "rna": None},
+            "modality_affinities": {name: None for name in ("ct", "wsi", "rna", "wxs", "cnv")},
             "audit": {},
         },
     )
@@ -66,7 +68,8 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
             "ct": str(tmp_path / "ct_affinity.npy"),
             "wsi": str(tmp_path / "wsi_affinity.npy"),
             "rna": str(tmp_path / "rna_affinity.npy"),
-            "genomic": str(tmp_path / "genomic.npy"),
+            "wxs": str(tmp_path / "wxs.npy"),
+            "cnv": str(tmp_path / "cnv.csv"),
         },
     )
     monkeypatch.setattr(

@@ -15,8 +15,10 @@ from utils.candidate_clustering_outputs import (
     save_candidate_clustering_outputs,
 )
 from utils.cluster_store import save_candidate_clusters
-from utils.llm_utils import load_candidate_proposer_config, load_yaml_file, resolve_api_key
+from utils.llm_utils import load_candidate_proposer_config, resolve_api_key
 from utils.patient_store import save_patient_states
+
+CANDIDATE_VIEWS = ("ct", "wsi", "rna", "wxs", "cnv")
 
 
 def snf_fuse(
@@ -487,11 +489,9 @@ def build_feature_store_payload(
     if not eligible:
         empty = np.zeros((0, 0), dtype=float)
         return {"eligible_patient_ids": [], "z_snf": empty, "modality_affinities": {}, "feature_engineering_audit": {}}
-    from utils.llm_utils import load_yaml_file
-
     snf_config = load_candidate_proposer_config(config_dir).get("snf", {})
     paths = dict(eligible[0].get("omics_evidence", {}).get("modality_affinity_paths", {}))
-    required = {"ct", "wsi", "rna", "genomic"}
+    required = set(CANDIDATE_VIEWS)
     if not required.issubset(paths):
         raise ValueError("Evidence-stage modality affinity artifacts are incomplete.")
     order_path = Path(str(eligible[0]["omics_evidence"]["modality_affinity_patient_order_path"]))
@@ -499,7 +499,7 @@ def build_feature_store_payload(
     patient_ids = [str(item.get("case_id", "")) for item in eligible]
     if [str(value) for value in order] != patient_ids:
         raise ValueError("Precomputed modality affinity patient order mismatch.")
-    modality_affinities = {name: np.asarray(np.load(Path(paths[name])), dtype=float) for name in required}
+    modality_affinities = {name: np.asarray(np.load(Path(paths[name])), dtype=float) for name in CANDIDATE_VIEWS}
     expected_shape = (len(patient_ids), len(patient_ids))
     if any(matrix.shape != expected_shape for matrix in modality_affinities.values()):
         raise ValueError("Evidence-stage modality affinity shapes do not match the patient cohort.")
@@ -512,7 +512,7 @@ def build_feature_store_payload(
         "z_wsi": empty,
         "z_rna": empty,
         "z_wxs": empty,
-        "z_snf": fuse_affinities([modality_affinities[name] for name in ("ct", "wsi", "rna", "genomic")], snf_config),
+        "z_snf": fuse_affinities([modality_affinities[name] for name in CANDIDATE_VIEWS], snf_config),
         "snf_config": snf_config,
         "ct_feature_names": [],
         "ct_ccc_filter": dict(audit.get("ct", {}) or {}),
@@ -594,7 +594,7 @@ def candidate_proposer(
             {
                 "cluster_id": "C1",
                 "member_ids": patient_ids,
-                "source_views": ["snf"],
+                "source_views": list(CANDIDATE_VIEWS),
                 "status": "under_review",
                 "generator": {
                     "algorithm": "consensus_hierarchical",
@@ -888,7 +888,7 @@ def candidate_proposer(
                             {
                                 "cluster_id": f"C{len(candidate_clusters) + 1:04d}",
                                 "member_ids": members,
-                                "source_views": ["snf"],
+                                "source_views": list(CANDIDATE_VIEWS),
                                 "status": "under_review",
                                 "generator": {
                                     "algorithm": "consensus_hierarchical",

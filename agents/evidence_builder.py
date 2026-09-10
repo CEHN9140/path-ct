@@ -475,11 +475,12 @@ def save_modality_affinity_artifacts(
         path = affinity_dir / f"{modality}_affinity.npy"
         np.save(path, modality_affinities[modality])
         paths[modality] = str(path)
-    genomic_path = Path(genomic_discovery["genomic_affinity_path"])
+    wxs_path = Path(genomic_discovery["wxs_affinity_path"])
+    cnv_path = Path(genomic_discovery["cnv_affinity_path"])
     order_path = Path(genomic_discovery["wxs_patient_order_path"])
-    if not genomic_path.is_file() or json.loads(order_path.read_text(encoding="utf-8")) != patient_ids:
-        raise ValueError("WXS genomic affinity artifacts do not match the evidence cohort.")
-    paths["genomic"] = str(genomic_path)
+    if not wxs_path.is_file() or not cnv_path.is_file() or json.loads(order_path.read_text(encoding="utf-8")) != patient_ids:
+        raise ValueError("WXS/CNV affinity artifacts do not match the evidence cohort.")
+    paths.update({"wxs": str(wxs_path), "cnv": str(cnv_path)})
     (affinity_dir / "feature_engineering_audit.json").write_text(
         json.dumps(dict(audit), ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -686,7 +687,7 @@ def build_evidence_states(
             upstream_inputs.append({"key": key, "file": file_identity(value)})
     affinity_cache_signature = hash_payload(
         {
-            "cache_version": 2,
+            "cache_version": 3,
             "patient_ids": patient_ids,
             "semantic_config": {
                 "snf": snf_config,
@@ -697,6 +698,7 @@ def build_evidence_states(
                     ],
                     "confound_correction": correction_config,
                 },
+                "candidate_views": ["ct", "wsi", "rna", "wxs", "cnv"],
             },
             "ct_confounders": ct_confounders,
             "upstream_inputs": sorted(
@@ -713,7 +715,7 @@ def build_evidence_states(
     cached_paths = dict(affinity_manifest.get("paths", {}) or {})
     if (
         affinity_manifest.get("cache_signature") == affinity_cache_signature
-        and bool(cached_paths)
+        and set(cached_paths) == {"ct", "wsi", "rna", "wxs", "cnv"}
         and all(Path(path).is_file() for path in cached_paths.values())
         and (affinity_dir / "feature_engineering_audit.json").is_file()
     ):
@@ -725,6 +727,7 @@ def build_evidence_states(
             eligible_states,
             config_dir=config_dir,
             output_root=output_root,
+            genomic_discovery=genomic_discovery,
         )
         affinity_paths = save_modality_affinity_artifacts(
             output_root=output_root,
@@ -734,7 +737,7 @@ def build_evidence_states(
             audit=feature_payload.get("audit", {}),
         )
         affinity_manifest = {
-            "cache_version": 2,
+            "cache_version": 3,
             "cache_signature": affinity_cache_signature,
             "patient_ids": patient_ids,
             "paths": affinity_paths,

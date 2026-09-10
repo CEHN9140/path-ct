@@ -22,7 +22,13 @@ def snf_fuse_feature_matrices(
     from snf.compute import affinity_matrix
     import snf
 
-    specs = [("euclidean", False), ("cosine", False), ("correlation", True), ("jaccard", False)]
+    specs = [
+        ("euclidean", False),
+        ("cosine", False),
+        ("correlation", True),
+        ("jaccard", False),
+        ("euclidean", False),
+    ]
     matrices = []
     for index, matrix in enumerate(feature_matrices[: len(specs)]):
         values = np.asarray(matrix, dtype=float)
@@ -62,8 +68,9 @@ def build_modality_affinity_artifacts(
     *,
     output_root: str,
     config_dir: str = "",
+    genomic_discovery: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build CT, WSI and RNA networks from their tool-owned feature artifacts."""
+    """Build the five independent candidate-generation affinity networks."""
     from tools.ct_radiomics import build_ct_affinity
     from tools.rna import build_rna_affinity
     from tools.wsi_affinity import build_wsi_affinity
@@ -71,8 +78,20 @@ def build_modality_affinity_artifacts(
     ct = build_ct_affinity(patient_states, config_dir=config_dir, output_root=output_root)
     wsi = build_wsi_affinity(patient_states, config_dir=config_dir)
     rna = build_rna_affinity(patient_states, config_dir=config_dir)
+    artifacts = dict(genomic_discovery or {})
+    order_path = Path(artifacts["wxs_patient_order_path"])
+    wxs = {
+        "affinity": np.load(artifacts["wxs_affinity_path"]),
+        "patient_ids": json.loads(order_path.read_text(encoding="utf-8")),
+        "audit": {"source": "wxs_discovery_features", "metric": "jaccard"},
+    }
+    cnv = {
+        "affinity": np.load(artifacts["cnv_affinity_path"]),
+        "patient_ids": wxs["patient_ids"],
+        "audit": {"source": "cnv_case_features", "metric": "euclidean"},
+    }
     patient_ids = list(ct["patient_ids"])
-    for name, result in (("wsi", wsi), ("rna", rna)):
+    for name, result in (("wsi", wsi), ("rna", rna), ("wxs", wxs), ("cnv", cnv)):
         if list(result["patient_ids"]) != patient_ids:
             raise ValueError(f"{name} feature patient order does not match CT cohort")
     return {
@@ -81,12 +100,16 @@ def build_modality_affinity_artifacts(
             "ct": ct["affinity"],
             "wsi": wsi["affinity"],
             "rna": rna["affinity"],
+            "wxs": wxs["affinity"],
+            "cnv": cnv["affinity"],
         },
         "audit": {
             "source": "tool_owned_modality_features",
             "ct": ct["audit"],
             "wsi": wsi["audit"],
             "rna": rna["audit"],
+            "wxs": wxs["audit"],
+            "cnv": cnv["audit"],
         },
     }
 
@@ -164,7 +187,14 @@ def build_legacy_feature_payload(
     if wsi.ndim == 2:
         norms = np.linalg.norm(wsi, axis=1, keepdims=True)
         wsi = np.divide(wsi, norms, out=np.zeros_like(wsi), where=norms > 0)
-    matrices = {"ct": (ct, "euclidean"), "wsi": (wsi, "cosine"), "rna": (rna, "correlation"), "genomic": (np.asarray(wxs_values, dtype=float), "jaccard")}
+    cnv_values = []
+    for state in states:
+        cnv_values.append([float(value) for value in dict(state.get("omics_evidence", {}) or {}).get("cnv_features", [])])
+    matrices = {
+        "ct": (ct, "euclidean"), "wsi": (wsi, "cosine"), "rna": (rna, "correlation"),
+        "wxs": (np.asarray(wxs_values, dtype=float), "jaccard"),
+        "cnv": (np.asarray(cnv_values, dtype=float), "euclidean"),
+    }
     affinities = {}
     for modality, (values, metric) in matrices.items():
         if values.ndim != 2 or values.shape[1] == 0:
@@ -181,7 +211,7 @@ def build_legacy_feature_payload(
         "z_rna": rna,
         "z_wxs": np.asarray(wxs_values, dtype=float),
         "z_snf": _fuse_affinities(affinities, snf_config),
-        "snf_config": {**snf_config, "wxs_representation": "frequency_filtered_gene_binary", "modality_metrics": {"ct": "euclidean", "wsi": "cosine", "rna": "spearman", "genomic": "jaccard"}},
+        "snf_config": {**snf_config, "wxs_representation": "frequency_filtered_gene_binary", "modality_metrics": {"ct": "euclidean", "wsi": "cosine", "rna": "spearman", "wxs": "jaccard", "cnv": "euclidean"}},
         "ct_feature_names": names,
         "ct_ccc_filter": ccc_filter,
         "modality_affinities": affinities,
@@ -192,7 +222,7 @@ def build_legacy_feature_payload(
 def _fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, Any]) -> np.ndarray:
     import snf
 
-    networks = [np.nan_to_num(affinities[name], nan=0.0, posinf=0.0, neginf=0.0) for name in ("ct", "wsi", "rna", "genomic")]
+    networks = [np.nan_to_num(affinities[name], nan=0.0, posinf=0.0, neginf=0.0) for name in ("ct", "wsi", "rna", "wxs", "cnv")]
     if len(networks) == 1:
         return networks[0]
     fused = snf.snf(
