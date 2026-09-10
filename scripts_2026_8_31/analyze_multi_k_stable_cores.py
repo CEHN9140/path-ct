@@ -321,10 +321,13 @@ def clinical_analysis(records: dict[str, dict], cores: dict[str, list[str]], all
     return rows, pair_rows, survival
 
 
-def load_expression_scores(states: dict[str, dict], config_dir: Path):
+def load_expression_scores(states: dict[str, dict], config_dir: Path, data_root: Path | None = None):
     from tools.pathway_enrichment import rna_feature_path, ssgsea_scores
     from tools.subtype_review_common import feature_dataframe, read_gmt_gene_sets, tool_parameters
-    feature_frame = feature_dataframe(rna_feature_path(states)); params = tool_parameters(str(config_dir), "rna"); pathways, _ = read_gmt_gene_sets(str(params.get("pathway_gene_sets_path", ""))); min_overlap = max(int(params.get("min_pathway_overlap", 15) or 15), 1)
+    feature_path = Path(rna_feature_path(states))
+    if not feature_path.is_file() and data_root:
+        feature_path = data_root / "rna" / feature_path.name
+    feature_frame = feature_dataframe(str(feature_path)); params = tool_parameters(str(config_dir), "rna"); pathways, _ = read_gmt_gene_sets(str(params.get("pathway_gene_sets_path", ""))); min_overlap = max(int(params.get("min_pathway_overlap", 15) or 15), 1)
     if feature_frame.empty or not pathways: raise RuntimeError("RNA ssGSEA inputs are unavailable")
     pathways = {pathway: [gene for gene in genes if gene in feature_frame.columns] for pathway, genes in pathways.items()}; pathways = {pathway: genes for pathway, genes in pathways.items() if len(genes) >= min_overlap}
     if not pathways: raise RuntimeError("No Hallmark pathway meets the configured gene-overlap requirement")

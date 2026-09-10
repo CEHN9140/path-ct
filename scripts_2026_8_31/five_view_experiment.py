@@ -24,7 +24,25 @@ def load_five_view_inputs(data_root: Path, config_dir: Path):
     view_names = ("ct", "wsi", "rna", "wxs", "cnv")
     if any(name not in paths for name in view_names):
         raise ValueError("Canonical 5-view affinity cache is incomplete.")
-    matrices = {name: np.asarray(np.load(paths[name]), dtype=float) for name in view_names}
+    def resolve_path(name: str) -> Path:
+        recorded = Path(paths[name])
+        candidates = [
+            recorded,
+            candidate_dir / recorded.name,
+            data_root / "wxs" / recorded.name,
+        ]
+        for path in candidates:
+            if path.is_file():
+                return path
+        raise FileNotFoundError(
+            f"Canonical {name} affinity is missing; checked: "
+            + ", ".join(str(path) for path in candidates)
+        )
+
+    matrices = {
+        name: np.asarray(np.load(resolve_path(name)), dtype=float)
+        for name in view_names
+    }
     fused = np.asarray(np.load(candidate_dir / "fused_similarity.npy"), dtype=float)
     expected_shape = (len(order), len(order))
     if fused.shape != expected_shape or any(matrix.shape != expected_shape for matrix in matrices.values()):
