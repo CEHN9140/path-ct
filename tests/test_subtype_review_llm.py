@@ -234,19 +234,19 @@ def test_api_key_must_come_from_configured_environment(monkeypatch):
         resolve_api_key({"api_key": "inline"})
 
 
-def test_verifier_acquisition_binds_requested_real_tools_only():
+def test_verifier_acquisition_binds_only_eligible_real_tools():
     model = BoundModel(["unused"])
     first = SimpleNamespace(name="multimodal_consistency_check")
     second = SimpleNamespace(name="pathway_enrichment")
     verifier = VerifierChatModel(model, AuditModel(), "prompt", [first, second])
     verifier.invoke({
         "mode": "acquire",
-        "tool_requests": [
-            {"tool_name": "multimodal_consistency_check"},
-            {"tool_name": "pathway_enrichment"},
-        ],
+        "eligible_tools": {
+            "multimodal_consistency_check": {},
+            "pathway_enrichment": {},
+        },
     })
-    assert model.bind_calls[0]["tool_choice"] == "required"
+    assert model.bind_calls[0]["tool_choice"] == "auto"
     assert {tool.name for tool in model.bind_calls[0]["tools"]} == {
         "multimodal_consistency_check", "pathway_enrichment"
     }

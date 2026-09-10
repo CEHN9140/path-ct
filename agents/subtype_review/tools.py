@@ -54,7 +54,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "pathway_enrichment": {
         "tool_name": "pathway_enrichment",
         "dimension": "biological_support",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "RNA pathway enrichment for every current set.",
@@ -63,7 +63,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "mutation_enrichment": {
         "tool_name": "mutation_enrichment",
         "dimension": "biological_support",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "WXS mutation enrichment for every current set.",
@@ -72,7 +72,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "cnv_characterization": {
         "tool_name": "cnv_characterization",
         "dimension": "biological_support",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "CNV characterization for every current set.",
@@ -81,7 +81,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "multimodal_consistency_check": {
         "tool_name": "multimodal_consistency_check",
         "dimension": "cross_modal_consistency",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "CT, WSI, RNA, WXS and CNV affinity diagnostics for the current partition.",
@@ -90,7 +90,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "confound_test": {
         "tool_name": "confound_test",
         "dimension": "confounder_exclusion",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "Technical confounder diagnostics for every current set.",
@@ -99,7 +99,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "known_label_echo_test": {
         "tool_name": "known_label_echo_test",
         "dimension": "known_label_echo",
-        "default_every_round": True,
+        "verifier_selectable": True,
         "scope": "partition",
         "targeting": "partition",
         "description": "Whole-partition comparison with known stage and grade labels.",
@@ -108,22 +108,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "clinical_characterization": {
         "tool_name": "clinical_characterization",
         "dimension": "biological_support",
-        "default_every_round": False,
-        "router_requestable": False,
+        "verifier_selectable": False,
         "scope": "set_identity",
         "targeting": "all_sets",
         "description": "Optional clinical descriptors for the current sets.",
         "function": clinical_characterization,
     },
 }
-
-DEFAULT_REVIEW_TOOLS = tuple(
-    name for name, metadata in TOOL_REGISTRY.items() if metadata["default_every_round"]
-)
-EXTRA_REVIEW_TOOLS = tuple(
-    name for name, metadata in TOOL_REGISTRY.items() if not metadata["default_every_round"]
-)
-
 
 def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
     payload = dict(raw or {})
@@ -192,8 +183,10 @@ def build_validation_tools(registry: Mapping[str, Mapping[str, Any]] | None = No
     registry = registry or TOOL_REGISTRY
     result = []
     for name, metadata in registry.items():
-        def request_tool(tool_name: str = name) -> str:
-            return f"Python will execute {tool_name} for the current partition."
+        def request_tool(
+            target_ids: list[str] | None = None, _tool_name: str = name
+        ) -> str:
+            return f"Python will execute {_tool_name} for targets {target_ids or []}."
 
         result.append(tool(name, description=str(metadata["description"]))(request_tool))
     return result

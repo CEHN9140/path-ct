@@ -56,18 +56,24 @@ class EvidenceReportBatch(BaseModel):
     reports: list[EvidenceReport] = Field(default_factory=list)
 
 
-class ToolRequest(BaseModel):
+class EvidenceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool_name: str
+    dimension: Literal[
+        "biological_support",
+        "cross_modal_consistency",
+        "confounder_exclusion",
+        "known_label_echo",
+    ]
     target_ids: list[str] = Field(default_factory=list)
+    question: str
 
-    @field_validator("tool_name")
+    @field_validator("question")
     @classmethod
-    def nonempty_name(cls, value: str) -> str:
+    def nonempty_question(cls, value: str) -> str:
         value = str(value).strip()
         if not value:
-            raise ValueError("tool_name must not be empty")
+            raise ValueError("question must not be empty")
         return value
 
     @field_validator("target_ids")
@@ -80,7 +86,7 @@ class RouterAction(BaseModel):
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
-    tool_requests: list[ToolRequest] = Field(default_factory=list)
+    evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
     @field_validator("target_ids")
@@ -91,15 +97,15 @@ class RouterAction(BaseModel):
     @model_validator(mode="after")
     def valid_shape(self) -> "RouterAction":
         if self.action == "need_more_evidence":
-            if not self.tool_requests:
-                raise ValueError("need_more_evidence requires tool_requests")
+            if not self.evidence_requests:
+                raise ValueError("need_more_evidence requires evidence_requests")
             if any(
                 not set(request.target_ids).issubset(self.target_ids)
-                for request in self.tool_requests
+                for request in self.evidence_requests
             ):
-                raise ValueError("tool request targets must belong to the action")
-        elif self.tool_requests:
-            raise ValueError("scientific actions cannot contain tool_requests")
+                raise ValueError("evidence request targets must belong to the action")
+        elif self.evidence_requests:
+            raise ValueError("scientific actions cannot contain evidence_requests")
         if self.action in {"accept", "drop", "split"} and len(self.target_ids) != 1:
             raise ValueError(f"{self.action} requires one target")
         if self.action == "merge" and len(self.target_ids) != 2:
@@ -162,6 +168,7 @@ class ReviewState(TypedDict, total=False):
     partition: dict[str, Any]
     round_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
+    evidence_memory: dict[str, list[dict[str, Any]]]
     messages: list[Any]
     router_plan: dict[str, Any] | None
     revision_plan: dict[str, Any] | None

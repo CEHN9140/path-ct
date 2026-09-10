@@ -48,12 +48,12 @@ def plan_signature(plan: Mapping[str, Any]) -> str:
         actions.append({
             "action": action.get("action"),
             "target_ids": sorted(action.get("target_ids", []) or []),
-            "tool_requests": sorted(
+            "evidence_requests": sorted(
                 (
-                    request.get("tool_name"),
+                    request.get("dimension"),
                     tuple(sorted(request.get("target_ids", []) or [])),
                 )
-                for request in action.get("tool_requests", []) or []
+                for request in action.get("evidence_requests", []) or []
             ),
         })
     return json.dumps(sorted(actions, key=lambda item: (item["action"], item["target_ids"])), sort_keys=True)

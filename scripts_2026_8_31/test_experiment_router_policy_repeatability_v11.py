@@ -27,7 +27,7 @@ def test_v11_router_calibration_reuses_one_canonical_payload_for_all_replays(tmp
 
         def invoke(self, payload):
             self.payloads.append(json.loads(json.dumps(payload, sort_keys=True)))
-            return {"actions": [{"action": "accept", "target_ids": ["C1"], "tool_requests": [], "reason": "consistent"}]}
+            return {"actions": [{"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "consistent"}]}
 
     router = Router()
     monkeypatch.setattr(experiment, "load_yaml_file", lambda path: {"llm": {"model_name": "test", "temperature": 0}})
@@ -75,7 +75,7 @@ def test_v11_calibration_marks_mutated_replay_payload_invalid(tmp_path, monkeypa
     class MutatingRouter:
         def invoke(self, payload):
             payload["mutated"] = True
-            return {"actions": [{"action": "accept", "target_ids": ["C1"], "tool_requests": [], "reason": "ok"}]}
+            return {"actions": [{"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "ok"}]}
 
     monkeypatch.setattr(experiment, "load_yaml_file", lambda path: {"llm": {}})
     monkeypatch.setattr(experiment, "review_signature_manifest", lambda config, config_dir: {})

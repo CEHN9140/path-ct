@@ -46,7 +46,7 @@ def replay_payload(entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, 
         "evidence_reports": summarize_reports(state["reports"]),
         "structural_index": compact_structural_index(state),
         "tool_registry": registry_payload,
-        "available_extra_evidence": [],
+        "available_evidence_requests": [],
         "round": entry.get("round", 1),
         "instruction": "Router-only replay: use saved evidence and structural_index; do not request new evidence.",
     }

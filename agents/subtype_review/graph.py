@@ -14,6 +14,7 @@ from agents.subtype_review.llm import parse_json_content, parse_revision_plan, p
 from agents.subtype_review.llm_summary import summarize_reports
 from agents.subtype_review.schemas import (
     EVIDENCE_DIMENSIONS,
+    EvidenceRequest,
     EvidenceReportBatch,
     MergePlan,
     ReviewContext,
@@ -22,7 +23,6 @@ from agents.subtype_review.schemas import (
     RouterAction,
     RouterPlan,
     SplitPlan,
-    ToolRequest,
     set_id,
 )
 from agents.subtype_review.tools import (
@@ -70,18 +70,14 @@ def compact_partition_for_llm(state: Mapping[str, Any]) -> dict[str, Any]:
 def required_reports_for_round(
     state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
-    tools = registry(runtime)
-    sets = [set_id(item) for item in current_sets(state)]
     grouped: dict[tuple[str, str, str], set[str]] = {}
-    for request in state["control"].get("pending_tools", []) or []:
-        metadata = tools[request["tool_name"]]
-        if metadata["scope"] == "partition":
-            key = (metadata["dimension"], "partition", "")
-            grouped.setdefault(key, set()).add(request["tool_name"])
-            continue
-        for target in request.get("target_ids", []) or sets:
-            key = (metadata["dimension"], "set_identity", str(target))
-            grouped.setdefault(key, set()).add(request["tool_name"])
+    for row in state.get("round_evidence", []) or []:
+        target_ids = [str(target) for target in row.get("target_ids", []) or []]
+        targets = [""] if row.get("scope") == "partition" else target_ids
+        for target in targets:
+            grouped.setdefault(
+                (str(row["dimension"]), str(row["scope"]), target), set()
+            ).add(str(row["tool_name"]))
     return [
         {
             "dimension": dimension,
@@ -96,14 +92,19 @@ def required_reports_for_round(
 def expected_tool_refs_for_round(
     state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> dict[tuple[str, str, str], list[str]]:
-    return {
-        (
-            request["dimension"],
-            request["scope"],
-            next(iter(request["target_ids"]), ""),
-        ): list(request["tool_names"])
-        for request in required_reports_for_round(state, runtime)
-    }
+    grouped: dict[tuple[str, str, str], set[str]] = {}
+    signature = partition_signature(current_sets(state))
+    rows = [
+        *[row for row in state.get("history", []) for row in row.get("round_evidence", [])],
+        *list(state.get("round_evidence", []) or []),
+    ]
+    for row in rows:
+        if row.get("partition_signature") != signature or row.get("status") not in {"success", "scientific_unavailable"}:
+            continue
+        targets = [""] if row.get("scope") == "partition" else row.get("target_ids", [])
+        for target in targets:
+            grouped.setdefault((str(row["dimension"]), str(row["scope"]), str(target)), set()).add(str(row["tool_name"]))
+    return {key: sorted(value) for key, value in grouped.items()}
 
 
 def context_values(runtime: Any) -> dict[str, Any]:
@@ -155,22 +156,6 @@ def mark_success(state: dict[str, Any]) -> None:
     state["control"] = control
 
 
-def tool_requests_for_round(
-    state: Mapping[str, Any], names: list[str], tools: Mapping[str, Mapping[str, Any]]
-) -> list[dict[str, Any]]:
-    targets = [set_id(item) for item in current_sets(state)]
-    requests = []
-    for name in names:
-        metadata = tools[name]
-        requests.append(
-            ToolRequest(
-                tool_name=name,
-                target_ids=[] if metadata["scope"] == "partition" else targets,
-            ).model_dump()
-        )
-    return requests
-
-
 def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
     sets = []
     for item in candidate_sets:
@@ -191,6 +176,7 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
         "partition": {"sets": sets},
         "round_evidence": [],
         "reports": [],
+        "evidence_memory": {},
         "messages": [],
         "router_plan": None,
         "revision_plan": None,
@@ -204,11 +190,10 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "error": None,
             "max_rounds": 10,
             "max_failures": 3,
-            "extra_tool_requests": [],
+            "pending_evidence_requests": [],
             "router_validation_error": None,
             "router_correction_attempted": False,
-            "pending_tools": [],
-            "budget_evidence": False,
+            "eligible_tools": {},
             "trace": [],
         },
     }
@@ -220,38 +205,39 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     values = context_values(runtime)
     tools = registry(values)
     control = dict(state["control"])
-    extra_requests = [
-        ToolRequest.model_validate(request).model_dump()
-        for request in control.get("extra_tool_requests", []) or []
-    ]
-    default_names = [
-        name for name, metadata in tools.items() if metadata.get("default_every_round")
-    ]
-    if control.get("round", 0) >= control.get("max_rounds", 10):
-        if not control.get("budget_evidence"):
-            control["status"] = "review_incomplete_due_to_round_budget"
-            control["next"] = "end"
-            state["control"] = control
-            return state
-        names = []
-    else:
-        names = default_names
-    if not names and not extra_requests:
-        raise ValueError("No scientific tools are available for the round")
-    if any(name not in tools for name in names):
-        raise ValueError("Round contains an unregistered scientific tool")
-    if any(request["tool_name"] not in tools for request in extra_requests):
-        raise ValueError("Round contains an unregistered scientific tool")
-    merged_requests = {}
-    for request in extra_requests:
-        name = request["tool_name"]
-        targets = merged_requests.setdefault(name, set())
-        if tools[name]["scope"] == "set_identity":
-            targets.update(request["target_ids"])
-    extra_requests = [
-        {"tool_name": name, "target_ids": sorted(targets)}
-        for name, targets in merged_requests.items()
-    ]
+    requests = (
+        [EvidenceRequest.model_validate(item).model_dump() for item in control.get("pending_evidence_requests", [])]
+        or [
+            EvidenceRequest(
+                dimension=dimension,
+                target_ids=[] if dimension == "known_label_echo" else [set_id(item) for item in current_sets(state)],
+                question=f"Interpret the current {dimension} evidence.",
+            ).model_dump()
+            for dimension in EVIDENCE_DIMENSIONS
+        ]
+    )
+    signature = partition_signature(current_sets(state))
+    completed = completed_tool_keys(state)
+    eligible = {}
+    for name, metadata in sorted(tools.items()):
+        if not metadata.get("verifier_selectable"):
+            continue
+        matching = [request for request in requests if request["dimension"] == metadata["dimension"]]
+        if not matching or metadata["scope"] == "partition" and any(request["target_ids"] for request in matching):
+            continue
+        if metadata["scope"] == "partition":
+            if (name, signature, "") in completed:
+                continue
+            eligible[name] = {"dimension": metadata["dimension"], "scope": metadata["scope"], "target_ids": [], "description": metadata["description"]}
+            continue
+        targets = {
+            target
+            for request in matching
+            for target in request["target_ids"]
+            if (name, signature, target) not in completed
+        }
+        if targets:
+            eligible[name] = {"dimension": metadata["dimension"], "scope": metadata["scope"], "target_ids": sorted(targets), "description": metadata["description"]}
     state["round_evidence"] = []
     state["messages"] = []
     state["router_plan"] = None
@@ -259,23 +245,23 @@ def prepare_round_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     state["revision_result"] = None
     control["failed_revision_plan_signatures"] = []
     control["revision_validation_error"] = None
-    control["pending_tools"] = [
-        *tool_requests_for_round(state, names, tools),
-        *extra_requests,
-    ]
-    control["extra_tool_requests"] = []
+    state["reports"] = copy.deepcopy(state.get("evidence_memory", {}).get(signature, []))
+    control["pending_evidence_requests"] = requests
+    control["eligible_tools"] = eligible
     control["next"] = "verifier_acquire"
-    control["partition_signature"] = partition_signature(current_sets(state))
+    control["partition_signature"] = signature
     state["control"] = control
     append_trace(state, {
         "node": "prepare_round",
         "event": "prepared",
-        "tools": [request["tool_name"] for request in control["pending_tools"]],
+        "evidence_requests": requests,
+        "eligible_tools": sorted(eligible),
     })
     return state
 
 
 def completed_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
+    signature = partition_signature(current_sets(state))
     keys = set()
     rows = list(state.get("round_evidence", []) or [])
     rows.extend(
@@ -284,6 +270,8 @@ def completed_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
         for row in entry.get("round_evidence", []) or []
     )
     for row in rows:
+        if row.get("partition_signature") != signature:
+            continue
         if row.get("status") in {"success", "scientific_unavailable"}:
             base = (
                 str(row.get("tool_name", "")),
@@ -296,27 +284,45 @@ def completed_tool_keys(state: Mapping[str, Any]) -> set[tuple[str, str, str]]:
     return keys
 
 
-def available_extra_evidence(
+def current_partition_evidence(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    signature = partition_signature(current_sets(state))
+    rows = [
+        row
+        for entry in state.get("history", []) or []
+        for row in entry.get("round_evidence", []) or []
+    ]
+    rows.extend(state.get("round_evidence", []) or [])
+    return [row for row in rows if row.get("partition_signature") == signature]
+
+
+def available_evidence_requests(
     state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     tools = registry(runtime)
+    eligible = dict(state["control"].get("eligible_tools", {}) or {})
     signature = partition_signature(current_sets(state))
     completed = completed_tool_keys(state)
-    available = []
+    requests = []
     for name, metadata in sorted(tools.items()):
-        if metadata.get("default_every_round") or not metadata.get(
-            "router_requestable", not metadata.get("default_every_round", False)
-        ):
+        if name not in eligible or not metadata.get("verifier_selectable"):
             continue
         if metadata["scope"] == "partition":
-            if (name, signature, "") not in completed:
-                available.append({"tool_name": name, "target_ids": []})
+            if (name, signature, "") in completed:
+                continue
+            requests.append({
+                "dimension": metadata["dimension"],
+                "target_ids": [],
+                "question": f"Clarify the current {metadata['dimension']} evidence.",
+            })
             continue
-        for item in current_sets(state):
-            target = set_id(item)
-            if (name, signature, target) not in completed:
-                available.append({"tool_name": name, "target_ids": [target]})
-    return available
+        requests.extend({
+            "dimension": metadata["dimension"],
+            "target_ids": [target],
+            "question": f"Clarify the current {metadata['dimension']} evidence for {target}.",
+        } for target in eligible[name].get("target_ids", [])
+          if (name, signature, target) not in completed)
+    unique = {(item["dimension"], tuple(item["target_ids"])): item for item in requests}
+    return [unique[key] for key in sorted(unique)]
 
 
 def execute_tool_calls(
@@ -325,25 +331,56 @@ def execute_tool_calls(
     calls = list(getattr(message, "tool_calls", []) or [])
     if isinstance(message, Mapping):
         calls = list(message.get("tool_calls", []) or [])
-    names = [
-        str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", ""))
-        for call in calls
-    ]
-    pending = [dict(item) for item in state["control"].get("pending_tools", [])]
-    requested = [str(item["tool_name"]) for item in pending]
-    if sorted(names) != sorted(requested) or len(names) != len(set(names)):
-        raise ValueError(f"Verifier tool calls do not match registry requests: {names} != {requested}")
+    names = [str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", "")) for call in calls]
+    if len(names) != len(set(names)):
+        raise ValueError("Verifier cannot call the same registered tool twice")
     sets = current_sets(state)
     signature = partition_signature(sets)
+    tools = registry(runtime)
+    eligible = dict(state["control"].get("eligible_tools", {}) or {})
+    requests = state["control"].get("pending_evidence_requests", []) or []
     cluster_state = {
         "cluster_id": partition_artifact_id(signature),
         "member_ids": sorted(member for item in sets for member in item["member_ids"]),
     }
     results = []
     messages = [*state.get("messages", []), message]
-    for request in pending:
-        name = str(request["tool_name"])
-        metadata = registry(runtime)[name]
+    for call in calls:
+        name = str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", ""))
+        if name not in tools:
+            raise ValueError(f"Verifier called an unregistered tool: {name}")
+        metadata = tools[name]
+        if not metadata.get("verifier_selectable"):
+            raise ValueError(f"Tool {name} is not selectable by Verifier")
+        if name not in eligible:
+            raise ValueError(f"Verifier called tool not listed in eligible_tools: {name}")
+        args = call.get("args", {}) if isinstance(call, Mapping) else getattr(call, "args", {})
+        if isinstance(args, str):
+            args = parse_json_content(args)
+        args = dict(args or {})
+        target_ids = sorted({str(target) for target in args.get("target_ids", []) or [] if str(target)})
+        known = {set_id(item) for item in sets}
+        if not set(target_ids).issubset(known):
+            raise ValueError(f"Verifier tool {name} targeted a non-current set")
+        if metadata["scope"] == "partition" and target_ids:
+            raise ValueError(f"Partition tool {name} cannot target sets")
+        if metadata["scope"] == "set_identity" and not target_ids:
+            raise ValueError(f"Set tool {name} requires target_ids")
+        available_targets = set(eligible[name].get("target_ids", []) or [])
+        if metadata["scope"] == "set_identity" and not set(target_ids).issubset(available_targets):
+            raise ValueError(f"Verifier tool {name} targeted an ineligible set")
+        matching = [request for request in requests if request["dimension"] == metadata["dimension"]]
+        if metadata["scope"] == "partition":
+            if not any(not request["target_ids"] for request in matching):
+                raise ValueError(f"Verifier tool {name} does not answer a pending EvidenceRequest")
+        elif not any(set(target_ids).issubset(set(request["target_ids"])) for request in matching):
+            raise ValueError(f"Verifier tool {name} does not answer the selected EvidenceRequest")
+        completed = completed_tool_keys(state)
+        if metadata["scope"] == "partition":
+            if (name, signature, "") in completed:
+                raise ValueError(f"Verifier repeated completed tool {name}")
+        elif any((name, signature, target) in completed for target in target_ids):
+            raise ValueError(f"Verifier repeated completed tool {name} for target")
         raw = metadata["function"](
             cluster_state,
             dict(runtime.get("patient_states_by_id", {}) or {}),
@@ -351,7 +388,7 @@ def execute_tool_calls(
             config_dir=str(runtime.get("config_dir", "")),
             all_cluster_states=sets,
             scope=str(metadata["scope"]),
-            target_ids=list(request.get("target_ids", []) or []),
+            target_ids=target_ids,
             artifact_root=str(runtime.get("artifact_root", runtime.get("data_root", ""))),
         )
         compact = compact_tool_result(raw, name)
@@ -363,20 +400,16 @@ def execute_tool_calls(
         compact.update({
             "dimension": metadata["dimension"],
             "scope": metadata["scope"],
-            "target_ids": list(request.get("target_ids", []) or []),
+            "target_ids": target_ids,
             "partition_signature": signature,
         })
         results.append(compact)
-        call = next(
-            call for call in calls
-            if str(call.get("name", "") if isinstance(call, Mapping) else getattr(call, "name", "")) == name
-        )
         call_id = str(call.get("id", name) if isinstance(call, Mapping) else getattr(call, "id", name))
         tool_message_payload = {
             "tool_name": name,
             "dimension": metadata["dimension"],
             "scope": metadata["scope"],
-            "target_ids": list(request.get("target_ids", []) or []),
+            "target_ids": target_ids,
             "status": compact["status"],
             "metrics": compact["metrics"],
             "warnings": list(compact.get("warnings", []) or []),
@@ -401,7 +434,7 @@ def execute_tool_calls(
     control = dict(state["control"])
     control["next"] = "verifier_audit"
     state["control"] = control
-    append_trace(state, {"node": "verifier", "event": "tools", "tools": requested})
+    append_trace(state, {"node": "verifier", "event": "tool_selection", "tools": names})
 
 
 def raw_metric_refs(rows: list[Mapping[str, Any]]) -> set[str]:
@@ -417,7 +450,7 @@ def metric_blocks_for_report(
 ) -> list[str]:
     rows = {
         str(row.get("tool_name", "")): row
-        for row in state.get("round_evidence", []) or []
+        for row in current_partition_evidence(state)
     }
     target = next(iter(report.target_ids), "")
     refs = []
@@ -445,15 +478,10 @@ def metric_blocks_for_report(
 
 
 def expected_report_keys(state: Mapping[str, Any], runtime: Mapping[str, Any]) -> set[tuple[str, str, str]]:
-    sets = [set_id(item) for item in current_sets(state)]
     keys = set()
-    for request in state["control"].get("pending_tools", []):
-        metadata = registry(runtime)[request["tool_name"]]
-        if metadata["scope"] == "partition":
-            keys.add((metadata["dimension"], "partition", ""))
-        else:
-            targets = request.get("target_ids", []) or sets
-            keys.update((metadata["dimension"], "set_identity", target) for target in targets)
+    for row in state.get("round_evidence", []) or []:
+        targets = [""] if row.get("scope") == "partition" else row.get("target_ids", [])
+        keys.update((str(row["dimension"]), str(row["scope"]), str(target)) for target in targets)
     return keys
 
 
@@ -461,10 +489,13 @@ def validate_reports(
     batch: EvidenceReportBatch, state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> None:
     sets = {set_id(item) for item in current_sets(state)}
-    raw = list(state.get("round_evidence", []) or [])
-    raw_by_name = {str(row["tool_name"]): row for row in raw}
-    requested_names = set(raw_by_name)
     expected = expected_report_keys(state, runtime)
+    prior_keys = {
+        (str(report["dimension"]), str(report["scope"]), next(iter(report.get("target_ids", [])), ""))
+        for report in state.get("reports", []) or []
+    }
+    allowed_keys = expected | prior_keys
+    expected_refs = expected_tool_refs_for_round(state, runtime)
     reported = set()
     for report in batch.reports:
         targets = set(report.target_ids)
@@ -479,33 +510,20 @@ def validate_reports(
         )
         if key in reported:
             raise ValueError("Duplicate Evidence Report")
-        if key not in expected:
-            raise ValueError("Evidence Report does not match a requested tool scope")
-        if not set(report.tool_refs).issubset(requested_names):
-            raise ValueError("Evidence Report references an unrequested tool")
+        if key not in allowed_keys:
+            raise ValueError("Evidence Report does not match current evidence")
         if not report.tool_refs:
             raise ValueError("Evidence Report must cite tool_refs")
         target = next(iter(targets), "")
-        allowed = {
-            name for name, row in raw_by_name.items()
-            if row["dimension"] == report.dimension
-            and row["scope"] == report.scope
-            and (
-                not row.get("target_ids", [])
-                if report.scope == "partition"
-                else target in row.get("target_ids", [])
-            )
-        }
+        allowed = set(expected_refs.get(key, []))
         if set(report.tool_refs) != allowed:
             raise ValueError(
                 f"Evidence Report tool_refs mismatch for {key}: "
                 f"expected={sorted(allowed)} got={sorted(report.tool_refs)}"
             )
         reported.add(key)
-    if reported != expected:
+    if not expected.issubset(reported):
         raise ValueError(f"Evidence Reports must cover exactly current targets: {expected - reported}")
-    if set().union(*(set(report.tool_refs) for report in batch.reports)) != requested_names:
-        raise ValueError("Evidence Reports must account for every requested tool")
     for report in batch.reports:
         report.metric_refs = metric_blocks_for_report(report, state)
 
@@ -519,7 +537,9 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             result = model.invoke({
                 "mode": "acquire",
                 "partition": state["partition"],
-                "tool_requests": control["pending_tools"],
+                "evidence_requests": control["pending_evidence_requests"],
+                "current_evidence": state.get("reports", []),
+                "eligible_tools": control.get("eligible_tools", {}),
                 "round": control["round"],
             })
             execute_tool_calls(state, result, values)
@@ -530,7 +550,12 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         audit_payload = {
             "mode": "audit",
             "partition": compact_partition_for_llm(state),
-            "required_reports": required_reports_for_round(state, values),
+            "required_reports": [
+                {key: value for key, value in item.items() if key != "tool_names"}
+                for item in required_reports_for_round(state, values)
+            ],
+            "prior_reports": state.get("reports", []),
+            "round_evidence": state.get("round_evidence", []),
             "tool_messages": list(state.get("messages", [])),
             "round": control["round"],
         }
@@ -566,11 +591,24 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         except Exception as exc:
             mark_failure(state, "verifier", exc, immediate=True)
             return state
-        state["reports"] = [report.model_dump() for report in batch.reports]
+        merged = {
+            (
+                str(report["dimension"]),
+                str(report["scope"]),
+                next(iter(report.get("target_ids", [])), ""),
+            ): dict(report)
+            for report in state.get("reports", []) or []
+        }
+        for report in batch.reports:
+            key = (report.dimension, report.scope, next(iter(report.target_ids), ""))
+            merged[key] = report.model_dump()
+        state["reports"] = list(merged.values())
+        signature = control.get("partition_signature", partition_signature(current_sets(state)))
+        state.setdefault("evidence_memory", {})[signature] = copy.deepcopy(state["reports"])
         mark_success(state)
         append_trace(state, {"node": "verifier", "event": "reports", "count": len(batch.reports)})
         control = dict(state["control"])
-        if control.get("budget_evidence"):
+        if control.get("round", 0) >= control.get("max_rounds", 10):
             control["status"] = "review_incomplete_due_to_round_budget"
             control["next"] = "end"
         else:
@@ -581,38 +619,29 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     return state
 
 
-def validate_tool_request(
-    request: ToolRequest, state: Mapping[str, Any], runtime: Mapping[str, Any], action_targets: set[str]
+def validate_evidence_request(
+    request: EvidenceRequest, state: Mapping[str, Any], runtime: Mapping[str, Any], action_targets: set[str]
 ) -> None:
-    tools = registry(runtime)
-    if request.tool_name not in tools:
-        raise ValueError(f"Router requested an unregistered tool: {request.tool_name}")
-    metadata = tools[request.tool_name]
-    if metadata.get("default_every_round") or not metadata.get(
-        "router_requestable", not metadata.get("default_every_round", False)
-    ):
-        raise ValueError(f"Tool {request.tool_name} is not available as extra evidence")
     known = {set_id(item) for item in current_sets(state)}
     targets = set(request.target_ids)
     if not targets.issubset(known) or not targets.issubset(action_targets):
-        raise ValueError("Extra tool request targets are outside its action")
-    if metadata["scope"] == "partition" and targets:
-        raise ValueError("Partition tool requests cannot target sets")
-    if metadata["scope"] == "set_identity" and not targets:
-        raise ValueError("Set tool requests require targets")
-    signature = partition_signature(current_sets(state))
-    completed = completed_tool_keys(state)
-    base = (request.tool_name, signature)
-    if metadata["scope"] == "partition":
-        duplicate = (*base, "") in completed
+        raise ValueError("Evidence request targets are outside its action")
+    if request.dimension == "known_label_echo" and targets:
+        raise ValueError("known_label_echo requests are partition-scoped")
+    if request.dimension != "known_label_echo" and not targets:
+        raise ValueError("set-level evidence requests require targets")
+    available = available_evidence_requests(state, runtime)
+    if request.dimension == "known_label_echo":
+        valid = any(item["dimension"] == request.dimension and not item["target_ids"] for item in available)
     else:
-        completed_targets = {
-            target for tool_name, partition, target in completed
-            if (tool_name, partition) == base and target
-        }
-        duplicate = targets.issubset(completed_targets)
-    if duplicate:
-        raise ValueError("The requested extra tool already succeeded for this partition and targets")
+        valid = set(request.target_ids).issubset({
+            target
+            for item in available
+            if item["dimension"] == request.dimension
+            for target in item["target_ids"]
+        })
+    if not valid:
+        raise ValueError("Evidence request is not currently available to Verifier")
 
 
 def validate_action_contract(
@@ -623,9 +652,9 @@ def validate_action_contract(
         raise ValueError("Router referenced a non-current set")
     if action.action == "need_more_evidence":
         seen = set()
-        for request in action.tool_requests:
-            validate_tool_request(request, state, runtime, set(action.target_ids))
-            key = (request.tool_name, tuple(request.target_ids))
+        for request in action.evidence_requests:
+            validate_evidence_request(request, state, runtime, set(action.target_ids))
+            key = (request.dimension, tuple(request.target_ids))
             if key in seen:
                 raise ValueError("Duplicate extra tool request")
             seen.add(key)
@@ -671,17 +700,12 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         control["next"] = "end"
         state["control"] = control
         return state
-    registry_payload = {
-        name: {key: value for key, value in metadata.items() if key != "function"}
-        for name, metadata in registry(values).items()
-    }
     try:
         payload = {
             "partition": state["partition"],
             "evidence_reports": summarize_reports(state.get("reports", [])),
             "structural_index": compact_structural_index(state),
-            "tool_registry": registry_payload,
-            "available_extra_evidence": available_extra_evidence(state, values),
+            "available_evidence_requests": available_evidence_requests(state, values),
             "round": int(control.get("round", 0)) + 1,
         }
         if control.get("router_validation_error"):
@@ -721,17 +745,18 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         "plan": plan.model_dump(),
     })
     if any(action.action == "need_more_evidence" for action in plan.actions):
-        control["extra_tool_requests"] = [
+        control["pending_evidence_requests"] = [
             request.model_dump()
             for action in plan.actions
             if action.action == "need_more_evidence"
-            for request in action.tool_requests
+            for request in action.evidence_requests
         ]
-        control["budget_evidence"] = control["round"] >= control.get("max_rounds", 10)
         control["next"] = "prepare_round"
     elif any(action.action in {"split", "merge"} for action in plan.actions):
+        control["pending_evidence_requests"] = []
         control["next"] = "reviser"
     else:
+        control["pending_evidence_requests"] = []
         control["status"] = "complete"
         control["next"] = "end"
     state["control"] = control
@@ -754,6 +779,12 @@ def revision_metrics(state: Mapping[str, Any]) -> dict[str, Any]:
         ),
         {},
     )
+    if not row:
+        row = next(
+            (item for item in reversed(current_partition_evidence(state))
+             if item.get("tool_name") == "multimodal_consistency_check"),
+            {},
+        )
     return {
         "partition": state["partition"],
         "structural_characterization": dict(
@@ -770,6 +801,12 @@ def compact_structural_index(state: Mapping[str, Any]) -> dict[str, Any]:
         ),
         {},
     )
+    if not row:
+        row = next(
+            (item for item in reversed(current_partition_evidence(state))
+             if item.get("tool_name") == "multimodal_consistency_check"),
+            {},
+        )
     structural = dict(
         dict(row.get("full_metrics", {}) or {}).get("structural_characterization", {}) or {}
     )
@@ -877,7 +914,7 @@ def validate_revision_plan(
         if not targets.issubset(current) or occupied.intersection(targets):
             raise ValueError("RevisionPlan merge targets overlap or are not current")
         occupied.update(targets)
-    refs = raw_metric_refs(list(state.get("round_evidence", []) or []))
+    refs = raw_metric_refs(current_partition_evidence(state))
     for item in [*plan.split_plans, *plan.merge_plans]:
         if not set(item.metric_refs).issubset(refs):
             raise ValueError("RevisionPlan references unavailable metrics")
@@ -955,6 +992,9 @@ def execute_revision_plan(
         "parameters": {"split_strategies": [item.execution_strategy for item in plan.split_plans]},
     }
     state["partition"] = new_partition
+    state["reports"] = copy.deepcopy(
+        state.get("evidence_memory", {}).get(result["new_partition_signature"], [])
+    )
     return result
 
 

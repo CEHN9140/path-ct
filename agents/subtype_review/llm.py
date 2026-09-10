@@ -286,10 +286,10 @@ class VerifierChatModel:
             history = message_history(request)
             request.pop("message_history", None)
             request.pop("tool_messages", None)
-            tool_names = [str(row["tool_name"]) for row in request["tool_requests"]]
+            tool_names = [str(name) for name in request.get("eligible_tools", {})]
             model = self.acquire_model.bind_tools(
                 [self.tools[name] for name in dict.fromkeys(tool_names)],
-                tool_choice="required",
+                tool_choice="auto",
             )
             return self.invoke_model(
                 model,
@@ -344,9 +344,7 @@ class LocalVerifierModel:
         tools = None
         if mode == "acquire":
             tools = []
-            for name in dict.fromkeys(
-                str(row["tool_name"]) for row in request["tool_requests"]
-            ):
+            for name in dict.fromkeys(str(name) for name in request.get("eligible_tools", {})):
                 tool = self.tools[name]
                 tools.append(
                     {

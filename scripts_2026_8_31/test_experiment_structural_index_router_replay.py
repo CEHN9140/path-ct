@@ -26,8 +26,8 @@ def test_replay_payload_contains_structural_index_and_does_not_execute_actions()
         }],
         "evidence_reports": [],
         "router_plan": {"actions": [
-            {"action": "accept", "target_ids": ["C1"], "tool_requests": [], "reason": "ok"},
-            {"action": "accept", "target_ids": ["C2"], "tool_requests": [], "reason": "ok"},
+            {"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "ok"},
+            {"action": "accept", "target_ids": ["C2"], "evidence_requests": [], "reason": "ok"},
         ]},
     }
 
@@ -37,11 +37,11 @@ def test_replay_payload_contains_structural_index_and_does_not_execute_actions()
 
         def invoke(self, payload):
             self.payload = payload
-            assert payload["available_extra_evidence"] == []
+            assert payload["available_evidence_requests"] == []
             assert payload["structural_index"]["per_set"]["C1"]["binary_probe"]["fused_silhouette"] == 0.2
             return {"actions": [
-                {"action": "accept", "target_ids": ["C1"], "tool_requests": [], "reason": "ok"},
-                {"action": "accept", "target_ids": ["C2"], "tool_requests": [], "reason": "ok"},
+                {"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "ok"},
+                {"action": "accept", "target_ids": ["C2"], "evidence_requests": [], "reason": "ok"},
             ]}
 
     model = Router()
