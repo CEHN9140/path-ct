@@ -27,7 +27,7 @@ def test_structure_uses_actual_fused_binary_probe_and_fixed_modality_labels():
     ct = block_affinity([0, 0, 0, 1, 1, 1], same=0.1, different=0.9)
     result = compute_structural_characterization(
         fused,
-        {"ct": ct, "wsi": None, "rna": None, "genomic": None},
+        {"ct": ct, "wsi": None, "rna": None, "wxs": None, "cnv": None},
         case_ids,
         {"C1": case_ids},
         resampling_iterations=10,
@@ -47,7 +47,7 @@ def test_binary_probe_reports_ncut_and_resampling_continuous_metrics():
     case_ids = ["a", "b", "c", "d", "e", "f"]
     result = compute_structural_characterization(
         block_affinity([0, 0, 0, 1, 1, 1]),
-        {modality: block_affinity([0, 0, 0, 1, 1, 1]) for modality in ("ct", "wsi", "rna", "genomic")},
+        {modality: block_affinity([0, 0, 0, 1, 1, 1]) for modality in ("ct", "wsi", "rna", "wxs", "cnv")},
         case_ids,
         {"C1": case_ids},
         resampling_fraction=0.8,
@@ -74,7 +74,7 @@ def test_pair_boundary_is_continuous_and_keeps_left_right_metrics():
     case_ids = ["a", "b", "c", "d"]
     result = compute_structural_characterization(
         block_affinity([0, 0, 1, 1]),
-        {modality: block_affinity([0, 0, 1, 1]) for modality in ("ct", "wsi", "rna", "genomic")},
+        {modality: block_affinity([0, 0, 1, 1]) for modality in ("ct", "wsi", "rna", "wxs", "cnv")},
         case_ids,
         {"C1": ["a", "b"], "C2": ["c", "d"]},
         resampling_iterations=5,
@@ -93,7 +93,7 @@ def test_pair_boundary_is_continuous_and_keeps_left_right_metrics():
 
 def test_missing_fused_and_singleton_are_structured_scientific_results():
     case_ids = ["a", "b", "c"]
-    modalities = {modality: block_affinity([0, 1, 1]) for modality in ("ct", "wsi", "rna", "genomic")}
+    modalities = {modality: block_affinity([0, 1, 1]) for modality in ("ct", "wsi", "rna", "wxs", "cnv")}
     missing = compute_structural_characterization(
         None, modalities, case_ids, {"C1": case_ids}, resampling_iterations=3
     )
@@ -116,7 +116,8 @@ def test_tool_keeps_probe_labels_in_full_metrics_only(tmp_path):
         np.save(candidate / f"{modality}_affinity.npy", matrix)
     wxs = tmp_path / "wxs"
     wxs.mkdir()
-    np.save(wxs / "genomic_affinity.npy", matrix)
+    np.save(wxs / "wxs_affinity.npy", matrix)
+    np.save(wxs / "cnv_affinity.npy", matrix)
     result = multimodal_consistency_check(
         {"cluster_id": "C1", "member_ids": ids},
         {},

@@ -16,7 +16,7 @@ from tools.multimodal_consistency_check import (
 )
 
 
-MODALITIES = ("ct", "wsi", "rna", "genomic")
+MODALITIES = ("ct", "wsi", "rna", "wxs", "cnv")
 
 
 def binary_spectral_probe(similarity: np.ndarray) -> np.ndarray:

@@ -68,7 +68,7 @@ def build_modality_affinity_artifacts(
     *,
     output_root: str,
     config_dir: str = "",
-    genomic_discovery: Mapping[str, str] | None = None,
+    discovery_artifacts: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the five independent candidate-generation affinity networks."""
     from tools.ct_radiomics import build_ct_affinity
@@ -78,7 +78,7 @@ def build_modality_affinity_artifacts(
     ct = build_ct_affinity(patient_states, config_dir=config_dir, output_root=output_root)
     wsi = build_wsi_affinity(patient_states, config_dir=config_dir)
     rna = build_rna_affinity(patient_states, config_dir=config_dir)
-    artifacts = dict(genomic_discovery or {})
+    artifacts = dict(discovery_artifacts or {})
     order_path = Path(artifacts["wxs_patient_order_path"])
     wxs = {
         "affinity": np.load(artifacts["wxs_affinity_path"]),

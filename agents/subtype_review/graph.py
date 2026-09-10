@@ -792,7 +792,7 @@ def compact_structural_index(state: Mapping[str, Any]) -> dict[str, Any]:
                 "degenerate_fraction": resampling.get("degenerate_resample_fraction"),
                 "modality_probe_silhouettes": {
                     name: dict(modality_probe.get(name, {}) or {}).get("median_silhouette")
-                    for name in ("ct", "wsi", "rna", "genomic")
+                    for name in ("ct", "wsi", "rna", "wxs", "cnv")
                 },
             },
         }
@@ -822,7 +822,7 @@ def compact_structural_index(state: Mapping[str, Any]) -> dict[str, Any]:
                         "left_boundary_separation", "right_boundary_separation",
                     )
                 }
-                for name in ("ct", "wsi", "rna", "genomic")
+                for name in ("ct", "wsi", "rna", "wxs", "cnv")
             },
         })
     return {

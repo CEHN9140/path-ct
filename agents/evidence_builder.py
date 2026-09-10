@@ -462,7 +462,7 @@ def save_modality_affinity_artifacts(
     output_root: str,
     patient_ids: list[str],
     modality_affinities: Mapping[str, Any],
-    genomic_discovery: Mapping[str, str],
+    discovery_artifacts: Mapping[str, str],
     audit: Mapping[str, Any],
 ) -> dict[str, str]:
     import numpy as np
@@ -475,9 +475,9 @@ def save_modality_affinity_artifacts(
         path = affinity_dir / f"{modality}_affinity.npy"
         np.save(path, modality_affinities[modality])
         paths[modality] = str(path)
-    wxs_path = Path(genomic_discovery["wxs_affinity_path"])
-    cnv_path = Path(genomic_discovery["cnv_affinity_path"])
-    order_path = Path(genomic_discovery["wxs_patient_order_path"])
+    wxs_path = Path(discovery_artifacts["wxs_affinity_path"])
+    cnv_path = Path(discovery_artifacts["cnv_affinity_path"])
+    order_path = Path(discovery_artifacts["wxs_patient_order_path"])
     if not wxs_path.is_file() or not cnv_path.is_file() or json.loads(order_path.read_text(encoding="utf-8")) != patient_ids:
         raise ValueError("WXS/CNV affinity artifacts do not match the evidence cohort.")
     paths.update({"wxs": str(wxs_path), "cnv": str(cnv_path)})
@@ -497,7 +497,7 @@ def build_evidence_states(
     )
     from tools.wxs import (
         build_cnv_cohort_cache,
-        build_genomic_discovery_artifacts,
+        build_wxs_cnv_artifacts,
         build_wxs_cohort_cache,
         run_case_cnv_features,
     )
@@ -528,7 +528,7 @@ def build_evidence_states(
     cnv_cache = build_cnv_cohort_cache(
         cohort_cases, output_root=output_root, config_dir=config_dir
     )
-    genomic_discovery = build_genomic_discovery_artifacts(
+    discovery_artifacts = build_wxs_cnv_artifacts(
         wxs_cache,
         cnv_cache,
         cohort_cases,
@@ -587,7 +587,7 @@ def build_evidence_states(
         )
 
         updated.setdefault("omics_evidence", {})
-        updated["omics_evidence"].update(genomic_discovery)
+        updated["omics_evidence"].update(discovery_artifacts)
         cached_cnv = load_tool_snapshot(
             output_root,
             "cnv",
@@ -679,7 +679,7 @@ def build_evidence_states(
                                 "file": file_identity(candidate),
                             }
                         )
-    for key, value in genomic_discovery.items():
+    for key, value in discovery_artifacts.items():
         if not isinstance(value, str) or not value:
             continue
         path = Path(value)
@@ -727,13 +727,13 @@ def build_evidence_states(
             eligible_states,
             config_dir=config_dir,
             output_root=output_root,
-            genomic_discovery=genomic_discovery,
+            discovery_artifacts=discovery_artifacts,
         )
         affinity_paths = save_modality_affinity_artifacts(
             output_root=output_root,
             patient_ids=patient_ids,
             modality_affinities=feature_payload["modality_affinities"],
-            genomic_discovery=genomic_discovery,
+            discovery_artifacts=discovery_artifacts,
             audit=feature_payload.get("audit", {}),
         )
         affinity_manifest = {
@@ -748,7 +748,7 @@ def build_evidence_states(
         )
     affinity_dir = Path(output_root) / "candidate_subtype"
     audit_path = affinity_dir / "feature_engineering_audit.json"
-    patient_order_path = Path(genomic_discovery["wxs_patient_order_path"])
+    patient_order_path = Path(discovery_artifacts["wxs_patient_order_path"])
     for state in updated_states:
         if state.get("qc") == "success":
             state.setdefault("omics_evidence", {}).update({

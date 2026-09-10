@@ -25,7 +25,7 @@ def test_cross_modal_fixed_membership_metrics_do_not_emit_identity_flags():
     strong = np.array([[1.0, 0.9, 0.1, 0.1], [0.9, 1.0, 0.1, 0.1], [0.1, 0.1, 1.0, 0.9], [0.1, 0.1, 0.9, 1.0]])
     near_zero = np.ones((4, 4))
     result = compute_cross_modal_consistency(
-        {"ct": strong, "wsi": strong, "rna": strong, "genomic": near_zero},
+        {"ct": strong, "wsi": strong, "rna": strong, "wxs": near_zero, "cnv": near_zero},
         ["a", "b", "c", "d"], memberships, permanova_permutations=9,
     )
 

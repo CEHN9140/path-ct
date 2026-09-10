@@ -84,7 +84,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "default_every_round": True,
         "scope": "set_identity",
         "targeting": "all_sets",
-        "description": "CT, WSI, RNA and genomic affinity diagnostics for the current partition.",
+        "description": "CT, WSI, RNA, WXS and CNV affinity diagnostics for the current partition.",
         "function": multimodal_consistency_check,
     },
     "confound_test": {

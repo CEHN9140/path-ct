@@ -9,12 +9,14 @@ import numpy as np
 from tools.subtype_review_common import bh_fdr, scoped_candidate_sets, tool_result
 
 
-MODALITIES = ("ct", "wsi", "rna", "genomic")
+MODALITIES = ("ct", "wsi", "rna", "wxs", "cnv")
 
 
 def modality_affinity_path(output_root: str, modality: str) -> Path:
-    if modality == "genomic":
-        return Path(output_root) / "wxs" / "genomic_affinity.npy"
+    if modality == "wxs":
+        return Path(output_root) / "wxs" / "wxs_affinity.npy"
+    if modality == "cnv":
+        return Path(output_root) / "wxs" / "cnv_affinity.npy"
     return Path(output_root) / "candidate_subtype" / f"{modality}_affinity.npy"
 
 
@@ -584,7 +586,7 @@ def compute_cross_modal_consistency(
         "decision_metrics": decision,
         "analysis_scope": (
             "Fixed candidate memberships were evaluated independently in CT, WSI, "
-            "RNA, and genomic affinity spaces; no independent modality was reclustered. "
+            "RNA, WXS, and CNV affinity spaces; no independent modality was reclustered. "
             "Structural characterization uses the actual SNF fused network for a binary probe."
         ),
     }
@@ -699,7 +701,7 @@ def multimodal_consistency_check(
         status="success",
         cluster_id=cluster_id,
         output_root=artifact_root,
-        summary="Fixed candidate memberships were evaluated in four modality affinity networks.",
+        summary="Fixed candidate memberships were evaluated in five independent modality affinity networks.",
         metrics=metrics,
         decision_metrics=metrics["decision_metrics"],
         support_level="informational",

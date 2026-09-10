@@ -825,14 +825,14 @@ def test_structural_diagnostics_reports_one_binary_probe_and_modalities():
     np.fill_diagonal(matrix, 1.0)
     result = compute_structural_characterization(
         matrix,
-        {name: matrix for name in ("ct", "wsi", "rna", "genomic")},
+        {name: matrix for name in ("ct", "wsi", "rna", "wxs", "cnv")},
         [f"P{i}" for i in range(6)],
         {"C1": [f"P{i}" for i in range(6)]},
         resampling_iterations=5,
     )
     internal = result["internal_structure_by_set"]["C1"]
     assert internal["fused_binary_probe"]["child_sizes"]
-    assert set(internal["probe_support_by_modality"]) == {"ct", "wsi", "rna", "genomic"}
+    assert set(internal["probe_support_by_modality"]) == {"ct", "wsi", "rna", "wxs", "cnv"}
     assert "k_diagnostics" not in internal
 
 
@@ -1096,7 +1096,7 @@ def test_router_payload_contains_compact_structural_index_without_action_flags()
                         "degenerate_resample_fraction": 0.0,
                     }}, "probe_support_by_modality": {
                         name: {"median_silhouette": 0.1}
-                        for name in ("ct", "wsi", "rna", "genomic")
+                        for name in ("ct", "wsi", "rna", "wxs", "cnv")
                     }},
                 "C2": {"member_n": 2},
             },

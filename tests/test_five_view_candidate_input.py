@@ -63,7 +63,7 @@ def test_candidate_affinity_manifest_keeps_wxs_and_cnv_independent(tmp_path):
         output_root=str(tmp_path),
         patient_ids=["A", "B"],
         modality_affinities={name: np.eye(2) for name in ("ct", "wsi", "rna")},
-        genomic_discovery={
+        discovery_artifacts={
             "wxs_affinity_path": str(wxs_path),
             "cnv_affinity_path": str(cnv_path),
             "wxs_patient_order_path": str(order_path),
