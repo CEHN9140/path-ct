@@ -41,7 +41,7 @@ def validate_stable_cores(cores, patient_ids):
     if sorted(cores) != [f"CORE0{i}" for i in range(1, 8)]:
         raise ValueError("5-view stable-core输入必须包含CORE01-CORE07")
     if sorted(len(set(members)) for members in cores.values()) != EXPECTED_CORE_SIZES:
-        raise ValueError("5-view stable-core规模不是预期的[5, 7, 9, 10, 14, 14, 15, 17]")
+        raise ValueError("5-view stable-core规模不是预期的[5, 7, 9, 10, 14, 15, 17]")
     members = [case_id for values in cores.values() for case_id in values]
     if len(members) != 77 or len(set(members)) != 77:
         raise ValueError("5-view stable-core病例必须是互不重叠的77例")
