@@ -682,11 +682,6 @@ def build_evidence_states(
     eligible_states = [state for state in updated_states if state.get("qc") == "success"]
     if not eligible_states:
         return updated_states
-    if not all(
-        Path(str(state.get("wsi_evidence", {}).get("tile_embeddings_path", ""))).is_file()
-        for state in eligible_states
-    ):
-        return updated_states
     patient_ids = [str(state.get("case_id", "")) for state in eligible_states]
     affinity_dir = Path(output_root) / "candidate_subtype"
     affinity_manifest_path = affinity_dir / "affinity_cache.json"

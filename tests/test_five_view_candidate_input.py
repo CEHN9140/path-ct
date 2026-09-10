@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 
 
 def test_candidate_payload_uses_independent_five_views(tmp_path, monkeypatch):
@@ -73,3 +74,40 @@ def test_candidate_affinity_manifest_keeps_wxs_and_cnv_independent(tmp_path):
 
     assert set(paths) == {"ct", "wsi", "rna", "wxs", "cnv"}
     assert "genomic" not in paths
+
+
+def test_candidate_payload_rejects_corrupt_affinity(tmp_path):
+    import agents.candidate_proposer as proposer
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "candidate_proposer.yaml").write_text(
+        "snf:\n  neighbor_count: 1\n  iterations: 1\n  alpha: 1.0\n",
+        encoding="utf-8",
+    )
+    paths = {}
+    for name in ("ct", "wsi", "rna", "wxs", "cnv"):
+        matrix = np.eye(2)
+        if name == "rna":
+            matrix[0, 1] = np.nan
+        path = tmp_path / f"{name}.npy"
+        np.save(path, matrix)
+        paths[name] = str(path)
+    order_path = tmp_path / "order.json"
+    order_path.write_text(json.dumps(["A", "B"]), encoding="utf-8")
+    states = [
+        {
+            "case_id": case_id,
+            "qc": "success",
+            "omics_evidence": {
+                "modality_affinity_paths": paths,
+                "modality_affinity_patient_order_path": str(order_path),
+            },
+        }
+        for case_id in ("A", "B")
+    ]
+
+    with pytest.raises(ValueError, match="rna affinity contains non-finite values"):
+        proposer.build_feature_store_payload(
+            states, config_dir=str(config_dir), output_root=str(tmp_path)
+        )

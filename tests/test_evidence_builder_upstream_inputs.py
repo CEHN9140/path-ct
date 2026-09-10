@@ -95,7 +95,6 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
         "wsi_evidence": {
             "features": [0.1, 0.2],
             "feature_path": str(tmp_path / "wsi.npy"),
-            "tile_embeddings_path": str(tmp_path / "wsi.npy"),
         },
     }
 
@@ -104,3 +103,10 @@ def test_build_evidence_states_ignores_feature_values_when_collecting_paths(
     )
 
     assert result[0]["qc"] == "success"
+    assert set(result[0]["omics_evidence"]["modality_affinity_paths"]) == {
+        "ct",
+        "wsi",
+        "rna",
+        "wxs",
+        "cnv",
+    }

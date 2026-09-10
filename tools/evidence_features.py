@@ -8,61 +8,6 @@ import json
 import numpy as np
 
 
-def snf_fuse_feature_matrices(
-    feature_matrices: list[np.ndarray],
-    *,
-    k: int,
-    iterations: int,
-    mu: float,
-    alpha: float,
-) -> np.ndarray:
-    """Compatibility SNF builder for diagnostic callers without evidence files."""
-    from scipy import stats
-    from scipy.spatial import distance as scipy_distance
-    from snf.compute import affinity_matrix
-    import snf
-
-    specs = [
-        ("euclidean", False),
-        ("cosine", False),
-        ("correlation", True),
-        ("jaccard", False),
-        ("euclidean", False),
-    ]
-    matrices = []
-    for index, matrix in enumerate(feature_matrices[: len(specs)]):
-        values = np.asarray(matrix, dtype=float)
-        if values.ndim == 2 and values.shape[1] > 0:
-            matrices.append((values, specs[index]))
-    if not matrices:
-        return np.zeros((0, 0), dtype=float)
-    n_cases = int(matrices[0][0].shape[0])
-    if n_cases == 1:
-        return np.ones((1, 1), dtype=float)
-    k_eff = min(max(int(k), 1), n_cases - 1)
-    networks = []
-    for values, (metric, rank_rows) in matrices:
-        if values.shape[0] != n_cases:
-            raise ValueError("Feature matrices must have the same patient count")
-        if rank_rows:
-            values = np.apply_along_axis(stats.rankdata, 1, values)
-        distances = scipy_distance.cdist(values, values, metric=metric)
-        distances = np.nan_to_num(distances, nan=1.0, posinf=1.0, neginf=1.0)
-        distances = np.maximum((distances + distances.T) / 2.0, 0.0)
-        np.fill_diagonal(distances, 0.0)
-        networks.append(affinity_matrix(distances, K=k_eff, mu=float(mu)))
-    fused = networks[0] if len(networks) == 1 else snf.snf(
-        *networks, K=k_eff, t=max(int(iterations), 0), alpha=float(alpha)
-    )
-    fused = np.nan_to_num(np.asarray(fused, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
-    fused = np.maximum((fused + fused.T) / 2.0, 0.0)
-    max_similarity = float(fused[~np.eye(n_cases, dtype=bool)].max())
-    if max_similarity > 1.0:
-        fused[~np.eye(n_cases, dtype=bool)] /= max_similarity
-    np.fill_diagonal(fused, 1.0)
-    return np.clip(fused, 0.0, 1.0)
-
-
 def build_modality_affinity_artifacts(
     patient_states: Sequence[Mapping[str, Any]],
     *,
@@ -210,8 +155,8 @@ def build_legacy_feature_payload(
         "z_wsi": wsi,
         "z_rna": rna,
         "z_wxs": np.asarray(wxs_values, dtype=float),
-        "z_snf": _fuse_affinities(affinities, snf_config),
-        "snf_config": {**snf_config, "wxs_representation": "frequency_filtered_gene_binary", "modality_metrics": {"ct": "euclidean", "wsi": "cosine", "rna": "spearman", "wxs": "jaccard", "cnv": "euclidean"}},
+        "z_snf": fuse_affinities(affinities, snf_config),
+        "snf_config": {**snf_config, "wxs_representation": "frequency_filtered_gene_binary", "modality_metrics": {"ct": "euclidean", "wsi": "cosine", "rna": "correlation", "wxs": "jaccard", "cnv": "euclidean"}},
         "ct_feature_names": names,
         "ct_ccc_filter": ccc_filter,
         "modality_affinities": affinities,
@@ -219,7 +164,7 @@ def build_legacy_feature_payload(
     }
 
 
-def _fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, Any]) -> np.ndarray:
+def fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, Any]) -> np.ndarray:
     import snf
 
     networks = [np.nan_to_num(affinities[name], nan=0.0, posinf=0.0, neginf=0.0) for name in ("ct", "wsi", "rna", "wxs", "cnv")]

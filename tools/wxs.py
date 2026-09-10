@@ -122,14 +122,48 @@ def binary_mutation_distance(binary: np.ndarray, empty_mutation_distance: float)
     return distance
 
 
+def collect_wxs_file_paths(cases: Sequence[Mapping[str, Any]]) -> list[tuple[str, str]]:
+    rows = []
+    for case in cases:
+        case_id = str(case.get("Case_ID", "") or "").strip()
+        paths = [
+            Path(str(record.get("File Path", "") or ""))
+            for record in list(case.get("WXS") or [])
+            if Path(str(record.get("File Path", "") or "")).is_file()
+        ]
+        if not case_id or not paths:
+            continue
+        if len(paths) > 1:
+            quality = {}
+            for path in paths:
+                with gzip.open(path, "rt", encoding="utf-8", errors="ignore") as handle:
+                    reader = csv.DictReader(
+                        (line for line in handle if not line.startswith("#")), delimiter="\t"
+                    )
+                    depths = [
+                        float(row["t_depth"])
+                        for row in reader
+                        if str(row.get("t_depth", "")).strip()
+                    ]
+                quality[path] = float(np.median(depths)) if depths else -1.0
+            paths = [max(paths, key=lambda path: (quality[path], str(path)))]
+        rows.append((case_id, str(paths[0])))
+    return sorted(rows)
+
+
 def read_wxs_mutations(manifest_path: Path, patient_ids: list[str]) -> pd.DataFrame:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     paths = {str(row["case_id"]): Path(row["file_path"]) for row in manifest["input_cases"]}
+    missing = [
+        patient_id
+        for patient_id in patient_ids
+        if paths.get(patient_id) is None or not paths[patient_id].is_file()
+    ]
+    if missing:
+        raise ValueError(f"WXS manifest is missing target patients: {', '.join(missing)}")
     rows = []
     for patient_id in patient_ids:
-        path = paths.get(str(patient_id))
-        if path is None or not path.is_file():
-            continue
+        path = paths[patient_id]
         with gzip.open(path, "rt", encoding="utf-8", errors="ignore") as handle:
             reader = csv.DictReader((line for line in handle if not line.startswith("#")), delimiter="\t")
             for row in reader:
@@ -141,6 +175,19 @@ def read_wxs_mutations(manifest_path: Path, patient_ids: list[str]) -> pd.DataFr
                     "start": str(row.get("Start_Position", "")).strip(),
                 })
     return pd.DataFrame(rows, columns=["patient_id", "gene", "classification", "variant_type", "chromosome", "start"])
+
+
+def load_complete_cnv_matrix(path: Path, patient_ids: list[str]) -> np.ndarray:
+    table = pd.read_csv(path)
+    case_ids = table["case_id"].astype(str)
+    available = set(case_ids)
+    missing = [patient_id for patient_id in patient_ids if patient_id not in available]
+    if missing:
+        raise ValueError(f"CNV features are missing target patients: {', '.join(missing)}")
+    matrix = table.assign(case_id=case_ids).set_index("case_id").loc[patient_ids].to_numpy(float)
+    if not np.isfinite(matrix).all():
+        raise ValueError("CNV features contain non-finite values")
+    return matrix
 
 
 def build_wxs_cnv_artifacts(
@@ -205,7 +252,7 @@ def build_wxs_cnv_artifacts(
     binary = discovery_features.to_numpy(bool)
     distance = binary_mutation_distance(binary, config["empty_mutation_distance"])
     wxs_affinity = wxs_distance_affinity(distance, snf)
-    cnv = pd.read_csv(cnv_cache["case_features_path"]).set_index("case_id").reindex(patients).to_numpy(float)
+    cnv = load_complete_cnv_matrix(Path(cnv_cache["case_features_path"]), patients)
     median = np.median(cnv, axis=0, keepdims=True)
     iqr = np.quantile(cnv, 0.75, axis=0, keepdims=True) - np.quantile(cnv, 0.25, axis=0, keepdims=True)
     cnv = np.divide(cnv - median, iqr, out=np.zeros_like(cnv), where=iqr > 0)
@@ -390,12 +437,16 @@ def run_case_cnv_features(
 def build_wxs_cohort_cache(
     cohort_cases: Sequence[Mapping[str, Any]], *, output_root: str
 ) -> dict[str, Any]:
-    case_file_rows = collect_case_file_paths(cohort_cases, "WXS")
+    case_file_rows = collect_wxs_file_paths(cohort_cases)
     output_dir = ensure_dir(Path(output_root) / "wxs")
     manifest_path = output_dir / "manifest.json"
     signature = build_cohort_signature(
         case_file_rows,
-        extra={"modality": "WXS", "feature_mode": "recurrent_nonsynonymous_binary"},
+        extra={
+            "modality": "WXS",
+            "feature_mode": "recurrent_nonsynonymous_binary",
+            "file_selection": "single_file_or_highest_median_tumor_depth",
+        },
     )
     manifest = load_manifest_if_valid(
         manifest_path, signature=signature, required_paths=[]
@@ -406,6 +457,7 @@ def build_wxs_cohort_cache(
             "modality": "WXS",
             "cohort_case_count": len(case_file_rows),
             "feature_mode": "recurrent_nonsynonymous_binary",
+            "file_selection": "single_file_or_highest_median_tumor_depth",
             "input_cases": [
                 {"case_id": case_id, "file_path": file_path}
                 for case_id, file_path in case_file_rows
