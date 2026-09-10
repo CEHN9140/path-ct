@@ -49,3 +49,22 @@ def test_load_initial_partition_uses_main_saved_k_partition(tmp_path):
     groups = MODULE.load_initial_partition(tmp_path, 2, patient_ids)
     assert [group["member_ids"] for group in groups] == [["P1", "P2"], ["P3", "P4"]]
     assert all(group["source_views"] == list(MODULE.VIEWS) for group in groups)
+
+
+def test_cache_reuse_requires_complete_status_and_matching_identity():
+    identity = {
+        "review_signature": "review",
+        "fused_similarity_sha256": "fused",
+        "patient_order_sha256": "order",
+        "initial_partition_sha256": "partition",
+    }
+    metadata = {**identity, "status": "review_complete"}
+    complete = {"status": "review_complete", "raw_control_status": "complete"}
+    assert MODULE.cache_reusable(complete, metadata, identity)
+    assert not MODULE.cache_reusable(
+        {"status": "review_incomplete_due_to_round_budget", "raw_control_status": "review_incomplete_due_to_round_budget"},
+        metadata,
+        identity,
+    )
+    changed = {**metadata, "review_signature": "old"}
+    assert not MODULE.cache_reusable(complete, changed, identity)

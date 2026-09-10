@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -15,8 +16,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.subtype_review.graph import save_review_outputs
+from agents.subtype_review.llm import review_signature_manifest
 from agents.subtype_review.runner import run_subtype_review
 from utils.io import write_json
+from utils.llm_utils import load_yaml_file
 
 VIEWS = ("ct", "wsi", "rna", "wxs", "cnv")
 INITIAL_KS = tuple(range(2, 9))
@@ -25,6 +28,24 @@ REPEATS = (1, 2, 3)
 
 def parse_values(values, default):
     return tuple(sorted(set(values or default)))
+
+
+def file_sha256(path: Path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def json_sha256(payload):
+    return hashlib.sha256(json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+
+
+def cache_reusable(summary, metadata, identity):
+    return (
+        summary.get("status") == "review_complete"
+        and summary.get("raw_control_status") == "complete"
+        and all(metadata.get(key) == value for key, value in identity.items())
+    )
 
 
 def load_main_inputs(data_root: Path):
@@ -102,9 +123,17 @@ def run(
 ):
     patient_ids, _, fused = load_main_inputs(data_root)
     patient_states = load_patient_states(data_root)
-    if set(patient_ids) != set(patient_states):
-        raise ValueError("Main patient-state records do not match affinity patient order.")
+    if not set(patient_ids).issubset(patient_states):
+        raise ValueError("Main patient-state records do not cover affinity patient order.")
     output_root.mkdir(parents=True, exist_ok=True)
+    review_config = load_yaml_file(config_dir / "subtype_review.yaml")
+    review_signature = review_signature_manifest(review_config, config_dir)
+    candidate_dir = data_root / "candidate_subtype"
+    input_identity = {
+        "review_signature": review_signature["review_signature"],
+        "fused_similarity_sha256": file_sha256(candidate_dir / "fused_similarity.npy"),
+        "patient_order_sha256": file_sha256(candidate_dir / "affinity_patient_order.json"),
+    }
     write_json(output_root / "experiment_manifest.json", {
         "experiment": "five_view_multi_k_agent_review",
         "input": str((data_root / "candidate_subtype").resolve()),
@@ -121,21 +150,35 @@ def run(
             run_root = output_root / f"run{repeat}" / f"K{initial_k}"
             summary_path = run_root / "final_review_summary.json"
             metadata_path = run_root / "run_metadata.json"
-            if summary_path.exists() and not force:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
-                if metadata.get("repeat") == repeat and metadata.get("initial_k") == initial_k:
-                    rows.append({"repeat": repeat, "initial_k": initial_k, **json.loads(summary_path.read_text(encoding="utf-8"))})
-                    continue
-            if force and run_root.exists():
-                shutil.rmtree(run_root)
-            run_root.mkdir(parents=True, exist_ok=True)
             initial_sets = load_initial_partition(data_root, initial_k, patient_ids)
-            write_json(run_root / "initial_partition.json", {
+            initial_partition = {
                 "initial_k": initial_k,
                 "repeat": repeat,
                 "views": list(VIEWS),
                 "candidate_sets": initial_sets,
-            })
+            }
+            identity = {
+                **input_identity,
+                "initial_partition_sha256": json_sha256(initial_partition),
+            }
+            if summary_path.exists() and not force:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                if cache_reusable(summary, metadata, identity):
+                    rows.append({"repeat": repeat, "initial_k": initial_k, **summary})
+                    continue
+                raise RuntimeError(
+                    f"Cannot reuse run{repeat}/K{initial_k}: status or cache identity mismatch; "
+                    "use --force to rerun this run."
+                )
+            if run_root.exists() and any(run_root.iterdir()) and not force:
+                raise RuntimeError(
+                    f"Run directory is incomplete: {run_root}; use --force to rerun it."
+                )
+            if force and run_root.exists():
+                shutil.rmtree(run_root)
+            run_root.mkdir(parents=True, exist_ok=True)
+            write_json(run_root / "initial_partition.json", initial_partition)
             state = run_subtype_review(
                 initial_sets,
                 patient_states,
@@ -144,13 +187,20 @@ def run(
                 artifact_root=str(run_root),
             )
             summary = save_review_outputs(state, str(run_root), direct=True)
-            write_json(run_root / "run_metadata.json", {
+            metadata = {
                 "experiment": "five_view_multi_k_agent_review",
                 "initial_k": initial_k,
                 "repeat": repeat,
                 "patient_count": len(patient_ids),
                 "status": summary.get("status"),
-            })
+                **identity,
+            }
+            write_json(run_root / "run_metadata.json", metadata)
+            if not cache_reusable(summary, metadata, identity):
+                raise RuntimeError(
+                    f"Subtype Review failed for run{repeat}/K{initial_k}: "
+                    f"{summary.get('status')}"
+                )
             rows.append({"repeat": repeat, "initial_k": initial_k, **summary})
     write_json(output_root / "agent_discovery_summary.json", {
         "experiment": "five_view_multi_k_agent_review",
