@@ -528,10 +528,9 @@ def build_feature_store_payload(
             raise ValueError(f"{name} affinity contains non-finite values")
         if (
             np.min(matrix) < 0
-            or np.max(matrix) > 1.0 + 1e-8
             or not np.allclose(matrix, matrix.T, atol=1e-8)
         ):
-            raise ValueError(f"{name} affinity must be finite, symmetric, and in [0, 1]")
+            raise ValueError(f"{name} affinity must be finite, symmetric, and nonnegative")
     audit_path = Path(str(eligible[0]["omics_evidence"].get("multimodal_audit_path", "")))
     audit = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path.is_file() else {}
     empty = np.zeros((len(patient_ids), 0), dtype=float)

@@ -11,7 +11,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from utils.io import ensure_dir, write_json
-from utils.cache_utils import hash_payload, semantic_config
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.omics_utils import (
     build_cohort_signature,
     collect_case_file_paths,
@@ -193,7 +193,7 @@ def build_wxs_cnv_artifacts(
     order_path, audit_path = out / "wxs_discovery_patient_order.json", out / "wxs_discovery_audit.json"
     signature = hash_payload(
         {
-            "cache_version": 1,
+            "cache_version": 2,
             "upstream": {
                 "wxs": wxs_cache["signature"],
                 "cnv": cnv_cache["signature"],
@@ -203,6 +203,12 @@ def build_wxs_cnv_artifacts(
                 "snf": semantic_config(snf),
             },
             "patient_ids": patients,
+            "code": {
+                "wxs.py": file_identity(str(Path(__file__).resolve())),
+                "evidence_features.py": file_identity(
+                    str(Path(__file__).resolve().with_name("evidence_features.py"))
+                ),
+            },
         }
     )
     if audit_path.is_file() and wxs_path.is_file() and cnv_path.is_file() and order_path.is_file() and discovery.is_file() and validation.is_file():

@@ -738,7 +738,7 @@ def build_evidence_states(
             upstream_inputs.append({"key": key, "file": file_identity(value)})
     affinity_cache_signature = hash_payload(
         {
-            "cache_version": 3,
+            "cache_version": 4,
             "patient_ids": patient_ids,
             "semantic_config": {
                 "snf": snf_config,
@@ -752,6 +752,16 @@ def build_evidence_states(
                 "candidate_views": ["ct", "wsi", "rna", "wxs", "cnv"],
             },
             "ct_confounders": ct_confounders,
+            "code": {
+                name: file_identity(str(Path(__file__).resolve().parent.parent / "tools" / name))
+                for name in (
+                    "evidence_features.py",
+                    "ct_radiomics.py",
+                    "rna.py",
+                    "wsi_affinity.py",
+                    "wxs.py",
+                )
+            },
             "upstream_inputs": sorted(
                 upstream_inputs, key=lambda item: json.dumps(item, sort_keys=True)
             ),
@@ -788,7 +798,7 @@ def build_evidence_states(
             audit=feature_payload.get("audit", {}),
         )
         affinity_manifest = {
-            "cache_version": 3,
+            "cache_version": 4,
             "cache_signature": affinity_cache_signature,
             "patient_ids": patient_ids,
             "paths": affinity_paths,

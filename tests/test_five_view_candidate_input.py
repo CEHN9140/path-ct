@@ -120,3 +120,13 @@ def test_fusion_rejects_nonfinite_network():
         fuse_affinities([np.array([[1.0, np.nan], [np.nan, 1.0]])], {
             "neighbor_count": 1, "iterations": 1, "alpha": 1.0,
         })
+
+
+def test_distance_to_affinity_preserves_valid_kernel_values_above_one():
+    from tools.evidence_features import distance_to_affinity
+
+    affinity = distance_to_affinity(
+        np.array([[0.0, 1e-6], [1e-6, 0.0]]),
+        {"neighbor_count": 1, "mu": 0.5},
+    )
+    assert float(affinity.max()) > 1.0

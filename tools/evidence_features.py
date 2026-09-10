@@ -30,8 +30,9 @@ def distance_to_affinity(distance: np.ndarray, config: Mapping[str, Any]) -> np.
         ),
         dtype=float,
     )
-    affinity = np.clip((affinity + affinity.T) / 2.0, 0.0, 1.0)
-    np.fill_diagonal(affinity, 1.0)
+    affinity = (affinity + affinity.T) / 2.0
+    if not np.isfinite(affinity).all() or np.min(affinity) < 0:
+        raise ValueError("affinity_matrix returned invalid values")
     return affinity
 
 
@@ -206,9 +207,7 @@ def fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, A
             raise ValueError("affinity networks must have equal finite shapes")
         if np.min(network) < 0 or not np.allclose(network, network.T, atol=1e-8):
             raise ValueError("affinity networks must be nonnegative and symmetric")
-    networks = [np.clip((network + network.T) / 2.0, 0.0, 1.0) for network in networks]
-    for network in networks:
-        np.fill_diagonal(network, 1.0)
+    networks = [(network + network.T) / 2.0 for network in networks]
     if len(networks) == 1:
         return networks[0]
     if shape[0] < 2:
@@ -219,6 +218,13 @@ def fuse_affinities(affinities: Mapping[str, np.ndarray], config: Mapping[str, A
         t=int(config["iterations"]),
         alpha=float(config["alpha"]),
     )
-    fused = np.clip((np.asarray(fused) + np.asarray(fused).T) / 2.0, 0.0, 1.0)
+    fused = (np.asarray(fused) + np.asarray(fused).T) / 2.0
+    if not np.isfinite(fused).all() or np.min(fused) < 0:
+        raise ValueError("SNF returned invalid fused similarity values")
+    off_diagonal = ~np.eye(shape[0], dtype=bool)
+    maximum = float(fused[off_diagonal].max()) if off_diagonal.any() else 0.0
+    if maximum > 1.0:
+        fused[off_diagonal] /= maximum
+    np.fill_diagonal(fused, 1.0)
     np.fill_diagonal(fused, 1.0)
     return fused
