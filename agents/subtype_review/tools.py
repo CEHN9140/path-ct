@@ -183,9 +183,7 @@ def build_validation_tools(registry: Mapping[str, Mapping[str, Any]] | None = No
     registry = registry or TOOL_REGISTRY
     result = []
     for name, metadata in registry.items():
-        def request_tool(
-            target_ids: list[str] | None = None, _tool_name: str = name
-        ) -> str:
+        def request_tool(target_ids: list[str], _tool_name: str = name) -> str:
             return f"Python will execute {_tool_name} for targets {target_ids or []}."
 
         result.append(tool(name, description=str(metadata["description"]))(request_tool))

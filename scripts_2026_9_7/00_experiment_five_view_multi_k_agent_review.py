@@ -202,6 +202,33 @@ def run(
                     f"{summary.get('status')}"
                 )
             rows.append({"repeat": repeat, "initial_k": initial_k, **summary})
+    completed = {}
+    for summary_path in output_root.glob("run*/K*/final_review_summary.json"):
+        run_root = summary_path.parent
+        metadata_path = run_root / "run_metadata.json"
+        if not metadata_path.exists():
+            continue
+        repeat = int(run_root.parent.name.removeprefix("run"))
+        initial_k = int(run_root.name.removeprefix("K"))
+        initial_partition = {
+            "initial_k": initial_k,
+            "repeat": repeat,
+            "views": list(VIEWS),
+            "candidate_sets": load_initial_partition(data_root, initial_k, patient_ids),
+        }
+        identity = {
+            **input_identity,
+            "initial_partition_sha256": json_sha256(initial_partition),
+        }
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if cache_reusable(summary, metadata, identity):
+            completed[(repeat, initial_k)] = {
+                "repeat": repeat,
+                "initial_k": initial_k,
+                **summary,
+            }
+    rows = [completed[key] for key in sorted(completed)]
     write_json(output_root / "agent_discovery_summary.json", {
         "experiment": "five_view_multi_k_agent_review",
         "views": list(VIEWS),

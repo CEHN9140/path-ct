@@ -373,8 +373,14 @@ def execute_tool_calls(
         if metadata["scope"] == "partition":
             if not any(not request["target_ids"] for request in matching):
                 raise ValueError(f"Verifier tool {name} does not answer a pending EvidenceRequest")
-        elif not any(set(target_ids).issubset(set(request["target_ids"])) for request in matching):
-            raise ValueError(f"Verifier tool {name} does not answer the selected EvidenceRequest")
+        else:
+            pending_targets = {
+                target
+                for request in matching
+                for target in request["target_ids"]
+            }
+            if not set(target_ids).issubset(pending_targets):
+                raise ValueError(f"Verifier tool {name} does not answer the selected EvidenceRequest")
         completed = completed_tool_keys(state)
         if metadata["scope"] == "partition":
             if (name, signature, "") in completed:

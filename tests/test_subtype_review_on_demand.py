@@ -113,3 +113,27 @@ def test_router_requests_evidence_not_tools_and_must_cover_current_sets():
 def test_validation_tools_expose_target_ids():
     tools = {item.name: item for item in build_validation_tools()}
     assert "target_ids" in tools["pathway_enrichment"].args_schema.model_fields
+    assert "target_ids" in tools["pathway_enrichment"].args_schema.model_json_schema()["required"]
+
+
+def test_one_tool_call_may_cover_multiple_pending_targets():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    prepare_round_node(state, runtime())
+    state["control"]["pending_evidence_requests"] = [
+        {"dimension": "biological_support", "target_ids": [target], "question": "x"}
+        for target in ("C1", "C2")
+    ]
+    registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
+    registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: {
+        "status": "success", "results": {"decision_metrics": {}}
+    }
+    execute_tool_calls(
+        state,
+        {"tool_calls": [{
+            "name": "pathway_enrichment",
+            "id": "call-1",
+            "args": {"target_ids": ["C1", "C2"]},
+        }]},
+        runtime(registry),
+    )
+    assert state["round_evidence"][0]["target_ids"] == ["C1", "C2"]
