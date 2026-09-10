@@ -73,17 +73,21 @@
       24
     ],
     "consensus_silhouette": 0.4186157023618082,
-    "selected_k_reason": "K=4 is the elbow: PAC improves substantially from K=3 (0.798 to 0.639) while relative_delta_area drops sharply from 0.444 to 0.160, and the next gain at K=5 is much smaller (0.055) with only modest PAC improvement. K=4 also maintains a stronger weakest cluster (0.524) and more certain patient memberships (p10=0.444) than K=5 or K=6, satisfying the rule not to increase K when it weakens cluster support and item consensus. K=2 and K=3 have higher PAC and weaker item consensus, so K=4 is preferred.",
+    "selected_k_reason": "K=4 is the elbow: PAC improves substantially from K=3 (0.798 to 0.639) while relative_delta_area drops sharply from 0.444 to 0.160, and the next step to K=5 shows much smaller PAC gain (0.639 to 0.563) with relative_delta_area falling to 0.055. K=4 also keeps cluster_consensus.min essentially stable versus K=3 (0.524 vs 0.521), whereas K=5 and K=6 reduce it to 0.496 and 0.460. Item_consensus.p10 declines monotonically from K=2 onward, so no larger K has stronger item-level consensus than K=4. K=3 has higher item_consensus.p10 (0.471 vs 0.444) but much weaker PAC and cluster_consensus.min, so the evidence favors K=4 as the elbow with acceptable cluster support.",
     "llm_confidence": "medium",
     "llm_evidence_refs": [
+      "K3.relative_delta_area",
       "K4.relative_delta_area",
-      "K4.pac",
-      "K4.cluster_consensus.min",
-      "K4.item_consensus.p10",
       "K5.relative_delta_area",
+      "K3.pac",
+      "K4.pac",
       "K5.pac",
+      "K4.cluster_consensus.min",
       "K5.cluster_consensus.min",
-      "K5.item_consensus.p10"
+      "K6.cluster_consensus.min",
+      "K4.item_consensus.p10",
+      "K5.item_consensus.p10",
+      "K6.item_consensus.p10"
     ],
     "k_selection_audit_path": "/data/qijun/path-ct/output_kirc/candidate_subtype/consensus_cluster/k_selection_llm_audit.json",
     "candidate_subtype_dir": "/data/qijun/path-ct/output_kirc/candidate_subtype",
