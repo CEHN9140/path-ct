@@ -178,6 +178,8 @@ def consensus_records_from_similarity(
             "cdf_area": float(cdf_area), "delta_area": float(delta_area),
             "relative_delta_area": float(relative_delta_area),
             "pac": float(pac), "cluster_sizes": cluster_sizes_from_labels(labels),
+            "pac_lower": float(clustering_config["pac_lower"]),
+            "pac_upper": float(clustering_config["pac_upper"]),
             "consensus_silhouette": consensus_silhouette_score(consensus, labels), "labels": labels,
         })
     return records, partition_records
@@ -251,6 +253,12 @@ def build_k_selection_evidence(
         "task": "select_initial_candidate_k",
         "selection_scope": "candidate_proposer_only",
         "min_cluster_size": min_cluster_size,
+        "metric_directions": {
+            "pac": "lower_is_better",
+            "cluster_consensus.min": "higher_is_better",
+            "item_consensus.p10": "higher_is_better",
+            "relative_delta_area": "interpret_as_elbow_gain",
+        },
         "candidate_k_values": candidate_ks,
         "eligible_k_values": eligible_ks,
         "k_evidence": k_evidence,
@@ -818,6 +826,8 @@ def candidate_proposer(
                         "relative_delta_area": float(relative_delta_area),
                         "pac": float(pac),
                         "cluster_sizes": cluster_sizes,
+                        "pac_lower": float(pac_lower),
+                        "pac_upper": float(pac_upper),
                         "consensus_silhouette": silhouette,
                         "labels": partition_key,
                     }

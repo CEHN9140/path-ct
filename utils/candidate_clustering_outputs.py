@@ -432,8 +432,8 @@ def save_candidate_clustering_outputs(
             "diagnostics": candidate_k_diagnostics,
         },
     )
-    pac_lower = float(best_record.get("pac_lower", 0.0) or 0.0)
-    pac_upper = float(best_record.get("pac_upper", 0.0) or 0.0)
+    pac_lower = float(best_record["pac_lower"])
+    pac_upper = float(best_record["pac_upper"])
     pac_gain_threshold = best_record.get("pac_gain_threshold")
     pac_gain = best_record.get("pac_gain")
     next_n_clusters = best_record.get("next_n_clusters")
