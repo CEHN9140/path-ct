@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified stable-group characterization for the 4-view and 5-view results."""
+"""Characterize the canonical five-view stable cores and macro-states."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -18,50 +19,26 @@ from tools import post_discovery_characterization as stats
 from tools.ct_radiomics import build_ct_affinity
 from tools.subtype_review_common import clinical_table
 from scripts_2026_8_31 import analyze_multi_k_stable_cores as base
-from scripts_2026_8_31.experiment_macro_state_analysis import (
-    MACRO_STATE_CORES as FOUR_VIEW_MACRO_CORES,
-)
 from scripts_2026_8_31.five_view_experiment import load_five_view_inputs
 
-FIVE_VIEW_MACRO_CORES = {
-    "STATE_A": ("CORE01",),
-    "STATE_B": ("CORE02",),
-    "STATE_C": ("CORE03",),
-    "STATE_D": ("CORE04", "CORE05", "CORE06"),
-}
+
+def load_saved_affinities(data_root, config_dir):
+    patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, config_dir)
+    affinities = {name: matrices[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")}
+    affinities["fused"] = fused
+    return patient_ids, affinities
 
 
-def groups_from_cores(cores, mapping):
-    return {
-        state: sorted({case_id for core in source for case_id in cores[core]})
-        for state, source in mapping.items()
-    }
-
-
-def load_saved_affinities(data_root, stable_root, output_root, config_dir, five_view):
-    if five_view:
-        patient_ids, matrices, fused, _ = load_five_view_inputs(data_root, config_dir)
-        saved_fused = np.load(stable_root / "fused_similarity_5view.npy")
-        if not np.allclose(fused, saved_fused, rtol=1e-6, atol=1e-8):
-            raise RuntimeError("Recomputed 5-view fused affinity does not match the saved 15号 artifact")
-        affinities = {name: matrices[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")}
-        affinities["fused"] = saved_fused
-        saved_ids = [str(value) for value in np.load(stable_root / "affinity_patient_order.npy", allow_pickle=True).tolist()]
-    else:
-        order_path = data_root / "candidate_subtype/affinity_patient_order.json"
-        patient_ids = json.loads(order_path.read_text(encoding="utf-8"))
-        paths = {
-            "ct": data_root / "candidate_subtype/ct_affinity.npy",
-            "wsi": data_root / "candidate_subtype/wsi_affinity.npy",
-            "rna": data_root / "candidate_subtype/rna_affinity.npy",
-            "genomic": data_root / "wxs/genomic_affinity.npy",
-            "fused": data_root / "candidate_subtype/fused_similarity.npy",
-        }
-        affinities = {name: np.load(path) for name, path in paths.items()}
-        saved_ids = [str(value) for value in patient_ids]
-    if [str(value) for value in patient_ids] != saved_ids:
-        raise ValueError("Saved affinity patient order is inconsistent")
-    return saved_ids, affinities
+def load_macro_groups(path):
+    frame = pd.read_csv(path, dtype=str)
+    if set(frame.columns) != {"state_id", "patient_id"}:
+        raise ValueError(f"Unexpected macro-state membership columns: {path}")
+    groups = {}
+    for row in frame.to_dict("records"):
+        groups.setdefault(row["state_id"], []).append(row["patient_id"])
+    if not groups or any(not members for members in groups.values()):
+        raise ValueError(f"Macro-state membership is empty: {path}")
+    return {state: sorted(set(members)) for state, members in groups.items()}
 
 
 def load_ct_table(patient_states, patient_ids, data_root, config_dir):
@@ -128,15 +105,15 @@ def clinical_outputs(records, groups, output_root, permutations, bootstrap_itera
     return age_omnibus + categorical, posthoc, survival_global
 
 
-def characterize_groups(data_root, stable_root, output_root, config_dir, groups, label, five_view, top_pathways, permutations, bootstrap_iterations):
+def characterize_groups(data_root, output_root, config_dir, groups, label, top_pathways, permutations, bootstrap_iterations):
     output_root.mkdir(parents=True, exist_ok=True)
     states, all_ids = base.load_states(data_root)
     stable_ids = stats.stable_analysis_universe(groups)
-    patient_ids, affinities = load_saved_affinities(data_root, stable_root, output_root, config_dir, five_view)
+    patient_ids, affinities = load_saved_affinities(data_root, config_dir)
     patient_states = [states[case_id] for case_id in all_ids]
     ct_features, ct_table_all, ct_audit = load_ct_table(patient_states, patient_ids, data_root, config_dir)
     ct_table = {case_id: ct_table_all[case_id] for case_id in stable_ids}
-    rna_pathways, rna_scores = base.load_expression_scores(states, config_dir)
+    rna_pathways, rna_scores = base.load_expression_scores(states, config_dir, data_root)
     rna_table = {case_id: {pathway: float(rna_scores.loc[case_id, pathway]) for pathway in rna_pathways if case_id in rna_scores.index and np.isfinite(rna_scores.loc[case_id, pathway])} for case_id in stable_ids}
     wxs_features, wxs_table_all = base.load_table(data_root / "wxs/wxs_discovery_features.csv")
     wxs_table = {case_id: wxs_table_all[case_id] for case_id in stable_ids}
@@ -209,30 +186,42 @@ def characterize_groups(data_root, stable_root, output_root, config_dir, groups,
     return manifest
 
 
-def run(data_root=ROOT / "output_kirc", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
+def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", macro_root=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     if force and output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
-    configs = [
-        ("4view_5core", ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11", False, None),
-        ("4view_3state", ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11", False, FOUR_VIEW_MACRO_CORES),
-        ("5view_6core", ROOT / "output_kirc_v12/15_five_view_multi_k_stability", True, None),
-        ("5view_4state", ROOT / "output_kirc_v12/15_five_view_multi_k_stability", True, FIVE_VIEW_MACRO_CORES),
-    ]
+    multi_k_root = Path(multi_k_root)
+    macro_root = Path(macro_root)
+    cores, _ = base.load_cores(multi_k_root)
+    groups_by_label = {
+        "5view_7core": {key: sorted(value) for key, value in cores.items()},
+        "5view_4state": load_macro_groups(macro_root / "macro_state_membership.csv"),
+    }
+    if set(groups_by_label["5view_4state"]) != {"STATE_A", "STATE_B", "STATE_C", "STATE_D"}:
+        raise ValueError("01 must provide STATE_A-STATE_D")
+    if set().union(*groups_by_label["5view_4state"].values()) != set().union(*cores.values()):
+        raise ValueError("01 macro-state membership does not match current stable-core membership")
     summaries = {}
-    for name, stable_root, five_view, mapping in configs:
-        cores, _ = base.load_cores(stable_root)
-        groups = {key: sorted(value) for key, value in cores.items()} if mapping is None else groups_from_cores(cores, mapping)
-        summaries[name] = characterize_groups(data_root, stable_root, output_root / name, config_dir, groups, name, five_view, 25, permutations, bootstrap_iterations)
+    for name, groups in groups_by_label.items():
+        summaries[name] = characterize_groups(data_root, output_root / name, config_dir, groups, name, 25, permutations, bootstrap_iterations)
+    base.write_json(output_root / "source_manifest.json", {
+        "data_root": str(Path(data_root).resolve()),
+        "multi_k_root": str(multi_k_root.resolve()),
+        "macro_state_root": str(macro_root.resolve()),
+        "stable_core_membership": str((multi_k_root / "stable_core_membership.csv").resolve()),
+        "macro_state_membership": str((macro_root / "macro_state_membership.csv").resolve()),
+    })
     base.write_json(output_root / "characterization_summary.json", summaries)
     return summaries
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc")
+    parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc_raw")
+    parser.add_argument("--multi-k-root", type=Path, default=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review")
+    parser.add_argument("--macro-root", type=Path, default=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/02_post_discovery_characterization")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--permutations", type=int, default=9999)

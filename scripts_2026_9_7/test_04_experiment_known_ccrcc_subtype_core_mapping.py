@@ -12,26 +12,30 @@ SPEC.loader.exec_module(MAPPING)
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_four_view_core_sizes_union_and_disjointness_are_frozen():
+def test_current_seven_core_sizes_union_and_disjointness_are_frozen():
     cores = MAPPING.load_core_membership(
-        ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11/stable_core_membership.csv",
-        {"CORE01": 18, "CORE02": 14, "CORE03": 11, "CORE04": 11, "CORE05": 5},
+        ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv",
+        MAPPING.SEVEN_CORE_SIZES,
     )
     assert {key: len(value) for key, value in cores.items()} == {
-        "CORE01": 18, "CORE02": 14, "CORE03": 11, "CORE04": 11, "CORE05": 5
+        "CORE01": 17, "CORE02": 15, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 7, "CORE07": 5
     }
-    assert len(set().union(*cores.values())) == 59
+    assert len(set().union(*cores.values())) == 77
 
 
-def test_five_view_core_sizes_are_frozen():
+def test_macro_mapping_covers_current_seven_cores():
     cores = MAPPING.load_core_membership(
-        ROOT / "output_kirc_v12/15_five_view_multi_k_stability/stable_core_membership.csv",
-        {"CORE01": 17, "CORE02": 14, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 5},
+        ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv",
+        MAPPING.SEVEN_CORE_SIZES,
     )
-    assert {key: len(value) for key, value in cores.items()} == {
-        "CORE01": 17, "CORE02": 14, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 5
+    mapping = MAPPING.load_macro_core_map(
+        ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization/core_to_macro_state.csv",
+        cores,
+    )
+    assert mapping == {
+        "STATE_A": ("CORE01",), "STATE_B": ("CORE02",), "STATE_C": ("CORE03",),
+        "STATE_D": ("CORE04", "CORE05", "CORE06", "CORE07"),
     }
-    assert len(set().union(*cores.values())) == 69
 
 
 def test_core_union_must_equal_analysis_universe():
@@ -44,11 +48,9 @@ def test_core_union_must_equal_analysis_universe():
         raise AssertionError("core/version mismatch must fail")
 
 
-def test_real_core_unions_equal_the_current_macro_analysis_universes():
-    four = MAPPING.load_core_membership(ROOT / "output_kirc_v12/03_multi_k_accepted_core_stability_v11/stable_core_membership.csv", {"CORE01": 18, "CORE02": 14, "CORE03": 11, "CORE04": 11, "CORE05": 5})
-    five = MAPPING.load_core_membership(ROOT / "output_kirc_v12/15_five_view_multi_k_stability/stable_core_membership.csv", {"CORE01": 17, "CORE02": 14, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 5})
-    MAPPING.validate_core_union(four, MAPPING.load_universe(ROOT / "output_kirc_v13/02_post_discovery_characterization/4view_3state/analysis_universe.csv"))
-    MAPPING.validate_core_union(five, MAPPING.load_universe(ROOT / "output_kirc_v13/02_post_discovery_characterization/5view_4state/analysis_universe.csv"))
+def test_real_core_union_matches_current_characterization_universe():
+    cores = MAPPING.load_core_membership(ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv", MAPPING.SEVEN_CORE_SIZES)
+    MAPPING.validate_core_union(cores, set().union(*cores.values()))
 
 
 def test_missing_reference_labels_are_not_in_contingency():

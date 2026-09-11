@@ -441,7 +441,7 @@ def analyze_partition(name, state_labels, mrna, clearcode, output_root, permutat
     return rows
 
 
-def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping", discovery_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", permutations=9999, force=False):
+def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc_raw", output_root=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping", discovery_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", permutations=9999, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     if force and output_root.exists():
@@ -453,18 +453,18 @@ def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/03_known_cc
     clearcode_frame.to_csv(data_root / "tcga_kirc_clearcode34.csv", index=False)
     mrna = mrna_frame.set_index("case_id").to_dict("index")
     clearcode = clearcode_frame.set_index("case_id").to_dict("index")
-    states = {}
-    with (data_root / "tcga_kirc_data.json").open(encoding="utf-8") as handle:
-        payload = json.load(handle)
-    all_ids = sorted({normalize_tcga_patient_id(item.get("case_id")) for item in payload if isinstance(item, dict) and item.get("case_id")}) if isinstance(payload, list) else []
-    if len(all_ids) != 103:
-        from scripts_2026_8_31.analyze_multi_k_stable_cores import load_states
-        _, all_ids = load_states(ROOT / "output_kirc")
-    all_ids = sorted(set(all_ids))
+    order_path = Path(cohort_root) / "candidate_subtype/affinity_patient_order.json"
+    if order_path.exists():
+        all_ids = [normalize_tcga_patient_id(value) for value in json.loads(order_path.read_text(encoding="utf-8"))]
+    else:
+        with (data_root / "tcga_kirc_data.json").open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        all_ids = [normalize_tcga_patient_id(item.get("case_id")) for item in payload if isinstance(item, dict) and item.get("case_id")] if isinstance(payload, list) else []
+    all_ids = sorted({case_id for case_id in all_ids if case_id})
     coverage_rows = write_reference_coverage(all_ids, {"mrna": mrna, "clearcode": clearcode}, output_root)
     partition_specs = {
-        "4V-3state": (discovery_root / "4view_3state/analysis_universe.csv", 59, ["STATE_A", "STATE_B", "STATE_C"]),
-        "5V-4state": (discovery_root / "5view_4state/analysis_universe.csv", 69, ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]),
+        "5V-7core": (discovery_root / "5view_7core/analysis_universe.csv", 77, [f"CORE0{i}" for i in range(1, 8)]),
+        "5V-4state": (discovery_root / "5view_4state/analysis_universe.csv", 77, ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]),
     }
     partition_labels = {name: load_analysis_universe(path, expected_n, groups) for name, (path, expected_n, groups) in partition_specs.items()}
     coverage_summary = []
@@ -511,6 +511,7 @@ def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/03_known_cc
         "clearcode_primary_field": "published Subtype Classification",
         "permutations": permutations,
         "all_cohort_n": len(all_ids),
+        "cohort_patient_order": str(order_path.resolve()),
         "partition_sizes": {name: len(labels) for name, (labels, _) in partition_labels.items()},
     })
     write_json(output_root / "mapping_summary.json", {"coverage": coverage_summary, "mapping_rows": mapping_rows, "source_sha256": {name: hashlib.sha256((data_root / name).read_bytes()).hexdigest() for name in ["Data_file_S9_mRNA_miRNA_cluster_assignments.xlsx", "NIHMS576995-supplement-03.doc"]}})
@@ -520,6 +521,7 @@ def run(data_root=ROOT / "data", output_root=ROOT / "output_kirc_v13/03_known_cc
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "data")
+    parser.add_argument("--cohort-root", type=Path, default=ROOT / "output_kirc_raw")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping")
     parser.add_argument("--discovery-root", type=Path, default=ROOT / "output_kirc_v13/02_post_discovery_characterization")
     parser.add_argument("--permutations", type=int, default=9999)
