@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Characterize the canonical five-view stable cores and macro-states."""
+"""Characterize the canonical five-view seven-state stable groups."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -29,16 +28,24 @@ def load_saved_affinities(data_root, config_dir):
     return patient_ids, affinities
 
 
-def load_macro_groups(path):
-    frame = pd.read_csv(path, dtype=str)
-    if set(frame.columns) != {"state_id", "patient_id"}:
-        raise ValueError(f"Unexpected macro-state membership columns: {path}")
-    groups = {}
-    for row in frame.to_dict("records"):
-        groups.setdefault(row["state_id"], []).append(row["patient_id"])
-    if not groups or any(not members for members in groups.values()):
-        raise ValueError(f"Macro-state membership is empty: {path}")
-    return {state: sorted(set(members)) for state, members in groups.items()}
+def rebase_ct_paths(states, patient_ids, data_root):
+    rebased = []
+    for case_id in patient_ids:
+        state = dict(states[case_id])
+        evidence = dict(state.get("ct_evidence", {}) or {})
+        case_root = Path(data_root) / "ct_radiomics" / case_id
+        feature_path = case_root / Path(str(evidence.get("feature_path", "radiomics_features.json"))).name
+        ccc_paths = {
+            label: str(case_root / Path(str(path)).name)
+            for label, path in dict(evidence.get("ccc_feature_paths", {}) or {}).items()
+        }
+        if not feature_path.is_file() or any(not Path(path).is_file() for path in ccc_paths.values()):
+            raise FileNotFoundError(f"Current CT radiomics cache is incomplete for {case_id}: {case_root}")
+        evidence["feature_path"] = str(feature_path)
+        evidence["ccc_feature_paths"] = ccc_paths
+        state["ct_evidence"] = evidence
+        rebased.append(state)
+    return rebased
 
 
 def load_ct_table(patient_states, patient_ids, data_root, config_dir):
@@ -110,7 +117,7 @@ def characterize_groups(data_root, output_root, config_dir, groups, label, top_p
     states, all_ids = base.load_states(data_root)
     stable_ids = stats.stable_analysis_universe(groups)
     patient_ids, affinities = load_saved_affinities(data_root, config_dir)
-    patient_states = [states[case_id] for case_id in all_ids]
+    patient_states = rebase_ct_paths(states, patient_ids, data_root)
     ct_features, ct_table_all, ct_audit = load_ct_table(patient_states, patient_ids, data_root, config_dir)
     ct_table = {case_id: ct_table_all[case_id] for case_id in stable_ids}
     rna_pathways, rna_scores = base.load_expression_scores(states, config_dir, data_root)
@@ -186,32 +193,25 @@ def characterize_groups(data_root, output_root, config_dir, groups, label, top_p
     return manifest
 
 
-def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", macro_root=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
+def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
+    multi_k_root = Path(multi_k_root)
+    cores, _ = base.load_cores(multi_k_root)
+    groups_by_label = {"5view_7state": {key: sorted(value) for key, value in cores.items()}}
+    states, _ = base.load_states(data_root)
+    patient_ids, _ = load_saved_affinities(data_root, config_dir)
+    rebase_ct_paths(states, patient_ids, data_root)
     if force and output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
-    multi_k_root = Path(multi_k_root)
-    macro_root = Path(macro_root)
-    cores, _ = base.load_cores(multi_k_root)
-    groups_by_label = {
-        "5view_7core": {key: sorted(value) for key, value in cores.items()},
-        "5view_4state": load_macro_groups(macro_root / "macro_state_membership.csv"),
-    }
-    if set(groups_by_label["5view_4state"]) != {"STATE_A", "STATE_B", "STATE_C", "STATE_D"}:
-        raise ValueError("01 must provide STATE_A-STATE_D")
-    if set().union(*groups_by_label["5view_4state"].values()) != set().union(*cores.values()):
-        raise ValueError("01 macro-state membership does not match current stable-core membership")
     summaries = {}
     for name, groups in groups_by_label.items():
         summaries[name] = characterize_groups(data_root, output_root / name, config_dir, groups, name, 25, permutations, bootstrap_iterations)
     base.write_json(output_root / "source_manifest.json", {
         "data_root": str(Path(data_root).resolve()),
         "multi_k_root": str(multi_k_root.resolve()),
-        "macro_state_root": str(macro_root.resolve()),
         "stable_core_membership": str((multi_k_root / "stable_core_membership.csv").resolve()),
-        "macro_state_membership": str((macro_root / "macro_state_membership.csv").resolve()),
     })
     base.write_json(output_root / "characterization_summary.json", summaries)
     return summaries
@@ -221,7 +221,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc_raw")
     parser.add_argument("--multi-k-root", type=Path, default=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review")
-    parser.add_argument("--macro-root", type=Path, default=ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/02_post_discovery_characterization")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
     parser.add_argument("--permutations", type=int, default=9999)

@@ -463,8 +463,7 @@ def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc_raw", output_ro
     all_ids = sorted({case_id for case_id in all_ids if case_id})
     coverage_rows = write_reference_coverage(all_ids, {"mrna": mrna, "clearcode": clearcode}, output_root)
     partition_specs = {
-        "5V-7core": (discovery_root / "5view_7core/analysis_universe.csv", 77, [f"CORE0{i}" for i in range(1, 8)]),
-        "5V-4state": (discovery_root / "5view_4state/analysis_universe.csv", 77, ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]),
+        "5V-7state": (discovery_root / "5view_7state/analysis_universe.csv", 77, [f"CORE0{i}" for i in range(1, 8)]),
     }
     partition_labels = {name: load_analysis_universe(path, expected_n, groups) for name, (path, expected_n, groups) in partition_specs.items()}
     coverage_summary = []

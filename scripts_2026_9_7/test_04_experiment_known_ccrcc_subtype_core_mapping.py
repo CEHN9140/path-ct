@@ -1,9 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-import numpy as np
-
-
 SCRIPT = Path(__file__).with_name("04_experiment_known_ccrcc_subtype_core_mapping.py")
 SPEC = importlib.util.spec_from_file_location("core_mapping", SCRIPT)
 MAPPING = importlib.util.module_from_spec(SPEC)
@@ -21,21 +18,6 @@ def test_current_seven_core_sizes_union_and_disjointness_are_frozen():
         "CORE01": 17, "CORE02": 15, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 7, "CORE07": 5
     }
     assert len(set().union(*cores.values())) == 77
-
-
-def test_macro_mapping_covers_current_seven_cores():
-    cores = MAPPING.load_core_membership(
-        ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv",
-        MAPPING.SEVEN_CORE_SIZES,
-    )
-    mapping = MAPPING.load_macro_core_map(
-        ROOT / "output_kirc_v13/01_five_view_four_state_macro_characterization/core_to_macro_state.csv",
-        cores,
-    )
-    assert mapping == {
-        "STATE_A": ("CORE01",), "STATE_B": ("CORE02",), "STATE_C": ("CORE03",),
-        "STATE_D": ("CORE04", "CORE05", "CORE06", "CORE07"),
-    }
 
 
 def test_core_union_must_equal_analysis_universe():
@@ -68,35 +50,9 @@ def test_status_low_information_and_unresolved_require_at_least_five_labels():
     assert MAPPING.no_fdr_supported_enrichment_in_either_reference(4, "no_fdr_supported_enrichment", 8, "no_fdr_supported_enrichment") is False
 
 
-def test_component_heterogeneity_uses_one_bh_family_across_all_rows():
-    rows = [{"permutation_p": value} for value in (0.001, 0.01, 0.02, 0.03, 0.2, 0.9)]
-    MAPPING.attach_component_bh(rows)
-    assert [row["bh_q"] for row in rows] == [0.006, 0.03, 0.04, 0.045, 0.24, 0.9]
-
-
-def test_component_heterogeneity_only_returns_multi_core_macros():
-    macros = {"STATE_A": ("CORE01", "CORE03"), "STATE_C": ("CORE04",)}
-    rows = MAPPING.component_heterogeneity_rows(
-        "4V", macros, {"CORE01": ["p1"], "CORE03": ["p2"], "CORE04": ["p3"]},
-        {"p1": "m1", "p2": "m2", "p3": "m1"}, "mRNA", ["m1", "m2"], 20,
-    )
-    assert {row["macro_state"] for row in rows} == {"STATE_A"}
-
-
-def test_weighted_component_purity_and_purity_drop_are_calculated():
-    row = MAPPING.macro_mixing_row(
-        "4V", "STATE_A", ["CORE01", "CORE03"],
-        {"CORE01": {"label_n": 10, "purity": .9}, "CORE03": {"label_n": 10, "purity": .5}},
-        {"m1": 14, "m2": 6}, {"m1", "m2"}, None, None,
-    )
-    assert np.isclose(row["weighted_component_purity"], .7)
-    assert np.isclose(row["macro_purity"], .7)
-    assert np.isclose(row["purity_drop"], 0.0)
-
-
 def test_core_enrichment_preserves_total_and_label_counts(tmp_path):
     results = MAPPING.analyze_reference(
-        "4V-5core",
+        "5V-7state",
         {"CORE01": ["p1", "p2", "p3"], "CORE02": ["p4", "p5"]},
         {"p1": {"reference_subtype": "m1", "reference_status": "matched"}, "p2": {"reference_subtype": "m1", "reference_status": "matched"}, "p3": {"reference_subtype": None, "reference_status": "missing"}, "p4": {"reference_subtype": "m2", "reference_status": "matched"}, "p5": {"reference_subtype": "m2", "reference_status": "matched"}},
         "mRNA",
@@ -110,18 +66,16 @@ def test_core_enrichment_preserves_total_and_label_counts(tmp_path):
     assert row["rest_label_n"] == 2
 
 
-def test_run_partition_returns_macro_rows_for_outer_aggregation(tmp_path):
-    _, component_rows, mixing_rows = MAPPING.run_partition(
-        "4V-5core",
+def test_run_partition_returns_current_reference_results(tmp_path):
+    results = MAPPING.run_partition(
+        "5V-7state",
         {"CORE01": ["p1", "p2"], "CORE03": ["p3", "p4"]},
-        {"STATE_A": ("CORE01", "CORE03")},
         tmp_path,
         {"p1": {"reference_subtype": "m1", "reference_status": "matched"}, "p2": {"reference_subtype": "m1", "reference_status": "matched"}, "p3": {"reference_subtype": "m2", "reference_status": "matched"}, "p4": {"reference_subtype": "m2", "reference_status": "matched"}},
         {},
         20,
     )
-    assert component_rows
-    assert mixing_rows
+    assert set(results) == {"mRNA", "ClearCode34"}
 
 
 def test_load_reference_treats_nan_label_as_missing(tmp_path):
