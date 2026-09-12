@@ -59,7 +59,7 @@ def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(m
         def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content='{"actions":[{"action":"drop","target_ids":["C1"]}]}'))]
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"actions":[{"action":"drop","target_ids":["C1"],"decision_state":{"identity":"unassessed","structure":"unassessed","alternative_explanation":"unassessed","uncertainty":"yes"}}]}'))]
             )
 
     monkeypatch.setenv("TEST_KEY", "secret")

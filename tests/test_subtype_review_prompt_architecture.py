@@ -72,14 +72,9 @@ def test_router_reason_must_match_selected_action():
     assert "must not state or imply that a different action is better supported" in router
 
 
-def test_router_does_not_require_decision_state_fields():
+def test_router_requires_explicit_decision_state_fields():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
 
-    for field in (
-        '"support_sources"',
-        '"corroboration_satisfied"',
-        '"active_contradiction"',
-        '"dominant_confounder"',
-    ):
-        assert field not in router
-    assert "python only checks" not in router.lower()
+    assert "decision_state" in router
+    assert "unassessed" in router
+    assert "alternative_explanation" in router

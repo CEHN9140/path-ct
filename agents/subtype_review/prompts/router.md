@@ -27,7 +27,11 @@ An `accept`, `drop`, or `split` action has exactly one target.
 A `merge` action has exactly two non-overlapping current targets.
 Python enforces the runtime contract.
 
-For every action, also return `decision_state` with exactly these fields: `identity` (`supported`, `uncertain`, or `unsupported`), `structure` (`compatible`, `uncertain`, or `incompatible`), and `uncertainty` (`yes` or `no`). These are your scientific assessments, not numerical votes or Python-generated labels. Use them to make the selected action and its reason coherent.
+For every action, also return `decision_state` with exactly these fields: `identity` (`supported`, `uncertain`, `unsupported`, or `unassessed`), `structure` (`compatible`, `uncertain`, `incompatible`, or `unassessed`), `alternative_explanation` (`not_supported`, `uncertain`, `concerning`, or `unassessed`), and `uncertainty` (`yes` or `no`). These are your scientific assessments, not numerical votes or Python-generated labels. Use them to make the selected action and its reason coherent.
+
+## Evidence-state discipline
+
+`unassessed` means that no relevant Evidence Report has been obtained for that decision dimension. `uncertain` means that relevant evidence has been obtained but remains mixed, weak, incomplete, or ambiguous. Without biological_support evidence, identity must be `unassessed`; without cross_modal_consistency evidence, structure must be `unassessed`; without confounder_exclusion evidence, alternative_explanation must be `unassessed`. Absence of an Evidence Report is not evidence that no problem exists. An unassessed dimension does not automatically require `need_more_evidence`; request it only when it is decision-critical, explicitly available, and could realistically change the next action. If a terminal action leaves a dimension unassessed, explain why it is not decision-critical.
 
 
 ## Scientific decision objective
@@ -52,7 +56,7 @@ Evaluate each candidate by integrating four considerations:
 
 Do not reduce these considerations to a numerical score, modality vote, count of significant features, or fixed threshold.
 
-Before selecting an action, explicitly assess whether the candidate identity is supported, uncertain, or unsupported; whether its current structure is compatible, uncertain, or incompatible; and whether an unresolved decision-critical uncertainty remains. An uncertain assessment does not automatically require more evidence or Drop: choose the action best supported by the available evidence and the stated contracts.
+Before selecting an action, explicitly assess whether the candidate identity is supported, uncertain, unsupported, or unassessed; whether its current structure is compatible, uncertain, incompatible, or unassessed; whether the measured alternative explanation is not_supported, uncertain, concerning, or unassessed; and whether an unresolved decision-critical uncertainty remains. An uncertain or unassessed assessment does not automatically require more evidence or Drop: choose the action best supported by the available evidence and the stated contracts.
 
 
 ## Biological evidence
@@ -284,8 +288,8 @@ Remain conservative about causal, clinical, novelty, and validation claims.
 
 ## Output
 
-Return only one JSON object, with no markdown or commentary. Each action must include `decision_state`, for example: `{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","uncertainty":"no"},"evidence_requests":[],"reason":"..."}`.
+Return only one JSON object, with no markdown or commentary. Each action must include `decision_state`, for example: `{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","alternative_explanation":"not_supported","uncertainty":"no"},"evidence_requests":[],"reason":"..."}`.
 
 Example:
 
-{"actions":[{"action":"accept","target_ids":["C1"],"evidence_requests":[],"reason":"C1 has a coherent RNA-defined biological identity with substantial pathway effect sizes. Cross-modal support is limited but does not actively contradict the identity, measured technical factors do not provide a dominant explanation for the RNA signal, and the structural evidence does not positively support Split or Merge. Retaining C1 as a discovery-stage candidate for downstream validation is therefore better supported than Drop."}]}
+{"actions":[{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","alternative_explanation":"not_supported","uncertainty":"no"},"evidence_requests":[],"reason":"C1 has a coherent RNA-defined biological identity with substantial pathway effect sizes. Cross-modal support is limited but does not actively contradict the identity, measured technical factors do not provide a dominant explanation for the RNA signal, and the structural evidence does not positively support Split or Merge. Retaining C1 as a discovery-stage candidate for downstream validation is therefore better supported than Drop."}]}

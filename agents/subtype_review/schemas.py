@@ -85,9 +85,12 @@ class EvidenceRequest(BaseModel):
 class RouterDecisionState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    identity: Literal["supported", "uncertain", "unsupported"] = "uncertain"
-    structure: Literal["compatible", "uncertain", "incompatible"] = "uncertain"
-    uncertainty: Literal["yes", "no"] = "yes"
+    identity: Literal["supported", "uncertain", "unsupported", "unassessed"]
+    structure: Literal["compatible", "uncertain", "incompatible", "unassessed"]
+    alternative_explanation: Literal[
+        "not_supported", "uncertain", "concerning", "unassessed"
+    ]
+    uncertainty: Literal["yes", "no"]
 
 
 class RouterAction(BaseModel):
@@ -95,7 +98,7 @@ class RouterAction(BaseModel):
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
-    decision_state: RouterDecisionState = Field(default_factory=RouterDecisionState)
+    decision_state: RouterDecisionState
     evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
@@ -127,6 +130,16 @@ class RouterPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     actions: list[RouterAction] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_action_phase(self) -> "RouterPlan":
+        has_need = any(item.action == "need_more_evidence" for item in self.actions)
+        has_revision = any(item.action in {"split", "merge"} for item in self.actions)
+        if has_need and has_revision:
+            raise ValueError(
+                "RouterPlan cannot mix evidence acquisition with split/merge actions"
+            )
+        return self
 
 
 class SplitPlan(BaseModel):
@@ -178,7 +191,6 @@ class ReviewState(TypedDict, total=False):
     partition: dict[str, Any]
     round_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
-    router_request: list[dict[str, Any]] | None
     evidence_memory: dict[str, list[dict[str, Any]]]
     messages: list[Any]
     router_plan: dict[str, Any] | None

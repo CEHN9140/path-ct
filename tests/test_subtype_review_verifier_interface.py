@@ -4,9 +4,9 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from agents.subtype_review.graph import (
     compact_partition_for_llm,
+    eligible_tools_for_requests,
     execute_tool_calls,
     initial_review_state,
-    prepare_round_node,
     required_reports_for_round,
 )
 from agents.subtype_review.llm_summary import summarize_evidence
@@ -23,7 +23,11 @@ def runtime(registry=None):
 
 def test_tool_message_contains_only_decision_payload():
     state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
-    prepare_round_node(state, runtime())
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
+    })
     registry = {key: {**value} for key, value in TOOL_REGISTRY.items()}
     registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: {
         "status": "success",

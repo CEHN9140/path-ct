@@ -7,14 +7,17 @@ from agents.subtype_review.graph import (
     available_evidence_requests,
     build_review_graph,
     completed_tool_keys,
+    eligible_tools_for_requests,
+    evidence_coverage,
     execute_tool_calls,
     initial_review_state,
     is_length_finish_error,
     partition_signature,
-    prepare_round_node,
     router_node,
     save_review_outputs,
     validate_reports,
+    validate_decision_state_evidence,
+    validate_selected_tool_coverage,
     validate_router_plan,
     verifier_node,
 )
@@ -46,10 +49,21 @@ def runtime(tools=None):
     }
 
 
+def decision_state(**values):
+    return {
+        "identity": values.get("identity", "unassessed"),
+        "structure": values.get("structure", "unassessed"),
+        "alternative_explanation": values.get("alternative_explanation", "unassessed"),
+        "uncertainty": values.get("uncertainty", "yes"),
+    }
+
+
 def test_state_has_evidence_memory_and_no_preselected_tools():
     state = state_for(("C1", ["P1"]), ("C2", ["P2"]))
     assert "evidence_memory" in state
     assert "pending_evidence_requests" in state["control"]
+    assert state["control"]["next"] == "router"
+    assert "router_request" not in state
     assert "pending_tools" not in state["control"]
 
 
@@ -60,6 +74,8 @@ def test_evidence_request_is_tool_free_and_normalizes_targets():
     assert request.target_ids == ["C1", "C2"]
     with pytest.raises(ValueError):
         RouterAction(action="accept", target_ids=["C1"], tool_name="pathway_enrichment")
+    with pytest.raises(ValueError):
+        RouterAction(action="drop", target_ids=["C1"])
 
 
 def test_registry_uses_verifier_selectable_only():
@@ -68,20 +84,13 @@ def test_registry_uses_verifier_selectable_only():
     assert TOOL_REGISTRY["clinical_characterization"]["verifier_selectable"] is False
 
 
-def test_prepare_round_exposes_tools_without_precreating_requests():
-    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
-    assert state["control"]["pending_evidence_requests"] == []
-    assert state["control"]["acquisition_mode"] == "initial"
-    assert set(state["control"]["eligible_tools"]) == {
-        "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
-        "multimodal_consistency_check", "confound_test", "known_label_echo_test",
-    }
-
-
 def test_verifier_can_select_subset_with_explicit_target_ids():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
+    })
     tools = registry()
     seen = []
 
@@ -101,14 +110,17 @@ def test_verifier_can_select_subset_with_explicit_target_ids():
 
 def test_available_evidence_requests_do_not_expose_tool_names():
     state = state_for(("C1", ["P1", "P2"]))
-    prepare_round_node(state, runtime())
     available = available_evidence_requests(state, runtime())
     assert available and all("tool_name" not in item for item in available)
 
 
 def test_selected_tool_is_removed_from_next_evidence_availability():
     state = state_for(("C1", ["P1", "P2"]))
-    prepare_round_node(state, runtime())
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
+    })
     execute_tool_calls(
         state,
         {"tool_calls": [
@@ -140,8 +152,9 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
         "target_ids": ["C1"],
         "question": "Clarify C1 technical evidence.",
     }]
-    state["router_request"] = list(state["control"]["pending_evidence_requests"])
-    prepare_round_node(state, runtime())
+    state["control"]["eligible_tools"] = eligible_tools_for_requests(
+        state, runtime(), state["control"]["pending_evidence_requests"]
+    )
     state["round_evidence"] = [{
         "tool_name": "confound_test",
         "status": "success",
@@ -164,7 +177,9 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
         "target_ids": ["C1"],
         "question": "Clarify C1 cross-modal evidence.",
     }]
-    prepare_round_node(state, runtime())
+    state["control"]["eligible_tools"] = eligible_tools_for_requests(
+        state, runtime(), state["control"]["pending_evidence_requests"]
+    )
     assert set(state["control"]["eligible_tools"]) == {
         "multimodal_consistency_check",
     }
@@ -173,25 +188,26 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
 def test_router_plan_requires_complete_nonoverlapping_coverage():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     with pytest.raises(ValueError, match="cover every current set"):
-        validate_router_plan(RouterPlan(actions=[{"action": "drop", "target_ids": ["C1"]}]), state, runtime())
+        validate_router_plan(RouterPlan(actions=[{
+            "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
+        }]), state, runtime())
 
 
 def test_router_stores_evidence_requests_not_tools():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
 
     class Router:
         def invoke(self, payload):
             return {"actions": [
                 {"action": "need_more_evidence", "target_ids": ["C1"], "evidence_requests": [{
                     "dimension": "biological_support", "target_ids": ["C1"], "question": "Clarify C1."
-                }]},
-                {"action": "drop", "target_ids": ["C2"]},
+                }], "decision_state": decision_state()},
+                {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
             ]}
 
     router_node(state, {**runtime(), "router_model": Router()})
     assert state["control"]["pending_evidence_requests"][0]["target_ids"] == ["C1"]
-    assert state["router_request"][0]["target_ids"] == ["C1"]
+    assert state["control"]["next"] == "verifier_acquire"
     assert "pending_tools" not in state["control"]
 
 
@@ -243,25 +259,126 @@ def test_audit_merges_reports_into_partition_memory():
     assert state["reports"] and signature in state["evidence_memory"]
 
 
-def test_verifier_receives_router_request_for_targeted_acquisition():
+def test_verifier_clears_request_after_audit_and_returns_to_router():
+    state = state_for(("C1", ["P1", "P2"]))
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "next": "verifier_acquire",
+    })
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                return {"tool_calls": [{
+                    "name": "pathway_enrichment", "id": "call-1",
+                    "args": {"target_ids": ["C1"]},
+                }]}
+            return {"reports": [{
+                "dimension": "biological_support", "scope": "set_identity",
+                "target_ids": ["C1"], "observations": [],
+                "statistical_interpretation": "ok", "medical_interpretation": "ok",
+                "limitations": [], "tool_refs": [],
+            }]}
+
+    values = {**runtime(), "verifier_model": Verifier()}
+    verifier_node(state, values)
+    assert state["control"]["next"] == "verifier_audit"
+    verifier_node(state, values)
+    assert state["control"]["pending_evidence_requests"] == []
+    assert state["control"]["eligible_tools"] == {}
+    assert state["control"]["next"] == "router"
+
+
+def test_router_first_graph_supports_multiple_evidence_rounds():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    calls = []
+    decisions = [
+        {"dimension": "biological_support", "question": "Clarify biology."},
+        {"dimension": "cross_modal_consistency", "question": "Clarify structure."},
+        {"dimension": "confounder_exclusion", "question": "Clarify confounding."},
+    ]
+
+    class Router:
+        def invoke(self, payload):
+            calls.append("router")
+            step = sum(item == "router" for item in calls)
+            if step == 1:
+                assert payload["evidence_reports"] == []
+                assert any(
+                    item["dimension"] == "biological_support"
+                    and item["target_ids"] == ["C1"]
+                    for item in payload["available_evidence_requests"]
+                )
+            action_state = decision_state()
+            if step == 2:
+                action_state = decision_state(identity="supported")
+            elif step >= 3:
+                action_state = decision_state(identity="supported", structure="compatible")
+            if step >= 4:
+                action_state = decision_state(
+                    identity="supported", structure="compatible",
+                    alternative_explanation="not_supported", uncertainty="no",
+                )
+                return {"actions": [
+                    {"action": "accept", "target_ids": ["C1"], "decision_state": action_state},
+                    {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
+                ]}
+            request = {**decisions[step - 1], "target_ids": ["C1"]}
+            return {"actions": [
+                {"action": "need_more_evidence", "target_ids": ["C1"],
+                 "decision_state": action_state, "evidence_requests": [request]},
+                {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
+            ]}
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                calls.append("verifier")
+                name = {
+                    "biological_support": "pathway_enrichment",
+                    "cross_modal_consistency": "multimodal_consistency_check",
+                    "confounder_exclusion": "confound_test",
+                }[payload["evidence_requests"][0]["dimension"]]
+                return {"tool_calls": [{
+                    "name": name, "id": name, "args": {"target_ids": ["C1"]},
+                }]}
+            dimension = payload["required_reports"][0]["dimension"]
+            return {"reports": [{
+                "dimension": dimension, "scope": "set_identity", "target_ids": ["C1"],
+                "observations": [], "limitations": [], "tool_refs": [],
+            }]}
+
+    graph = build_review_graph()
+    result = graph.invoke(
+        state,
+        context={**runtime(), "router_model": Router(), "verifier_model": Verifier()},
+    )
+    assert calls == ["router", "verifier", "router", "verifier", "router", "verifier", "router"]
+    assert result["control"]["status"] == "complete"
+    assert result["control"]["round"] == 4
+
+
+def test_verifier_receives_router_evidence_request():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     state["control"]["pending_evidence_requests"] = [{
         "dimension": "confounder_exclusion",
         "target_ids": ["C1"],
         "question": "Could CT acquisition explain C1?",
     }]
-    state["router_request"] = state["control"]["pending_evidence_requests"]
-    prepare_round_node(state, runtime())
+    state["control"]["next"] = "verifier_acquire"
     captured = {}
 
     class Verifier:
         def invoke(self, payload):
             captured.update(payload)
-            return {"tool_calls": []}
+            return {"tool_calls": [{
+                "name": "confound_test", "id": "call-1", "args": {"target_ids": ["C1"]}
+            }]}
 
     verifier_node(state, {**runtime(), "verifier_model": Verifier()})
-    assert captured["acquisition_mode"] == "targeted"
-    assert captured["router_request"][0]["target_ids"] == ["C1"]
+    assert captured["evidence_requests"][0]["target_ids"] == ["C1"]
+    assert captured["eligible_tools"]["confound_test"]["target_ids"] == ["C1"]
 
 
 def test_save_review_outputs_groups_accept_reports_by_dimension(tmp_path):
@@ -280,21 +397,66 @@ def test_scientific_unavailable_is_completed_runtime_failure_is_not():
     assert compact_tool_result({"status": "failure", "results": {"missing_reason": ""}, "errors": ["I/O"]}, "x")["status"] == "runtime_failure"
 
 
-def test_graph_has_three_agents_and_prepare_round():
+def test_graph_has_three_agents_and_starts_with_router():
     nodes = build_review_graph().get_graph().nodes
-    assert {"prepare_round", "verifier", "router", "reviser"}.issubset(nodes)
-    assert "init_agent" not in nodes
+    assert {"verifier", "router", "reviser"}.issubset(nodes)
+    assert "prepare_round" not in nodes
 
 
-def test_router_payload_has_no_tool_registry_or_raw_metrics():
+def test_router_payload_reports_unassessed_dimensions():
     state = state_for(("C1", ["P1", "P2"]))
-    prepare_round_node(state, runtime())
     captured = {}
 
     class Router:
         def invoke(self, payload):
             captured.update(payload)
-            return {"actions": [{"action": "drop", "target_ids": ["C1"]}]}
+            return {"actions": [{
+                "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
+            }]}
+
+    router_node(state, {**runtime(), "router_model": Router()})
+    assert captured["evidence_coverage"]["C1"]["biological_support"] == "unassessed"
+
+
+def test_decision_state_cannot_claim_unobtained_evidence():
+    state = state_for(("C1", ["P1", "P2"]))
+    action = RouterAction(
+        action="accept", target_ids=["C1"],
+        decision_state=decision_state(identity="supported"),
+    )
+    with pytest.raises(ValueError, match="biological_support"):
+        validate_decision_state_evidence(action, state, runtime())
+
+
+def test_verifier_tool_calls_must_cover_each_request():
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    with pytest.raises(ValueError, match="do not cover EvidenceRequest"):
+        validate_selected_tool_coverage([], [request], registry())
+
+
+def test_router_plan_cannot_mix_evidence_and_revision():
+    with pytest.raises(ValueError, match="cannot mix evidence acquisition"):
+        RouterPlan(actions=[
+            {"action": "need_more_evidence", "target_ids": ["C1"],
+             "decision_state": decision_state(), "evidence_requests": [{
+                 "dimension": "biological_support", "target_ids": ["C1"], "question": "x"
+             }]},
+            {"action": "split", "target_ids": ["C2"], "decision_state": decision_state(
+                structure="incompatible"
+            )},
+        ])
+
+
+def test_router_payload_has_no_tool_registry_or_raw_metrics():
+    state = state_for(("C1", ["P1", "P2"]))
+    captured = {}
+
+    class Router:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [{
+                "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
+            }]}
 
     router_node(state, {**runtime(), "router_model": Router()})
     assert "tool_registry" not in captured and "raw_structural_metrics" not in captured

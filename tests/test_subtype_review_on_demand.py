@@ -1,12 +1,10 @@
-import json
-
 import pytest
 
 from agents.subtype_review.graph import (
     available_evidence_requests,
+    eligible_tools_for_requests,
     execute_tool_calls,
     initial_review_state,
-    prepare_round_node,
     validate_router_plan,
 )
 from agents.subtype_review.schemas import EvidenceRequest, RouterAction, RouterPlan
@@ -30,6 +28,15 @@ def runtime(registry=None):
     }
 
 
+def decision_state():
+    return {
+        "identity": "unassessed",
+        "structure": "unassessed",
+        "alternative_explanation": "unassessed",
+        "uncertainty": "yes",
+    }
+
+
 def test_evidence_request_has_no_tool_name_and_normalizes_targets():
     request = EvidenceRequest(
         dimension="biological_support",
@@ -47,22 +54,13 @@ def test_evidence_request_has_no_tool_name_and_normalizes_targets():
         )
 
 
-def test_prepare_round_exposes_tools_without_preselecting_requests():
-    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
-    control = state["control"]
-    assert control["pending_evidence_requests"] == []
-    assert control["acquisition_mode"] == "initial"
-    assert "pending_tools" not in control
-    assert set(control["eligible_tools"]) == {
-        "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
-        "multimodal_consistency_check", "confound_test", "known_label_echo_test",
-    }
-
-
 def test_verifier_tool_calls_may_select_a_subset_with_explicit_targets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
+    })
     registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
     calls = []
 
@@ -81,27 +79,27 @@ def test_verifier_tool_calls_may_select_a_subset_with_explicit_targets():
     assert state["control"]["next"] == "verifier_audit"
 
 
-def test_targeted_prepare_round_exposes_only_requested_dimension_and_targets():
+def test_requested_dimension_exposes_only_requested_targets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     state["control"]["pending_evidence_requests"] = [{
         "dimension": "biological_support",
         "target_ids": ["C1"],
         "question": "Clarify C1 molecular evidence.",
     }]
-    prepare_round_node(state, runtime())
-    assert state["control"]["acquisition_mode"] == "targeted"
-    assert set(state["control"]["eligible_tools"]) == {
+    eligible = eligible_tools_for_requests(
+        state, runtime(), state["control"]["pending_evidence_requests"]
+    )
+    assert set(eligible) == {
         "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
     }
     assert all(
         item["target_ids"] == ["C1"]
-        for item in state["control"]["eligible_tools"].values()
+        for item in eligible.values()
     )
 
 
-def test_router_requests_evidence_not_tools_and_must_cover_current_sets():
+def test_router_requests_evidence_and_must_cover_current_sets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
     plan = RouterPlan(actions=[
         RouterAction(
             action="need_more_evidence", target_ids=["C1"], evidence_requests=[
@@ -110,9 +108,9 @@ def test_router_requests_evidence_not_tools_and_must_cover_current_sets():
                     target_ids=["C1"],
                     question="Clarify the molecular signal.",
                 )
-            ]
+            ], decision_state=decision_state()
         ),
-        RouterAction(action="drop", target_ids=["C2"]),
+        RouterAction(action="drop", target_ids=["C2"], decision_state=decision_state()),
     ])
     validate_router_plan(plan, state, runtime())
     with pytest.raises(ValueError):
@@ -121,8 +119,8 @@ def test_router_requests_evidence_not_tools_and_must_cover_current_sets():
              "evidence_requests": [{
                  "dimension": "biological_support", "target_ids": ["C1"],
                  "question": "x", "tool_name": "pathway_enrichment"
-             }]},
-            {"action": "drop", "target_ids": ["C2"]},
+             }], "decision_state": decision_state()},
+            {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
         ])
 
 
@@ -134,11 +132,13 @@ def test_validation_tools_expose_target_ids():
 
 def test_one_tool_call_may_cover_multiple_pending_targets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    prepare_round_node(state, runtime())
     state["control"]["pending_evidence_requests"] = [
         {"dimension": "biological_support", "target_ids": [target], "question": "x"}
         for target in ("C1", "C2")
     ]
+    state["control"]["eligible_tools"] = eligible_tools_for_requests(
+        state, runtime(), state["control"]["pending_evidence_requests"]
+    )
     registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
     registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: {
         "status": "success", "results": {"decision_metrics": {}}
