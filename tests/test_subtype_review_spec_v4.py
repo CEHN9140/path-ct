@@ -68,12 +68,11 @@ def test_registry_uses_verifier_selectable_only():
     assert TOOL_REGISTRY["clinical_characterization"]["verifier_selectable"] is False
 
 
-def test_prepare_round_creates_four_goals_and_eligible_tools():
+def test_prepare_round_exposes_tools_without_precreating_requests():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     prepare_round_node(state, runtime())
-    assert {item["dimension"] for item in state["control"]["pending_evidence_requests"]} == {
-        "biological_support", "cross_modal_consistency", "confounder_exclusion", "known_label_echo"
-    }
+    assert state["control"]["pending_evidence_requests"] == []
+    assert state["control"]["acquisition_mode"] == "initial"
     assert set(state["control"]["eligible_tools"]) == {
         "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
         "multimodal_consistency_check", "confound_test", "known_label_echo_test",
@@ -145,6 +144,7 @@ def test_router_stores_evidence_requests_not_tools():
 
     router_node(state, {**runtime(), "router_model": Router()})
     assert state["control"]["pending_evidence_requests"][0]["target_ids"] == ["C1"]
+    assert state["router_request"][0]["target_ids"] == ["C1"]
     assert "pending_tools" not in state["control"]
 
 
@@ -194,6 +194,38 @@ def test_audit_merges_reports_into_partition_memory():
 
     verifier_node(state, {**runtime(), "verifier_model": Verifier()})
     assert state["reports"] and signature in state["evidence_memory"]
+
+
+def test_verifier_receives_router_request_for_targeted_acquisition():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "confounder_exclusion",
+        "target_ids": ["C1"],
+        "question": "Could CT acquisition explain C1?",
+    }]
+    state["router_request"] = state["control"]["pending_evidence_requests"]
+    prepare_round_node(state, runtime())
+    captured = {}
+
+    class Verifier:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"tool_calls": []}
+
+    verifier_node(state, {**runtime(), "verifier_model": Verifier()})
+    assert captured["acquisition_mode"] == "targeted"
+    assert captured["router_request"][0]["target_ids"] == ["C1"]
+
+
+def test_save_review_outputs_groups_accept_reports_by_dimension(tmp_path):
+    state = state_for(("C1", ["P1", "P2"]))
+    state["router_plan"] = {"actions": [{"action": "accept", "target_ids": ["C1"], "reason": "retained"}]}
+    state["reports"] = [{
+        "dimension": "biological_support", "scope": "set_identity",
+        "target_ids": ["C1"], "metric_refs": [],
+    }]
+    result = save_review_outputs(state, str(tmp_path), direct=True)
+    assert [item["set_id"] for item in result["accepted_subtype_sets"]] == ["C1"]
 
 
 def test_scientific_unavailable_is_completed_runtime_failure_is_not():

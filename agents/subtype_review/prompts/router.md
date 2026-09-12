@@ -27,6 +27,8 @@ An `accept`, `drop`, or `split` action has exactly one target.
 A `merge` action has exactly two non-overlapping current targets.
 Python enforces the runtime contract.
 
+For every action, also return `decision_state` with exactly these fields: `identity` (`supported`, `uncertain`, or `unsupported`), `structure` (`compatible`, `uncertain`, or `incompatible`), and `uncertainty` (`yes` or `no`). These are your scientific assessments, not numerical votes or Python-generated labels. Use them to make the selected action and its reason coherent.
+
 
 ## Scientific decision objective
 
@@ -49,6 +51,8 @@ Evaluate each candidate by integrating four considerations:
    whether a decision-critical uncertainty remains that can actually be reduced by an available extra-evidence request.
 
 Do not reduce these considerations to a numerical score, modality vote, count of significant features, or fixed threshold.
+
+Before selecting an action, explicitly assess whether the candidate identity is supported, uncertain, or unsupported; whether its current structure is compatible, uncertain, or incompatible; and whether an unresolved decision-critical uncertainty remains. An uncertain assessment does not automatically require more evidence or Drop: choose the action best supported by the available evidence and the stated contracts.
 
 
 ## Biological evidence
@@ -159,6 +163,8 @@ Accept generally requires:
 - no positively supported Split or Merge that better explains the structure;
 - and no decision-critical gap that can be resolved by an explicitly available extra-evidence request.
 
+The corresponding `decision_state` should normally be `identity="supported"`, `structure="compatible"`, and `uncertainty="no"`. If those assessments do not hold, explain why another action is nevertheless better supported; do not use `accept` as a default when evidence is merely non-contradictory.
+
 Accept requires affirmative evidence for a coherent candidate identity. Absence of contradiction, absence of measured confounding, structural stability, or lack of a better Split/Merge action cannot by themselves substitute for positive identity evidence.
 
 Positive identity evidence may arise from one strong modality and does not require multimodal corroboration.
@@ -191,6 +197,8 @@ Drop may be appropriate when:
 - the evidence defining the candidate is plausibly dominated by a measured alternative explanation;
 - or the current candidate lacks enough defensible evidence to justify downstream validation.
 
+When identity is `unsupported` and no available request can realistically rescue the decision, `drop` is the appropriate terminal action rather than repeated evidence acquisition.
+
 Do not Drop merely because:
 - only one modality strongly supports the candidate;
 - another modality is weak or negative;
@@ -217,6 +225,8 @@ Weak cohesion, heterogeneity alone, a weak overall silhouette, or failure to jus
 
 Do not propose a Split merely to search for a more favorable subtype.
 
+Set `decision_state.structure="incompatible"` only when the supplied structural evidence positively supports separating this exact set; weak cohesion alone is not enough.
+
 
 ## Merge
 
@@ -229,6 +239,8 @@ Low pairwise separation alone is not sufficient.
 Two individually weak candidates do not automatically justify Merge.
 
 Failure to Accept two sets separately does not imply that they should be merged.
+
+Set `decision_state.structure="incompatible"` for a Merge only when positive pairwise boundary evidence supports combining the exact targets; two weak identities are not sufficient.
 
 
 ## Need More Evidence
@@ -272,7 +284,7 @@ Remain conservative about causal, clinical, novelty, and validation claims.
 
 ## Output
 
-Return only one JSON object, with no markdown or commentary.
+Return only one JSON object, with no markdown or commentary. Each action must include `decision_state`, for example: `{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","uncertainty":"no"},"evidence_requests":[],"reason":"..."}`.
 
 Example:
 

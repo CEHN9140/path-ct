@@ -81,11 +81,21 @@ class EvidenceRequest(BaseModel):
     def unique_targets(cls, values: list[str]) -> list[str]:
         return sorted({str(value) for value in values if str(value)})
 
+
+class RouterDecisionState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity: Literal["supported", "uncertain", "unsupported"] = "uncertain"
+    structure: Literal["compatible", "uncertain", "incompatible"] = "uncertain"
+    uncertainty: Literal["yes", "no"] = "yes"
+
+
 class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
+    decision_state: RouterDecisionState = Field(default_factory=RouterDecisionState)
     evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
@@ -168,6 +178,7 @@ class ReviewState(TypedDict, total=False):
     partition: dict[str, Any]
     round_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
+    router_request: list[dict[str, Any]] | None
     evidence_memory: dict[str, list[dict[str, Any]]]
     messages: list[Any]
     router_plan: dict[str, Any] | None

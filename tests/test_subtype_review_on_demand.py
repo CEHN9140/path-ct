@@ -47,14 +47,12 @@ def test_evidence_request_has_no_tool_name_and_normalizes_targets():
         )
 
 
-def test_prepare_round_creates_goals_and_eligible_tools_without_preselecting_tools():
+def test_prepare_round_exposes_tools_without_preselecting_requests():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     prepare_round_node(state, runtime())
     control = state["control"]
-    assert {item["dimension"] for item in control["pending_evidence_requests"]} == {
-        "biological_support", "cross_modal_consistency",
-        "confounder_exclusion", "known_label_echo",
-    }
+    assert control["pending_evidence_requests"] == []
+    assert control["acquisition_mode"] == "initial"
     assert "pending_tools" not in control
     assert set(control["eligible_tools"]) == {
         "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
@@ -81,6 +79,24 @@ def test_verifier_tool_calls_may_select_a_subset_with_explicit_targets():
     assert calls == [["C1"]]
     assert state["round_evidence"][0]["target_ids"] == ["C1"]
     assert state["control"]["next"] == "verifier_audit"
+
+
+def test_targeted_prepare_round_exposes_only_requested_dimension_and_targets():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "biological_support",
+        "target_ids": ["C1"],
+        "question": "Clarify C1 molecular evidence.",
+    }]
+    prepare_round_node(state, runtime())
+    assert state["control"]["acquisition_mode"] == "targeted"
+    assert set(state["control"]["eligible_tools"]) == {
+        "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
+    }
+    assert all(
+        item["target_ids"] == ["C1"]
+        for item in state["control"]["eligible_tools"].values()
+    )
 
 
 def test_router_requests_evidence_not_tools_and_must_cover_current_sets():
