@@ -434,6 +434,18 @@ def test_verifier_tool_calls_must_cover_each_request():
         validate_selected_tool_coverage([], [request], registry())
 
 
+def test_partition_request_requires_a_partition_tool_call():
+    request = {
+        "dimension": "known_label_echo", "target_ids": [],
+        "question": "Clarify stage/grade echo.",
+    }
+    with pytest.raises(ValueError, match="partition EvidenceRequest"):
+        validate_selected_tool_coverage([], [request], registry())
+    validate_selected_tool_coverage([{
+        "name": "known_label_echo_test", "args": {"target_ids": []},
+    }], [request], registry())
+
+
 def test_router_plan_cannot_mix_evidence_and_revision():
     with pytest.raises(ValueError, match="cannot mix evidence acquisition"):
         RouterPlan(actions=[
@@ -445,6 +457,46 @@ def test_router_plan_cannot_mix_evidence_and_revision():
                 structure="incompatible"
             )},
         ])
+
+
+def test_round_budget_returns_after_evidence_for_terminal_router_decision():
+    state = state_for(("C1", ["P1", "P2"]))
+    state["control"].update({
+        "round": 10,
+        "pending_evidence_requests": [{
+            "dimension": "biological_support", "target_ids": ["C1"], "question": "x"
+        }],
+        "next": "verifier_acquire",
+    })
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                return {"tool_calls": [{
+                    "name": "pathway_enrichment", "id": "call-1",
+                    "args": {"target_ids": ["C1"]},
+                }]}
+            return {"reports": [{
+                "dimension": "biological_support", "scope": "set_identity",
+                "target_ids": ["C1"], "observations": [], "limitations": [], "tool_refs": [],
+            }]}
+
+    values = {**runtime(), "verifier_model": Verifier()}
+    verifier_node(state, values)
+    verifier_node(state, values)
+    assert state["control"]["next"] == "router"
+    assert state["control"]["status"] == "reviewing"
+
+    class Router:
+        def invoke(self, payload):
+            assert payload["terminal_only"] is True
+            return {"actions": [{
+                "action": "accept", "target_ids": ["C1"], "decision_state": decision_state()
+            }]}
+
+    router_node(state, {**runtime(), "router_model": Router()})
+    assert state["control"]["status"] == "complete"
+    assert state["control"]["round"] == 10
 
 
 def test_router_payload_has_no_tool_registry_or_raw_metrics():

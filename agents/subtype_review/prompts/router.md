@@ -33,6 +33,8 @@ For every action, also return `decision_state` with exactly these fields: `ident
 
 `unassessed` means that no relevant Evidence Report has been obtained for that decision dimension. `uncertain` means that relevant evidence has been obtained but remains mixed, weak, incomplete, or ambiguous. Without biological_support evidence, identity must be `unassessed`; without cross_modal_consistency evidence, structure must be `unassessed`; without confounder_exclusion evidence, alternative_explanation must be `unassessed`. Absence of an Evidence Report is not evidence that no problem exists. An unassessed dimension does not automatically require `need_more_evidence`; request it only when it is decision-critical, explicitly available, and could realistically change the next action. If a terminal action leaves a dimension unassessed, explain why it is not decision-critical.
 
+When `terminal_only` is true, return only `accept` or `drop` actions. Do not request more evidence or structural revision after the round budget; use the evidence already obtained or return the review as incomplete if no terminal decision is defensible.
+
 
 ## Scientific decision objective
 

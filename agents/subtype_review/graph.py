@@ -319,17 +319,29 @@ def validate_selected_tool_coverage(
         selected.append((name, dict(args or {})))
     for request in requests:
         targets = set(request["target_ids"])
-        covered = set()
+        matching_calls = []
         for name, args in selected:
             metadata = registry.get(name, {})
             if metadata.get("dimension") != request["dimension"]:
                 continue
             call_targets = {str(target) for target in args.get("target_ids", []) or []}
-            if metadata.get("scope") == "partition" and not targets and not call_targets:
-                covered = targets
-                break
-            if metadata.get("scope") == "set_identity":
-                covered.update(call_targets)
+            if not targets:
+                if metadata.get("scope") == "partition" and not call_targets:
+                    matching_calls.append((name, args))
+            elif metadata.get("scope") == "set_identity":
+                matching_calls.append((name, args))
+        if not targets:
+            if not matching_calls:
+                raise ValueError(
+                    "Verifier tool calls do not cover partition EvidenceRequest "
+                    f"{request['dimension']}"
+                )
+            continue
+        covered = {
+            target
+            for _, args in matching_calls
+            for target in args.get("target_ids", []) or []
+        }
         if not targets.issubset(covered):
             raise ValueError(
                 "Verifier tool calls do not cover EvidenceRequest "
@@ -640,11 +652,7 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         control = dict(state["control"])
         control["pending_evidence_requests"] = []
         control["eligible_tools"] = {}
-        if control.get("round", 0) >= control.get("max_rounds", 10):
-            control["status"] = "review_incomplete_due_to_round_budget"
-            control["next"] = "end"
-        else:
-            control["next"] = "router"
+        control["next"] = "router"
         state["control"] = control
     except Exception as exc:
         mark_failure(state, "verifier", exc, is_length_finish_error(exc))
@@ -776,9 +784,12 @@ def validate_router_plan(
         validate_action_contract(action, state, runtime)
 
 
-def history_entry(state: Mapping[str, Any], plan: RouterPlan) -> dict[str, Any]:
+def history_entry(
+    state: Mapping[str, Any], plan: RouterPlan, terminal_only: bool = False
+) -> dict[str, Any]:
     return {
-        "round": int(state["control"].get("round", 0)) + 1,
+        "round": int(state["control"].get("round", 0)) + (0 if terminal_only else 1),
+        "terminal_only": terminal_only,
         "partition_signature": partition_signature(current_sets(state)),
         "partition": copy.deepcopy(state["partition"]),
         "round_evidence": copy.deepcopy(state.get("round_evidence", [])),
@@ -799,11 +810,7 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     control = dict(state["control"])
     if control.get("status") != "reviewing":
         return state
-    if control.get("round", 0) >= control.get("max_rounds", 10):
-        control["status"] = "review_incomplete_due_to_round_budget"
-        control["next"] = "end"
-        state["control"] = control
-        return state
+    terminal_only = control.get("round", 0) >= control.get("max_rounds", 10)
     try:
         payload = {
             "partition": state["partition"],
@@ -811,8 +818,14 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             "evidence_coverage": evidence_coverage(state, values),
             "structural_index": compact_structural_index(state),
             "available_evidence_requests": available_evidence_requests(state, values),
-            "round": int(control.get("round", 0)) + 1,
+            "round": (
+                int(control.get("round", 0))
+                if terminal_only
+                else int(control.get("round", 0)) + 1
+            ),
         }
+        if terminal_only:
+            payload["terminal_only"] = True
         if control.get("router_validation_error"):
             payload["validation_error"] = control["router_validation_error"]
             payload["instruction"] = "return a corrected RouterPlan only"
@@ -820,6 +833,19 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             values["router_model"].invoke(copy.deepcopy(payload))
         )
         validate_router_plan(plan, state, values)
+        if terminal_only and any(
+            action.action not in {"accept", "drop"} for action in plan.actions
+        ):
+            control["status"] = "review_incomplete_due_to_round_budget"
+            control["next"] = "end"
+            control["error"] = "Router requested a non-terminal action after round budget"
+            state["control"] = control
+            append_trace(state, {
+                "node": "router",
+                "event": "round_budget_exhausted",
+                "plan": plan.model_dump(),
+            })
+            return state
     except Exception as exc:
         if is_length_finish_error(exc) or control.get("router_correction_attempted"):
             mark_failure(state, "router", exc, immediate=True)
@@ -837,12 +863,13 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         else:
             mark_failure(state, "router", exc, immediate=False)
         return state
-    control["round"] = int(control.get("round", 0)) + 1
+    if not terminal_only:
+        control["round"] = int(control.get("round", 0)) + 1
     control["error"] = None
     control["router_validation_error"] = None
     control["router_correction_attempted"] = False
     state["router_plan"] = plan.model_dump()
-    state["history"].append(history_entry(state, plan))
+    state["history"].append(history_entry(state, plan, terminal_only))
     control["history_index"] = len(state["history"]) - 1
     append_trace(state, {
         "node": "router",
@@ -1147,12 +1174,8 @@ def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         mark_success(state)
         control = dict(state["control"])
         control["revision_validation_error"] = None
-        if control["round"] >= control.get("max_rounds", 10):
-            control["status"] = "review_incomplete_due_to_round_budget"
-            control["next"] = "end"
-        else:
-            reset_verifier_round_state(state)
-            control["next"] = "router"
+        reset_verifier_round_state(state)
+        control["next"] = "router"
         state["control"] = control
     except Exception as exc:
         mark_failure(state, "reviser", exc, is_length_finish_error(exc))
