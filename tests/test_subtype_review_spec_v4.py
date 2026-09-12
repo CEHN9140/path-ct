@@ -123,6 +123,53 @@ def test_selected_tool_is_removed_from_next_evidence_availability():
     )
 
 
+def test_available_evidence_requests_survives_multiple_targeted_rounds():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    signature = partition_signature(state["partition"]["sets"])
+    state["history"] = [{
+        "partition_signature": signature,
+        "round_evidence": [{
+            "tool_name": "pathway_enrichment",
+            "status": "success",
+            "target_ids": ["C1"],
+            "partition_signature": signature,
+        }],
+    }]
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "confounder_exclusion",
+        "target_ids": ["C1"],
+        "question": "Clarify C1 technical evidence.",
+    }]
+    state["router_request"] = list(state["control"]["pending_evidence_requests"])
+    prepare_round_node(state, runtime())
+    state["round_evidence"] = [{
+        "tool_name": "confound_test",
+        "status": "success",
+        "target_ids": ["C1"],
+        "partition_signature": signature,
+    }]
+    available = available_evidence_requests(state, runtime())
+    assert any(
+        item["dimension"] == "cross_modal_consistency"
+        and item["target_ids"] == ["C1"]
+        for item in available
+    )
+    assert any(
+        item["dimension"] == "biological_support"
+        and item["target_ids"] == ["C1"]
+        for item in available
+    )
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "cross_modal_consistency",
+        "target_ids": ["C1"],
+        "question": "Clarify C1 cross-modal evidence.",
+    }]
+    prepare_round_node(state, runtime())
+    assert set(state["control"]["eligible_tools"]) == {
+        "multimodal_consistency_check",
+    }
+
+
 def test_router_plan_requires_complete_nonoverlapping_coverage():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     with pytest.raises(ValueError, match="cover every current set"):

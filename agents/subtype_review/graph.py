@@ -315,12 +315,12 @@ def available_evidence_requests(
     state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     tools = registry(runtime)
-    eligible = dict(state["control"].get("eligible_tools", {}) or {})
     signature = partition_signature(current_sets(state))
     completed = completed_tool_keys(state)
+    targets = [set_id(item) for item in current_sets(state)]
     requests = []
     for name, metadata in sorted(tools.items()):
-        if name not in eligible or not metadata.get("verifier_selectable"):
+        if not metadata.get("verifier_selectable"):
             continue
         if metadata["scope"] == "partition":
             if (name, signature, "") in completed:
@@ -335,7 +335,7 @@ def available_evidence_requests(
             "dimension": metadata["dimension"],
             "target_ids": [target],
             "question": f"Clarify the current {metadata['dimension']} evidence for {target}.",
-        } for target in eligible[name].get("target_ids", [])
+        } for target in targets
           if (name, signature, target) not in completed)
     unique = {(item["dimension"], tuple(item["target_ids"])): item for item in requests}
     return [unique[key] for key in sorted(unique)]
