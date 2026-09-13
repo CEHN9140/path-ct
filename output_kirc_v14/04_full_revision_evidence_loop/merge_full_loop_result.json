@@ -2,7 +2,7 @@
   "case": "merge",
   "status": "complete",
   "router_calls": 4,
-  "reviser_calls": 2,
+  "reviser_calls": 1,
   "verifier_tool_selection_calls": 1,
   "verifier_report_batches": 1,
   "reacquired_tools": [
@@ -10,14 +10,15 @@
     "mutation_enrichment",
     "cnv_characterization",
     "multimodal_consistency_check",
-    "confound_test"
+    "confound_test",
+    "known_label_echo_test"
   ],
-  "final_report_count": 3,
+  "final_report_count": 4,
   "revision_applied": true,
   "partition_changed": true,
   "verifier_reacquired_after_revision": true,
-  "reports_reacquired_after_revision": true,
-  "full_loop_verified": true,
+  "reports_reacquired_after_revision": false,
+  "full_loop_verified": false,
   "initial_set_ids": [
     "C1",
     "C2"
@@ -95,17 +96,11 @@
               "alternative_explanation": "not_supported",
               "uncertainty": "yes"
             },
-            "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support shows each set is internally coherent but not biologically distinct from the other. This positive structural evidence supports merging the two exact targets rather than retaining them as separate subtypes."
+            "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support shows coherent but weak, non-significant molecular signals that do not establish biology requiring separate identities. Positive structural evidence therefore supports merging the two sets rather than retaining them as distinct subtypes."
           }
         ],
         "evidence_requests": []
       }
-    },
-    {
-      "round": 2,
-      "node": "reviser",
-      "event": "failure",
-      "error": "RuntimeError: ValidationError: 1 validation error for RevisionPlan\nmerge_plans.0.structural_metric_refs\n  Extra inputs are not permitted [type=extra_forbidden, input_value=['weak_pairwise_boundary'...nsufficient_separation'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden"
     },
     {
       "round": 2,
@@ -189,7 +184,7 @@
             "target_ids": [
               "C1_M_C2"
             ],
-            "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or is there evidence of internal subdivision or insufficient separation?"
+            "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or does the merged set show reproducible internal subdivision or insufficient separation?"
           },
           {
             "dimension": "confounder_exclusion",
@@ -197,6 +192,11 @@
               "C1_M_C2"
             ],
             "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_M_C2?"
+          },
+          {
+            "dimension": "known_label_echo",
+            "target_ids": [],
+            "question": "How does the current partition relate to assessed stage/grade labels, as partition-level context?"
           }
         ]
       }
@@ -210,29 +210,31 @@
         "mutation_enrichment",
         "cnv_characterization",
         "multimodal_consistency_check",
-        "confound_test"
+        "confound_test",
+        "known_label_echo_test"
       ]
     },
     {
       "round": 3,
       "node": "verifier",
       "event": "audit_payload_size",
-      "request_chars": 5002,
-      "history_chars": 1601,
+      "request_chars": 5981,
+      "history_chars": 1970,
       "tool_message_chars": [
-        241,
+        345,
         269,
         270,
         271,
         284,
-        266
+        266,
+        265
       ]
     },
     {
       "round": 3,
       "node": "verifier",
       "event": "reports",
-      "count": 3
+      "count": 4
     },
     {
       "round": 3,
@@ -246,12 +248,12 @@
               "C1_M_C2"
             ],
             "decision_state": {
-              "identity": "unsupported",
+              "identity": "uncertain",
               "structure": "uncertain",
               "alternative_explanation": "uncertain",
               "uncertainty": "yes"
             },
-            "reason": "All three biological modalities show only weak, non-significant, and suspiciously identical effects (0.5, q=0.2) with no pathway, mutation, or CNV detail, so no coherent biological identity is established. Cross-modal consistency is non-significant with empty structural metrics, and confounder exclusion is non-estimable; the candidate is therefore insufficiently defensible to retain for downstream validation."
+            "reason": "C1_M_C2 shows only weak, directionally consistent biological signal (effect 0.5, q=0.2 across pathway, mutation, and CNV) with no significant modality, and the identical effect metric across tools limits interpretability. Cross-modal consistency is likewise nonsignificant with empty structural_characterization metrics, so membership and boundary compatibility cannot be affirmed. Confounder exclusion is nonsignificant but cannot exclude a modest technical contribution, and no structural diagnostics support a split or merge. With no available evidence requests remaining and no credible structural revision resolving these limitations, the candidate is insufficiently defensible to retain."
           }
         ],
         "evidence_requests": []
@@ -259,9 +261,9 @@
     }
   ],
   "llm_usage": {
-    "api_calls": 14,
-    "prompt_tokens": 31296,
-    "completion_tokens": 2902,
-    "total_tokens": 34198
+    "api_calls": 11,
+    "prompt_tokens": 29793,
+    "completion_tokens": 3199,
+    "total_tokens": 32992
   }
 }

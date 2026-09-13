@@ -91,14 +91,38 @@ def summarize_state(name: str, state: dict, initial_signature: str) -> dict:
          if event.get("event") == "revision_applied"),
         -1,
     )
-    post_revision_trace = trace[revision_index + 1:]
+    post_revision_trace = trace[revision_index + 1:] if revision_index >= 0 else []
     verifier_events = [event for event in post_revision_trace if event.get("node") == "verifier"]
     tool_events = [event for event in verifier_events if event.get("event") == "tool_selection"]
     report_events = [event for event in verifier_events if event.get("event") == "reports"]
-    reacquired = bool(tool_events)
-    reports = bool(report_events)
+    request_events = [
+        event for event in post_revision_trace
+        if event.get("node") == "router"
+        and event.get("event") == "decision"
+        and (event.get("plan") or {}).get("evidence_requests")
+    ]
+    report_index = next(
+        (index for index, event in enumerate(trace)
+         if index > revision_index and event.get("node") == "verifier"
+         and event.get("event") == "reports"),
+        -1,
+    )
+    final_router = any(
+        index > report_index and event.get("node") == "router"
+        and event.get("event") == "decision"
+        for index, event in enumerate(trace)
+    )
+    current_signature = partition_signature(current_sets(state))
+    current_ids = {item["set_id"] for item in current_sets(state)}
+    reports = bool(report_events) and bool(state.get("reports")) and all(
+        report.get("partition_signature") == current_signature
+        and set(report.get("target_ids", []) or []).issubset(current_ids)
+        for report in state.get("reports", [])
+    )
+    reacquired = bool(request_events) and bool(tool_events)
     revision = bool(state.get("revision_result"))
-    changed = initial_signature != partition_signature(current_sets(state))
+    changed = initial_signature != current_signature
+    revision_event = revision_index >= 0
     return {
         "case": name,
         "status": state["control"].get("status"),
@@ -110,9 +134,9 @@ def summarize_state(name: str, state: dict, initial_signature: str) -> dict:
         "final_report_count": len(state.get("reports", []) or []),
         "revision_applied": revision,
         "partition_changed": changed,
-        "verifier_reacquired_after_revision": reacquired and revision,
-        "reports_reacquired_after_revision": reports and revision,
-        "full_loop_verified": revision and changed and reacquired and reports,
+        "verifier_reacquired_after_revision": revision_event and reacquired,
+        "reports_reacquired_after_revision": revision_event and reports,
+        "full_loop_verified": revision_event and revision and changed and reacquired and reports and final_router,
         "initial_set_ids": [item["set_id"] for item in SANITY.build_case(name)["partition"]["sets"]],
         "current_set_ids": [item["set_id"] for item in current_sets(state)],
         "trace": trace,

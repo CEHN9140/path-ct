@@ -21,6 +21,8 @@ For every `merge`:
 - preserve the exact two Router targets;
 - cite only supplied pairwise structural metric references.
 
+For both SplitPlan and MergePlan, put structural references only in the schema field `metric_refs`. Never emit `structural_metric_refs` or any other reference field.
+
 Python performs the actual split or membership union.
 
 If validation feedback is supplied, correct the invalid plan while preserving the Router action and targets.

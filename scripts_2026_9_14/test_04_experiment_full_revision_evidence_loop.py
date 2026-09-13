@@ -32,6 +32,29 @@ def test_full_loop_summary_requires_reacquisition():
         "split",
         {
             "control": {"status": "complete", "trace": [
+                {"node": "reviser", "event": "revision_applied"},
+                {"node": "router", "event": "decision", "plan": {
+                    "evidence_requests": [{"dimension": "biological_support"}]
+                }},
+                {"node": "verifier", "event": "tool_selection"},
+                {"node": "verifier", "event": "reports"},
+                {"node": "router", "event": "decision", "plan": {"actions": []}},
+            ]},
+            "revision_result": {"new_partition_signature": "x"},
+            "partition": {"sets": []},
+            "reports": [{"partition_signature": MODULE.partition_signature([])}],
+        },
+        "initial-signature",
+    )
+    assert summary["verifier_reacquired_after_revision"] is True
+    assert summary["full_loop_verified"] is True
+
+
+def test_full_loop_summary_is_false_without_revision():
+    summary = MODULE.summarize_state(
+        "split",
+        {
+            "control": {"status": "complete", "trace": [
                 {"node": "verifier", "event": "tool_selection"},
                 {"node": "verifier", "event": "reports"},
             ]},
@@ -40,5 +63,11 @@ def test_full_loop_summary_requires_reacquisition():
         },
         "initial-signature",
     )
-    assert summary["verifier_reacquired_after_revision"] is True
-    assert summary["full_loop_verified"] is True
+    assert summary["verifier_reacquired_after_revision"] is False
+    assert summary["full_loop_verified"] is False
+
+
+def test_reviser_uses_only_metric_refs_for_structural_evidence():
+    prompt = (Path(__file__).parents[1] / "agents/subtype_review/prompts/reviser.md").read_text()
+    assert "schema field `metric_refs`" in prompt
+    assert "structural_metric_refs" in prompt
