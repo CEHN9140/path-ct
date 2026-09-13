@@ -127,9 +127,13 @@ def test_scientific_input_identity_covers_canonical_inputs(tmp_path):
     candidate = tmp_path / "candidate_subtype"
     wxs = tmp_path / "wxs"
     states = tmp_path / "storage" / "patient_states"
+    cnv = tmp_path / "cnv"
+    ct_qc = tmp_path / "ct_qc" / "P1" / "dcm2nii"
     candidate.mkdir(parents=True)
     wxs.mkdir()
     states.mkdir(parents=True)
+    cnv.mkdir()
+    ct_qc.mkdir(parents=True)
     np.save(candidate / "ct_affinity.npy", np.eye(2))
     np.save(candidate / "wsi_affinity.npy", np.eye(2))
     np.save(candidate / "rna_affinity.npy", np.eye(2))
@@ -137,12 +141,20 @@ def test_scientific_input_identity_covers_canonical_inputs(tmp_path):
     np.save(wxs / "wxs_affinity.npy", np.eye(2))
     np.save(wxs / "cnv_affinity.npy", np.eye(2))
     (states / "patient_states.jsonl").write_text('{"case_id":"P1"}\n', encoding="utf-8")
+    (cnv / "case_features.csv").write_text("case_id,x\nP1,1\n", encoding="utf-8")
+    (ct_qc.parent / "selection_summary.json").write_text("{}", encoding="utf-8")
+    (ct_qc / "CT1.json").write_text("{}", encoding="utf-8")
 
     first = MODULE.core_analysis.scientific_input_identity(tmp_path)
     assert len(first["scientific_input_sha256"]) == 64
     np.save(wxs / "wxs_affinity.npy", np.ones((2, 2)))
     second = MODULE.core_analysis.scientific_input_identity(tmp_path)
     assert first["scientific_input_sha256"] != second["scientific_input_sha256"]
+    (cnv / "case_features.csv").write_text("case_id,x\nP1,2\n", encoding="utf-8")
+    assert MODULE.core_analysis.scientific_input_identity(tmp_path)["scientific_input_sha256"] != second["scientific_input_sha256"]
+    (ct_qc / "CT1.json").write_text('{"slice_thickness":2}', encoding="utf-8")
+    third = MODULE.core_analysis.scientific_input_identity(tmp_path)
+    assert third["scientific_input_sha256"] != second["scientific_input_sha256"]
 
 
 def test_stable_core_analysis_uses_full_multi_k_universe(monkeypatch, tmp_path):

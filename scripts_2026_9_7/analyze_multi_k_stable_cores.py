@@ -93,10 +93,13 @@ def scientific_input_identity(data_root: Path) -> dict[str, int | str]:
     for directory in (
         data_root / "candidate_subtype", data_root / "wxs",
         data_root / "storage" / "patient_states", data_root / "ct_radiomics",
-        data_root / "rna",
+        data_root / "rna", data_root / "cnv",
     ):
         if directory.is_dir():
             paths.extend(path for path in directory.rglob("*") if path.is_file())
+    ct_qc = data_root / "ct_qc"
+    if ct_qc.is_dir():
+        paths.extend(path for path in ct_qc.rglob("*") if path.is_file() and path.suffix == ".json")
     digest = hashlib.sha256()
     unique_paths = sorted(set(paths))
     for path in unique_paths:
