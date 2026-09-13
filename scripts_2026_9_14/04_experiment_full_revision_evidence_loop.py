@@ -46,7 +46,27 @@ def write_synthetic_input(root: Path) -> None:
 
 
 def build_initial_state(name: str) -> dict:
-    return SANITY.build_case(name)
+    state = SANITY.build_case(name)
+    row = next(
+        item for item in state["round_evidence"]
+        if item["tool_name"] == "multimodal_consistency_check"
+    )
+    if name == "split":
+        base = "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe"
+        row["metric_refs"] = [
+            f"{base}.{field}"
+            for field in ("median_silhouette", "resampling.median_resample_ari", "resampling.consensus_separation", "resampling.pac")
+        ]
+    else:
+        base = "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused"
+        row["metric_refs"] = [
+            f"{base}.{field}"
+            for field in ("pair_median_silhouette", "left_median_margin", "right_median_margin", "left_boundary_separation", "right_boundary_separation")
+        ]
+    for item in state["reports"]:
+        if item["tool_name"] == "multimodal_consistency_check":
+            item["metric_refs"] = list(row["metric_refs"])
+    return state
 
 
 def synthetic_tool(name: str):
@@ -113,11 +133,11 @@ def summarize_state(name: str, state: dict, initial_signature: str) -> dict:
         for index, event in enumerate(trace)
     )
     current_signature = partition_signature(current_sets(state))
+    current_reports = state.get("evidence_memory", {}).get(current_signature, [])
     current_ids = {item["set_id"] for item in current_sets(state)}
-    reports = bool(report_events) and bool(state.get("reports")) and all(
-        report.get("partition_signature") == current_signature
-        and set(report.get("target_ids", []) or []).issubset(current_ids)
-        for report in state.get("reports", [])
+    reports = bool(report_events) and bool(current_reports) and state.get("reports") == current_reports and all(
+        set(report.get("target_ids", []) or []).issubset(current_ids)
+        for report in current_reports
     )
     reacquired = bool(request_events) and bool(tool_events)
     revision = bool(state.get("revision_result"))

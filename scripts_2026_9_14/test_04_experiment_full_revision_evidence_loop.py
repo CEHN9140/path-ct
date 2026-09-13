@@ -42,7 +42,12 @@ def test_full_loop_summary_requires_reacquisition():
             ]},
             "revision_result": {"new_partition_signature": "x"},
             "partition": {"sets": []},
-            "reports": [{"partition_signature": MODULE.partition_signature([])}],
+            "reports": [{"dimension": "biological_support", "target_ids": []}],
+            "evidence_memory": {
+                MODULE.partition_signature([]): [
+                    {"dimension": "biological_support", "target_ids": []}
+                ]
+            },
         },
         "initial-signature",
     )
@@ -65,6 +70,16 @@ def test_full_loop_summary_is_false_without_revision():
     )
     assert summary["verifier_reacquired_after_revision"] is False
     assert summary["full_loop_verified"] is False
+
+
+def test_controlled_structural_evidence_exposes_revision_metric_refs():
+    for name in ("split", "merge"):
+        state = MODULE.build_initial_state(name)
+        row = next(
+            item for item in state["round_evidence"]
+            if item["tool_name"] == "multimodal_consistency_check"
+        )
+        assert row["metric_refs"]
 
 
 def test_reviser_uses_only_metric_refs_for_structural_evidence():
