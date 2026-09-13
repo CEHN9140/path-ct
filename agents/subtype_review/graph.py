@@ -192,7 +192,8 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "max_failures": 3,
             "pending_evidence_requests": [],
             "router_validation_error": None,
-            "router_correction_attempted": False,
+            "router_correction_attempts": 0,
+            "previous_invalid_plan": None,
             "eligible_tools": {},
             "trace": [],
         },
@@ -811,6 +812,7 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
     if control.get("status") != "reviewing":
         return state
     terminal_only = control.get("round", 0) >= control.get("max_rounds", 10)
+    plan = None
     try:
         payload = {
             "partition": state["partition"],
@@ -829,6 +831,13 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         if control.get("router_validation_error"):
             payload["validation_error"] = control["router_validation_error"]
             payload["instruction"] = "return a corrected RouterPlan only"
+            payload["correction_rules"] = [
+                "Any dimension marked unassessed in evidence_coverage must remain unassessed in decision_state.",
+                "Do not convert an unassessed dimension to a favorable state.",
+                "If an unassessed dimension is decision-critical, request its available evidence; otherwise a terminal action may retain unassessed and explain why.",
+            ]
+            if control.get("previous_invalid_plan") is not None:
+                payload["previous_invalid_plan"] = control["previous_invalid_plan"]
         plan = parse_router_plan(
             values["router_model"].invoke(copy.deepcopy(payload))
         )
@@ -847,17 +856,23 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             })
             return state
     except Exception as exc:
-        if is_length_finish_error(exc) or control.get("router_correction_attempted"):
+        if is_length_finish_error(exc):
             mark_failure(state, "router", exc, immediate=True)
         elif isinstance(exc, ValueError):
-            control["router_correction_attempted"] = True
+            attempts = int(control.get("router_correction_attempts", 0)) + 1
+            if attempts > 2:
+                mark_failure(state, "router", exc, immediate=True)
+                return state
+            control["router_correction_attempts"] = attempts
             control["router_validation_error"] = f"{type(exc).__name__}: {exc}"
+            control["previous_invalid_plan"] = plan.model_dump() if plan else None
             control["error"] = control["router_validation_error"]
             control["next"] = "router"
             state["control"] = control
             append_trace(state, {
                 "node": "router",
                 "event": "validation_retry",
+                "attempt": attempts,
                 "error": control["router_validation_error"],
             })
         else:
@@ -867,7 +882,8 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         control["round"] = int(control.get("round", 0)) + 1
     control["error"] = None
     control["router_validation_error"] = None
-    control["router_correction_attempted"] = False
+    control["router_correction_attempts"] = 0
+    control["previous_invalid_plan"] = None
     state["router_plan"] = plan.model_dump()
     state["history"].append(history_entry(state, plan, terminal_only))
     control["history_index"] = len(state["history"]) - 1

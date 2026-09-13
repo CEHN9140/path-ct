@@ -418,6 +418,55 @@ def test_router_payload_reports_unassessed_dimensions():
     assert captured["evidence_coverage"]["C1"]["biological_support"] == "unassessed"
 
 
+def test_router_validation_retry_returns_previous_plan_and_correction_rules():
+    state = state_for(("C1", ["P1", "P2"]))
+    payloads = []
+
+    class Router:
+        def invoke(self, payload):
+            payloads.append(payload)
+            if len(payloads) == 1:
+                return {"actions": [{
+                    "action": "accept", "target_ids": ["C1"],
+                    "decision_state": decision_state(identity="supported"),
+                }]}
+            assert payload["instruction"] == "return a corrected RouterPlan only"
+            assert payload["correction_rules"]
+            assert payload["previous_invalid_plan"]["actions"][0]["action"] == "accept"
+            return {"actions": [{
+                "action": "drop", "target_ids": ["C1"],
+                "decision_state": decision_state(),
+            }]}
+
+    router_node(state, {**runtime(), "router_model": Router()})
+    assert state["control"]["next"] == "router"
+    router_node(state, {**runtime(), "router_model": Router()})
+    assert state["control"]["status"] == "complete"
+    assert len(payloads) == 2
+    assert state["control"]["router_correction_attempts"] == 0
+
+
+def test_router_allows_two_semantic_correction_retries_then_fails():
+    state = state_for(("C1", ["P1", "P2"]))
+    calls = 0
+
+    class Router:
+        def invoke(self, payload):
+            nonlocal calls
+            calls += 1
+            return {"actions": [{
+                "action": "accept", "target_ids": ["C1"],
+                "decision_state": decision_state(identity="supported"),
+            }]}
+
+    values = {**runtime(), "router_model": Router()}
+    router_node(state, values)
+    router_node(state, values)
+    router_node(state, values)
+    assert calls == 3
+    assert state["control"]["status"] == "review_unavailable"
+
+
 def test_decision_state_cannot_claim_unobtained_evidence():
     state = state_for(("C1", ["P1", "P2"]))
     action = RouterAction(

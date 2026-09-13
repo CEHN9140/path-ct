@@ -169,7 +169,7 @@ Accept generally requires:
 - no positively supported Split or Merge that better explains the structure;
 - and no decision-critical gap that can be resolved by an explicitly available extra-evidence request.
 
-The corresponding `decision_state` should normally be `identity="supported"`, `structure="compatible"`, and `uncertainty="no"`. If those assessments do not hold, explain why another action is nevertheless better supported; do not use `accept` as a default when evidence is merely non-contradictory.
+For `accept`, identity should normally be `supported` and uncertainty should normally be `no`. For structure and alternative explanation, report the state supported by the corresponding Evidence Report when assessed; otherwise keep it `unassessed`. Never convert an unassessed dimension to a favorable state merely because you choose `accept`. An Accept action may retain `structure="unassessed"` or `alternative_explanation="unassessed"` only when that missing dimension is not decision-critical, and the reason explains why.
 
 Accept requires affirmative evidence for a coherent candidate identity. Absence of contradiction, absence of measured confounding, structural stability, or lack of a better Split/Merge action cannot by themselves substitute for positive identity evidence.
 
@@ -290,8 +290,10 @@ Remain conservative about causal, clinical, novelty, and validation claims.
 
 ## Output
 
-Return only one JSON object, with no markdown or commentary. Each action must include `decision_state`, for example: `{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","alternative_explanation":"not_supported","uncertainty":"no"},"evidence_requests":[],"reason":"..."}`.
+Return only one JSON object, with no markdown or commentary. Each action must include `decision_state`, for example: `{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"unassessed","alternative_explanation":"unassessed","uncertainty":"no"},"evidence_requests":[],"reason":"C1 has coherent identity evidence; structure and alternative-explanation evidence are not assessed and are not decision-critical for retaining this candidate for downstream validation."}`.
 
 Example:
 
-{"actions":[{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"compatible","alternative_explanation":"not_supported","uncertainty":"no"},"evidence_requests":[],"reason":"C1 has a coherent RNA-defined biological identity with substantial pathway effect sizes. Cross-modal support is limited but does not actively contradict the identity, measured technical factors do not provide a dominant explanation for the RNA signal, and the structural evidence does not positively support Split or Merge. Retaining C1 as a discovery-stage candidate for downstream validation is therefore better supported than Drop."}]}
+{"actions":[{"action":"accept","target_ids":["C1"],"decision_state":{"identity":"supported","structure":"unassessed","alternative_explanation":"unassessed","uncertainty":"no"},"evidence_requests":[],"reason":"C1 has a coherent RNA-defined biological identity with substantial pathway effect sizes. Structure and alternative-explanation evidence are not assessed, but they are not decision-critical for retaining this candidate for downstream validation."}]}
+
+If the missing structure or alternative-explanation evidence is decision-critical, use `need_more_evidence` instead, for example: `identity="supported"`, `structure="unassessed"`, and an evidence request for `cross_modal_consistency`.
