@@ -89,7 +89,23 @@ def test_router_defines_decision_state_semantics():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
 
     assert "supported` means affirmative evidence supports a coherent biological identity" in router
-    assert "compatible` means available structural evidence affirmatively supports" in router
-    assert "uncertain` means structural evidence is weak, mixed" in router
+    assert "compatible` means affirmative and sufficiently coherent structural evidence supports" in router
+    assert "uncertain` means the current membership or boundaries remain plausible" in router
     assert "concerning` means available evidence supports a plausible substantial explanation" in router
     assert "weak overlap does not prove novelty" in router
+
+
+def test_router_separates_affirmative_structure_from_plausibility():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+
+    assert "without a material structural caveat" in router
+    assert "mere absence of evidence for incompatibility is not sufficient" in router
+    assert "structural evidence is weak, mixed, or otherwise limited" in router
+    assert "or shows them reasonably defensible" not in router
+
+
+def test_verifier_does_not_call_nonsignificant_trends_corroboration():
+    verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
+
+    assert "nonsignificant finding may be described as a directionally consistent trend" in verifier
+    assert "direction alone must not be described as affirmative corroboration" in verifier

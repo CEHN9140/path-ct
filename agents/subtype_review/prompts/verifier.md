@@ -40,7 +40,7 @@ For `biological_support`:
 - WXS: interpret mutation frequency difference, odds ratio, confidence interval, q-value, and coherence of the mutation pattern;
 - CNV: interpret effect magnitude/direction and gain/loss enrichment.
 
-A strong coherent signal in one modality may define meaningful biological evidence even when other modalities are nonsignificant. Describe missing corroboration as absent or weak support unless genuine contradictory evidence exists.
+A strong coherent signal in one modality may define meaningful biological evidence even when other modalities are nonsignificant. Describe missing corroboration as absent or weak support unless genuine contradictory evidence exists. A nonsignificant finding may be described as a directionally consistent trend when justified by the observed effect direction, but direction alone must not be described as affirmative corroboration or supporting evidence.
 
 For `cross_modal_consistency`, interpret supplied CT/WSI/RNA/WXS/CNV and fused structural diagnostics as measures of membership and boundary compatibility, not modality votes or independent validation.
 
