@@ -60,46 +60,46 @@ Confounder uncertainty alone is not a reason to `drop`.
 
 ## 4. Known-label echo
 
-`known_label_echo` characterizes the relationship between the current partition and known stage/grade labels.
+`known_label_echo` evaluates whether the current stable partition recapitulates known stage/grade labels.
 
-It is interpretive evidence, not an independent validity criterion.
+It is a required validation dimension of the four-dimensional review framework, but it is interpretive rather than independently dispositive.
 
-- High overlap does not automatically invalidate a molecular candidate.
-- Low overlap does not prove novelty.
-- Do not choose `accept`, `drop`, `split`, or `merge` solely from known-label overlap.
+Before issuing final terminal decisions for a stable partition, `known_label_echo` must be assessed once at partition scope when the evidence request is available.
 
-Use known-label evidence to characterize the retained partition and its relationship to existing clinical labels.
+If the partition changes after a `split` or `merge`, previously obtained known-label evidence should not be treated as sufficient for the revised partition; assess `known_label_echo` again after the revised partition becomes stable.
+
+Interpret the result as follows:
+
+- strong known-label echo: the discovered partition is substantially associated with existing stage/grade structure;
+- weak known-label echo: the partition is not a simple recapitulation of stage/grade;
+- uncertain known-label echo: available evidence does not clearly establish either relationship.
+
+Do not use known-label echo as an independent validity rule:
+
+- strong overlap with stage or grade does not automatically invalidate a molecular candidate;
+- weak overlap does not prove novelty;
+- `known_label_echo` alone must not trigger `accept`, `drop`, `split`, or `merge`.
+
+Use it to characterize the final retained partition and to qualify claims about whether the discovered subtypes extend beyond established clinical labels.
 
 ## Action rules
 
-Choose `accept` when:
+Choose `accept` only when:
 
 - biological identity is supported;
-- cross-modal consistency has been assessed and does not provide a compelling reason to invalidate the current candidate;
+- cross-modal consistency has been assessed and does not provide a compelling reason to invalidate the candidate;
 - confounder exclusion has been assessed and no measured factor provides a dominant alternative explanation;
+- the current partition has been assessed for `known_label_echo`;
 - and no better-supported `split` or `merge` is indicated.
-
-An accepted candidate may still have `structure="uncertain"` or `alternative_explanation="uncertain"`. In that case, retain it with `uncertainty="yes"`.
-
-Choose `drop` when:
-
-- biological identity is unsupported after available evidence has been considered;
-- the current structure is clearly incompatible and no credible structural revision resolves it;
-- or a measured confounder provides a plausible dominant explanation for the defining candidate signal.
-
-Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact candidate.
-
-Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact candidate pair.
-
-When a credible structural revision is supported, prefer `split` or `merge` over accepting the unrevised candidate.
 
 Choose `need_more_evidence` when:
 
 - biological support is required but unassessed;
-- a biologically supported candidate would otherwise be retained but cross-modal consistency or confounder exclusion remains unassessed;
-- or an unresolved uncertainty can be addressed by an available evidence request and the result could realistically change the next action.
+- a biologically supported candidate would otherwise be retained but `cross_modal_consistency` or `confounder_exclusion` remains unassessed;
+- the current partition is structurally stable and final terminal decisions would otherwise be issued, but `known_label_echo` remains unassessed;
+- or an unresolved uncertainty can be addressed by an available evidence request and the result could realistically change the next action or its interpretation.
 
-Do not request evidence merely because additional information would be interesting.
+`known_label_echo` is partition-scoped. Request it once for the current stable partition rather than separately for each candidate.
 
 ## General principle
 
