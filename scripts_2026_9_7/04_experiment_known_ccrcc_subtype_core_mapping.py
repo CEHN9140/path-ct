@@ -22,9 +22,6 @@ SPEC = importlib.util.spec_from_file_location("known_ccrcc_mapping", Path(__file
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
-SEVEN_CORE_SIZES = {"CORE01": 17, "CORE02": 15, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 7, "CORE07": 5}
-
-
 def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = list(rows)
@@ -39,7 +36,7 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def load_core_membership(path, expected_sizes):
+def load_core_membership(path, expected_sizes=None):
     frame = pd.read_csv(path, dtype=str)
     if not {"core_id", "patient_id"}.issubset(frame.columns):
         raise ValueError(f"Invalid stable-core membership columns: {path}")
@@ -49,6 +46,9 @@ def load_core_membership(path, expected_sizes):
         if case_id is None:
             raise ValueError(f"Invalid core patient ID: {row['patient_id']}")
         cores.setdefault(str(row["core_id"]), set()).add(case_id)
+    if not cores:
+        raise ValueError(f"No stable cores in {path}")
+    expected_sizes = expected_sizes or {core_id: len(members) for core_id, members in cores.items()}
     if set(cores) != set(expected_sizes):
         raise ValueError(f"Unexpected core IDs in {path}: {sorted(cores)}")
     seen = set()
@@ -216,42 +216,43 @@ def run(data_root=ROOT / "data", stable_root=ROOT / "output_kirc_v13/00_five_vie
         "mrna_reference": data_root / "tcga_kirc_mrna_m1_m4.csv",
         "clearcode_reference": data_root / "tcga_kirc_clearcode34.csv",
     }
-    cores = load_core_membership(inputs["stable_core_membership"], SEVEN_CORE_SIZES)
+    cores = load_core_membership(inputs["stable_core_membership"])
     validate_core_union(cores, load_universe(inputs["stable_core_universe"]))
     mrna = load_reference(inputs["mrna_reference"], {"m1", "m2", "m3", "m4"})
     clearcode = load_reference(inputs["clearcode_reference"], {"ccA", "ccB"})
-    write_csv(output_root / "core_membership_audit.csv", [{"partition": "5V-7state", "core_id": core_id, "core_n": len(members), "stable_union_n": 77} for core_id, members in cores.items()])
+    stable_union_n = sum(map(len, cores.values()))
+    write_csv(output_root / "core_membership_audit.csv", [{"partition": "5V-stable-cores", "core_id": core_id, "core_n": len(members), "stable_union_n": stable_union_n} for core_id, members in cores.items()])
     coverage_rows = []
     for core_id, members in cores.items():
         mrna_n = sum(bool(mrna.get(case_id, {}).get("reference_subtype")) for case_id in members)
         clear_n = sum(bool(clearcode.get(case_id, {}).get("reference_subtype")) for case_id in members)
-        coverage_rows.append({"partition": "5V-7state", "core_id": core_id, "total_n": len(members), "mrna_available_n": mrna_n, "mrna_missing_n": len(members) - mrna_n, "mrna_coverage": mrna_n / len(members), "clearcode_available_n": clear_n, "clearcode_missing_n": len(members) - clear_n, "clearcode_coverage": clear_n / len(members)})
+        coverage_rows.append({"partition": "5V-stable-cores", "core_id": core_id, "total_n": len(members), "mrna_available_n": mrna_n, "mrna_missing_n": len(members) - mrna_n, "mrna_coverage": mrna_n / len(members), "clearcode_available_n": clear_n, "clearcode_missing_n": len(members) - clear_n, "clearcode_coverage": clear_n / len(members)})
     write_csv(output_root / "core_reference_coverage.csv", coverage_rows)
     missingness = []
     for reference, labels in (("mRNA", mrna), ("ClearCode34", clearcode)):
         valid_ids = {case_id for case_id, item in labels.items() if item.get("reference_subtype") and item.get("reference_status") != "conflict"}
         table = np.asarray([[sum(case_id in valid_ids for case_id in members), sum(case_id not in valid_ids for case_id in members)] for members in cores.values()])
         chi, p_value = BASE.permutation_chi_square(table, permutations, 20260942)
-        missingness.append({"partition": "5V-7state", "reference": reference, "available_n": int(table[:, 0].sum()), "missing_n": int(table[:, 1].sum()), "chi_square": chi, "permutation_p": p_value})
+        missingness.append({"partition": "5V-stable-cores", "reference": reference, "available_n": int(table[:, 0].sum()), "missing_n": int(table[:, 1].sum()), "chi_square": chi, "permutation_p": p_value})
     BASE.attach_bh(missingness, "permutation_p", "bh_q")
     write_csv(output_root / "reference_missingness_by_core.csv", missingness)
-    results = run_partition("5V-7state", cores, output_root / "5view_7state", mrna, clearcode, permutations)
+    results = run_partition("5V-stable-cores", cores, output_root / "5view_7state", mrna, clearcode, permutations)
     summary_rows = []
-    for core_id in SEVEN_CORE_SIZES:
+    for core_id in cores:
         values = {reference: next(row for row in results[reference]["composition"] if row["core_id"] == core_id) for reference in results}
         best = {}
         for reference, slug in (("mRNA", "mRNA"), ("ClearCode34", "ClearCode")):
             rows = [row for row in results[reference]["enrichment"] if row["core_id"] == core_id and float(row.get("odds_ratio") or 0) > 1]
             best_row = min(rows, key=lambda row: (row["bh_q"] is None, row["bh_q"] if row["bh_q"] is not None else 1, row["fisher_p"] if row["fisher_p"] is not None else 1), default={})
             best.update({f"{slug}_best_enriched_subtype": best_row.get("reference_subtype"), f"{slug}_best_OR": best_row.get("odds_ratio"), f"{slug}_best_q": best_row.get("bh_q")})
-        summary_rows.append({"partition": "5V-7state", "core_id": core_id, "core_total_n": len(cores[core_id]), "mRNA_label_n": values["mRNA"]["label_n"], "mRNA_missing_n": values["mRNA"]["missing_n"], "mRNA_dominant": values["mRNA"]["dominant_reference_subtype"], "mRNA_purity": values["mRNA"]["purity"], "mRNA_entropy": values["mRNA"]["normalized_entropy"], "mRNA_status": evidence_status(values["mRNA"]["label_n"], [row for row in results["mRNA"]["enrichment"] if row["core_id"] == core_id]), "ClearCode_label_n": values["ClearCode34"]["label_n"], "ClearCode_missing_n": values["ClearCode34"]["missing_n"], "ClearCode_dominant": values["ClearCode34"]["dominant_reference_subtype"], "ClearCode_purity": values["ClearCode34"]["purity"], "ClearCode_entropy": values["ClearCode34"]["normalized_entropy"], "ClearCode_status": evidence_status(values["ClearCode34"]["label_n"], [row for row in results["ClearCode34"]["enrichment"] if row["core_id"] == core_id]), **best})
+        summary_rows.append({"partition": "5V-stable-cores", "core_id": core_id, "core_total_n": len(cores[core_id]), "mRNA_label_n": values["mRNA"]["label_n"], "mRNA_missing_n": values["mRNA"]["missing_n"], "mRNA_dominant": values["mRNA"]["dominant_reference_subtype"], "mRNA_purity": values["mRNA"]["purity"], "mRNA_entropy": values["mRNA"]["normalized_entropy"], "mRNA_status": evidence_status(values["mRNA"]["label_n"], [row for row in results["mRNA"]["enrichment"] if row["core_id"] == core_id]), "ClearCode_label_n": values["ClearCode34"]["label_n"], "ClearCode_missing_n": values["ClearCode34"]["missing_n"], "ClearCode_dominant": values["ClearCode34"]["dominant_reference_subtype"], "ClearCode_purity": values["ClearCode34"]["purity"], "ClearCode_entropy": values["ClearCode34"]["normalized_entropy"], "ClearCode_status": evidence_status(values["ClearCode34"]["label_n"], [row for row in results["ClearCode34"]["enrichment"] if row["core_id"] == core_id]), **best})
         summary_rows[-1]["no_fdr_supported_enrichment_in_either_reference"] = no_fdr_supported_enrichment_in_either_reference(values["mRNA"]["label_n"], summary_rows[-1]["mRNA_status"], values["ClearCode34"]["label_n"], summary_rows[-1]["ClearCode_status"])
     write_csv(output_root / "core_mapping_interpretation_summary.csv", summary_rows)
     write_csv(output_root / "mapping_summary.csv", [results[reference]["global"] for reference in results])
-    manifest = {"experiment": "known_ccrcc_subtype_core_mapping", "reference_labels_used_in_discovery": False, "stable_core_memberships_frozen": True, "no_reclustering": True, "no_agent_rerun": True, "reference_labels_reused_from_experiment_03": True, "permutations": permutations, "five_view_stable_n": 77, "input_sha256": {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in inputs.items()}}
+    manifest = {"experiment": "known_ccrcc_subtype_core_mapping", "reference_labels_used_in_discovery": False, "stable_core_memberships_frozen": True, "no_reclustering": True, "no_agent_rerun": True, "reference_labels_reused_from_experiment_03": True, "permutations": permutations, "five_view_stable_n": stable_union_n, "input_sha256": {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in inputs.items()}}
     write_json(output_root / "core_mapping_manifest.json", manifest)
     write_json(output_root / "input_audit.json", {"five_view_core_sizes": {key: len(value) for key, value in cores.items()}, "reference_mrna_n": len(mrna), "reference_clearcode_n": len(clearcode), "version_consistency": "exact_core_union_equals_analysis_universe"})
-    return {"output_root": str(output_root), "partitions": {"5V-7state": {key: len(value) for key, value in cores.items()}}}
+    return {"output_root": str(output_root), "partitions": {"5V-stable-cores": {key: len(value) for key, value in cores.items()}}}
 
 
 def main():

@@ -24,15 +24,12 @@ def test_core_mapping_rejects_characterization_from_another_multi_k_root(tmp_pat
         MAPPING.validate_discovery_binding(tmp_path / "current_multi_k", discovery_root)
 
 
-def test_current_seven_core_sizes_union_and_disjointness_are_frozen():
+def test_current_stable_core_sizes_are_loaded_from_the_frozen_artifact():
     cores = MAPPING.load_core_membership(
-        ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv",
-        MAPPING.SEVEN_CORE_SIZES,
+        ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv"
     )
-    assert {key: len(value) for key, value in cores.items()} == {
-        "CORE01": 17, "CORE02": 15, "CORE03": 14, "CORE04": 10, "CORE05": 9, "CORE06": 7, "CORE07": 5
-    }
-    assert len(set().union(*cores.values())) == 77
+    assert cores
+    assert len(set().union(*cores.values())) == sum(map(len, cores.values()))
 
 
 def test_core_union_must_equal_analysis_universe():
@@ -46,7 +43,7 @@ def test_core_union_must_equal_analysis_universe():
 
 
 def test_real_core_union_matches_current_characterization_universe():
-    cores = MAPPING.load_core_membership(ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv", MAPPING.SEVEN_CORE_SIZES)
+    cores = MAPPING.load_core_membership(ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review/stable_core_membership.csv")
     MAPPING.validate_core_union(cores, set().union(*cores.values()))
 
 

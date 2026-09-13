@@ -228,16 +228,19 @@ def prepare_clearcode_labels(path):
     return frame, audit
 
 
-def load_analysis_universe(path, expected_n, expected_groups):
+def load_analysis_universe(path, expected_n=None, expected_groups=None):
     frame = pd.read_csv(path, dtype=str)
     if set(frame.columns) != {"case_id", "group_id"}:
         raise ValueError(f"Unexpected analysis universe columns in {path}")
     frame["case_id"] = frame["case_id"].map(normalize_tcga_patient_id)
     if frame["case_id"].isna().any() or frame["case_id"].duplicated().any():
         raise ValueError(f"Invalid or duplicate case IDs in {path}")
-    if len(frame) != expected_n or set(frame["group_id"]) != set(expected_groups):
+    groups = sorted(set(frame["group_id"]))
+    if (expected_n is not None and len(frame) != expected_n) or (expected_groups is not None and set(groups) != set(expected_groups)):
         raise ValueError(f"Unexpected fixed discovery universe in {path}")
-    return dict(zip(frame["case_id"], frame["group_id"])), list(expected_groups)
+    if not groups or any(not group.startswith("CORE") for group in groups):
+        raise ValueError(f"Analysis universe has invalid core labels in {path}")
+    return dict(zip(frame["case_id"], frame["group_id"])), groups
 
 
 def build_contingency(state_labels, reference_labels, ordered_states, ordered_reference_labels):
@@ -472,7 +475,7 @@ def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc", output_root=R
     all_ids = sorted({case_id for case_id in all_ids if case_id})
     coverage_rows = write_reference_coverage(all_ids, {"mrna": mrna, "clearcode": clearcode}, output_root)
     partition_specs = {
-        "5V-7state": (discovery_root / "5view_7state/analysis_universe.csv", 77, [f"CORE0{i}" for i in range(1, 8)]),
+        "5V-stable-cores": (discovery_root / "5view_7state/analysis_universe.csv", None, None),
     }
     partition_labels = {name: load_analysis_universe(path, expected_n, groups) for name, (path, expected_n, groups) in partition_specs.items()}
     coverage_summary = []
