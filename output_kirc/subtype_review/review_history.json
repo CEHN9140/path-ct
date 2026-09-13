@@ -158,7 +158,7 @@
               "question": "Clarify the current biological_support evidence for C0001."
             }
           ],
-          "reason": "No Evidence Reports have been obtained for C0001, so identity, structure, and alternative-explanation dimensions are all unassessed. Positive identity evidence is required before this candidate can be retained, and the explicitly available biological_support request can realistically change the next action."
+          "reason": "No Evidence Reports and all coverage dimensions unassessed; identity cannot be affirmed without affirmative evidence, and biological_support is decision-critical."
         },
         {
           "action": "need_more_evidence",
@@ -180,7 +180,7 @@
               "question": "Clarify the current biological_support evidence for C0002."
             }
           ],
-          "reason": "No Evidence Reports have been obtained for C0002, so identity, structure, and alternative-explanation dimensions are all unassessed. Positive identity evidence is required before this candidate can be retained, and the explicitly available biological_support request can realistically change the next action."
+          "reason": "No Evidence Reports and all coverage dimensions unassessed; identity cannot be affirmed without affirmative evidence, and biological_support is decision-critical."
         },
         {
           "action": "need_more_evidence",
@@ -202,7 +202,7 @@
               "question": "Clarify the current biological_support evidence for C0003."
             }
           ],
-          "reason": "No Evidence Reports have been obtained for C0003, so identity, structure, and alternative-explanation dimensions are all unassessed. Positive identity evidence is required before this candidate can be retained, and the explicitly available biological_support request can realistically change the next action."
+          "reason": "No Evidence Reports and all coverage dimensions unassessed; identity cannot be affirmed without affirmative evidence, and biological_support is decision-critical."
         },
         {
           "action": "need_more_evidence",
@@ -224,7 +224,7 @@
               "question": "Clarify the current biological_support evidence for C0004."
             }
           ],
-          "reason": "No Evidence Reports have been obtained for C0004, so identity, structure, and alternative-explanation dimensions are all unassessed. Positive identity evidence is required before this candidate can be retained, and the explicitly available biological_support request can realistically change the next action."
+          "reason": "No Evidence Reports and all coverage dimensions unassessed; identity cannot be affirmed without affirmative evidence, and biological_support is decision-critical."
         }
       ]
     },
@@ -4130,33 +4130,23 @@
         ],
         "observations": [
           {
-            "metric": "RNA Hallmark ssGSEA (C0001 vs rest)",
-            "finding": "21 of 50 pathways significant at q<0.05 (min q=0.00115); strongest effects: HEME_METABOLISM down (SMD -0.861, set median 0.293 vs rest 0.323), EPITHELIAL_MESENCHYMAL_TRANSITION up (SMD 0.827, 0.440 vs 0.393), DNA_REPAIR up (SMD 0.758), FATTY_ACID_METABOLISM down (SMD -0.752), COAGULATION up (SMD 0.731)."
+            "metric": "RNA pathway enrichment",
+            "finding": "21/50 Hallmark pathways significant at q<0.05; strongest effects: HEME_METABOLISM down (SMD -0.861, q=0.00115), EMT up (SMD 0.827, q=0.0044), DNA_REPAIR up (SMD 0.758, q=0.0044), FATTY_ACID_METABOLISM down (SMD -0.752, q=0.0044), COAGULATION up (SMD 0.731, q=0.0051)."
           },
           {
-            "metric": "WXS mutation enrichment (C0001 vs rest)",
-            "finding": "0 of 22 genes significant at q<0.05 (min q=0.116); PBRM1 enriched (freq 0.571 vs 0.279, OR 3.44, 95% CI 1.46-8.07, Fisher p=0.0053, q=0.116); DST OR 11.17 (CI 1.25-99.76, q=0.182); VHL similar to rest (0.600 vs 0.515, q=0.863)."
+            "metric": "WXS mutation enrichment",
+            "finding": "No gene significant at q<0.05 (min q=0.116). PBRM1 enriched (57.1% vs 27.9%, OR 3.44, 95% CI 1.46-8.07, p=0.0053) but not significant after FDR; VHL similar to rest (60% vs 51.5%)."
           },
           {
-            "metric": "CNV continuous (C0001 vs rest)",
-            "finding": "12 of 49 features significant at q<0.05 (min q=0.00076); CDKN2A, chr9q, chr9p, JAK2, PTEN all lower in set (Cliff's delta -0.53 to -0.45)."
-          },
-          {
-            "metric": "CNV gain/loss (C0001 vs rest)",
-            "finding": "2 of 107 features significant at q<0.05; CDKN2A loss enriched (0.429 vs 0.147, OR 4.35, CI 1.69-11.22, q=0.034) and chr20q gain enriched (0.314 vs 0.074, OR 5.78, q=0.034); PTEN loss, chr9q loss, JAK2 loss, chr9p loss elevated but q 0.066-0.081."
-          },
-          {
-            "metric": "Availability",
-            "finding": "RNA set_available_n=35, rest_available_n=68 (whole-comparison 103); WXS set 35/rest 68; CNV set 35/rest 68."
+            "metric": "CNV characterization",
+            "finding": "12/49 continuous features significant; CDKN2A, chr9q, chr9p, JAK2, PTEN all lower in set (Cliff's delta -0.45 to -0.53, q<0.006). Gain/loss: CDKN2A loss enriched (42.9% vs 14.7%, OR 4.35, q=0.034) and chr20q gain enriched (31.4% vs 7.4%, OR 5.78, q=0.034)."
           }
         ],
-        "statistical_interpretation": "C0001 shows a coherent, FDR-supported RNA signal (21/50 pathways) with moderate-to-large standardized mean differences (|SMD| 0.73-0.86) and a coherent CNV pattern of 9p/9q/CDKN2A/JAK2/PTEN copy-number decrease with 12/49 continuous features significant and CDKN2A loss and chr20q gain significant in the gain/loss analysis. WXS shows no feature surviving FDR (min q=0.116), though PBRM1 enrichment has a Fisher p of 0.0053 with a CI excluding 1; this is a nominal, non-FDR-supported trend. The RNA and CNV modalities are internally coherent (both point to a distinct transcriptional and copy-number profile), while WXS is weaker and not FDR-significant.",
-        "medical_interpretation": "The RNA and CNV findings indicate that C0001 differs from the remaining samples in transcriptional programs (mesenchymal, DNA repair, heme/fatty-acid metabolism) and in copy-number at 9p/9q/CDKN2A/JAK2/PTEN. These are descriptive molecular differences; no prognostic or mechanistic inference is drawn. The PBRM1 mutation enrichment is a nominal trend only.",
+        "statistical_interpretation": "Strong, coherent RNA signal with many significant pathways and large effect sizes. CNV shows a coherent pattern of 9p/9q/CDKN2A loss and 20q gain. WXS is directionally suggestive (PBRM1) but not FDR-significant.",
+        "medical_interpretation": "C0001 shows a distinct transcriptional profile (EMT up, DNA repair up, heme and fatty acid metabolism down) with concordant copy-number loss at CDKN2A/9p and 20q gain, consistent with a biologically coherent subtype. Mutation evidence is weaker and not FDR-significant.",
         "limitations": [
-          "WXS enrichment does not survive FDR; PBRM1 and DST findings are nominal.",
-          "CNV gain/loss findings for PTEN, chr9q, JAK2, chr9p are near-threshold (q 0.066-0.081).",
-          "No clinical characterization was supplied.",
-          "Effect sizes are moderate; no independent validation."
+          "WXS enrichment not significant after multiple-testing correction",
+          "Pathway and CNV findings are relative to the rest of the partition and not independently validated"
         ],
         "tool_refs": [
           "cnv_characterization",
@@ -4177,33 +4167,23 @@
         ],
         "observations": [
           {
-            "metric": "RNA Hallmark ssGSEA (C0002 vs rest)",
-            "finding": "6 of 50 pathways significant at q<0.05 (min q=0.00945); strongest: PANCREAS_BETA_CELLS up (SMD 0.955, set median 0.340 vs rest 0.242), IL6_JAK_STAT3 down (SMD -0.716), ALLOGRAFT_REJECTION down (SMD -0.684), HEME_METABOLISM up (SMD 0.673), KRAS_SIGNALING_DN up (SMD 0.625)."
+            "metric": "RNA pathway enrichment",
+            "finding": "6/50 pathways significant; PANCREAS_BETA_CELLS up (SMD 0.955, q=0.0095), IL6_JAK_STAT3 down (SMD -0.716, q=0.0117), ALLOGRAFT_REJECTION down (SMD -0.684, q=0.0134), HEME_METABOLISM up (SMD 0.673, q=0.016), KRAS_SIGNALING_DN up (SMD 0.625, q=0.016)."
           },
           {
-            "metric": "WXS mutation enrichment (C0002 vs rest)",
-            "finding": "1 of 22 genes significant at q<0.05; PBRM1 enriched (freq 0.667 vs 0.291, OR 4.87, CI 1.83-12.95, Fisher p=0.0015, q=0.0332); VHL elevated but not significant (0.708 vs 0.494, q=0.912); BAP1 lower (0.042 vs 0.152, q=0.912)."
+            "metric": "WXS mutation enrichment",
+            "finding": "PBRM1 significantly enriched (66.7% vs 29.1%, OR 4.87, 95% CI 1.83-12.95, q=0.033). VHL elevated but not significant (70.8% vs 49.4%, q=0.91); BAP1 depleted (4.2% vs 15.2%, ns)."
           },
           {
-            "metric": "CNV continuous (C0002 vs rest)",
-            "finding": "18 of 49 features significant at q<0.05 (min q=0.00035); chr12p, VHL, chr20q, BAP1, SETD2 all lower in set (Cliff's delta -0.64 to -0.56)."
-          },
-          {
-            "metric": "CNV gain/loss (C0002 vs rest)",
-            "finding": "2 of 107 features significant at q<0.05; chr14q loss depleted (0.083 vs 0.506, OR 0.089, CI 0.020-0.403, q=0.0023) and chr8p loss depleted (0.0 vs 0.329, OR 0.041, q=0.0053); chr3p loss near-threshold enriched (0.958 vs 0.696, OR 10.04, q=0.051)."
-          },
-          {
-            "metric": "Availability",
-            "finding": "RNA set_available_n=24, rest_available_n=79 (whole-comparison 103); WXS set 24/rest 79; CNV set 24/rest 79."
+            "metric": "CNV characterization",
+            "finding": "18/49 continuous features significant; chr12p, VHL, chr20q, BAP1, SETD2 all lower in set (Cliff's delta -0.56 to -0.64, q<0.001). Gain/loss: chr14q loss depleted (8.3% vs 50.6%, OR 0.089, q=0.0023), chr8p loss absent (0% vs 32.9%, q=0.0053), chr3p loss near-ubiquitous (95.8% vs 69.6%, q=0.051)."
           }
         ],
-        "statistical_interpretation": "C0002 shows a coherent RNA signal (6/50 pathways, |SMD| 0.62-0.96), a single FDR-significant WXS finding (PBRM1, q=0.033), and a strong CNV signal (18/49 continuous features significant, |delta| 0.56-0.64, all lower in set) with two significant gain/loss depletions (chr14q, chr8p loss). The three modalities are internally coherent in pointing to a distinct profile, with CNV being the strongest and WXS the most limited (only one FDR-significant gene).",
-        "medical_interpretation": "C0002 differs from the remaining samples in transcriptional programs (beta-cell, IL6/JAK-STAT3, allograft rejection, heme metabolism), in PBRM1 mutation frequency, and in copy-number at chr12p/VHL/chr20q/BAP1/SETD2 and chr14q/chr8p. These are descriptive molecular differences; no prognostic or mechanistic inference is drawn.",
+        "statistical_interpretation": "Coherent multi-modal signal: significant RNA pathways, a significant PBRM1 mutation enrichment, and a strong CNV pattern (3p loss high, 14q/8p loss low, 12p/20q/VHL/BAP1/SETD2 lower). Effect sizes are large and directions internally consistent.",
+        "medical_interpretation": "C0002 shows a biologically coherent profile with PBRM1-mutant enrichment, near-universal 3p loss, and reduced 14q/8p loss, alongside distinct transcriptional programs. This supports a meaningful subtype identity.",
         "limitations": [
-          "WXS is limited to one FDR-significant gene; VHL and BAP1 differences are not significant.",
-          "chr3p loss is near-threshold (q=0.051).",
-          "No clinical characterization was supplied.",
-          "No independent validation."
+          "Some CNV features (chr3p loss) only borderline significant",
+          "Findings are relative to the rest of the partition"
         ],
         "tool_refs": [
           "cnv_characterization",
@@ -4224,33 +4204,23 @@
         ],
         "observations": [
           {
-            "metric": "RNA Hallmark ssGSEA (C0003 vs rest)",
-            "finding": "0 of 50 pathways significant at q<0.05 (min q=0.112); largest effects are non-significant: PROTEIN_SECRETION up (SMD 0.584, q=0.112), HYPOXIA down (SMD -0.776, q=0.413), GLYCOLYSIS down (SMD -0.729, q=0.413), TNFA_SIGNALING_VIA_NFKB down (SMD -0.689, q=0.413)."
+            "metric": "RNA pathway enrichment",
+            "finding": "0/50 pathways significant (min q=0.112). Largest effects are down: HYPOXIA (SMD -0.776), GLYCOLYSIS (SMD -0.729), TNFA_NFKB (SMD -0.689), IL6_JAK_STAT3 (SMD -0.673), all q=0.413."
           },
           {
-            "metric": "WXS mutation enrichment (C0003 vs rest)",
-            "finding": "2 of 22 genes significant at q<0.05; PBRM1 depleted (freq 0.0 vs 0.470, OR 0.027, CI 0.0016-0.469, Fisher p=2.1e-05, q=0.00047) and VHL depleted (0.15 vs 0.639, OR 0.100, CI 0.027-0.369, q=0.0011); BAP1 depleted but not significant (0.0 vs 0.157, q=0.495)."
+            "metric": "WXS mutation enrichment",
+            "finding": "2 genes significant: PBRM1 absent (0% vs 47.0%, OR 0.027, q=0.00047) and VHL strongly depleted (15% vs 63.9%, OR 0.100, 95% CI 0.027-0.369, q=0.0011). BAP1 also absent (0% vs 15.7%, ns)."
           },
           {
-            "metric": "CNV continuous (C0003 vs rest)",
-            "finding": "0 of 49 features significant at q<0.05 (min q=0.147); largest effects non-significant: chr1p lower (delta -0.439, q=0.147), chr9q higher (delta 0.398, q=0.168), chr4q higher (delta 0.364, q=0.235)."
-          },
-          {
-            "metric": "CNV gain/loss (C0003 vs rest)",
-            "finding": "0 of 107 features significant at q<0.05 (min q=0.147); chr1p loss (0.25 vs 0.024, OR 13.5, q=0.147) and chr22q loss (0.20 vs 0.0, OR 45.5, q=0.147) elevated but not significant."
-          },
-          {
-            "metric": "Availability",
-            "finding": "RNA set_available_n=20, rest_available_n=83 (whole-comparison 103); WXS set 20/rest 83; CNV set 20/rest 83."
+            "metric": "CNV characterization",
+            "finding": "No continuous or gain/loss feature significant (min q=0.147). Nominal signals: chr1p loss enriched (25% vs 2.4%, OR 13.5), chr22q loss (20% vs 0%), chr1q loss (15% vs 0%), chr16p/16q gain (30% vs 10.8%)."
           }
         ],
-        "statistical_interpretation": "C0003 shows a strong, FDR-supported WXS signal (PBRM1 and VHL depletion, q=0.00047 and 0.0011) but no FDR-significant RNA (0/50) or CNV (0/49 continuous, 0/107 gain/loss) findings. The RNA and CNV effects are moderate in magnitude but non-significant, so the modalities are not coherent: the WXS depletion pattern is not mirrored by FDR-supported RNA or CNV differences.",
-        "medical_interpretation": "C0003 is distinguished from the remaining samples primarily by lower PBRM1 and VHL mutation frequency. RNA and CNV differences are exploratory and not FDR-supported. These are descriptive molecular differences; no prognostic or mechanistic inference is drawn.",
+        "statistical_interpretation": "RNA shows no significant enrichment despite moderate effect sizes. WXS shows a strong, coherent depletion of the canonical ccRCC drivers VHL and PBRM1 (both FDR-significant). CNV is nonsignificant with only nominal, sparse alterations.",
+        "medical_interpretation": "C0003 is defined primarily by a striking absence of VHL and PBRM1 mutations, distinguishing it from the other sets, with no significant RNA or CNV enrichment. The mutation pattern is coherent and biologically interpretable even though transcriptomic and copy-number support is weak.",
         "limitations": [
-          "RNA and CNV findings are non-significant (min q 0.112 and 0.147).",
-          "The set is the smallest (n=20).",
-          "No clinical characterization was supplied.",
-          "No independent validation."
+          "RNA and CNV evidence nonsignificant",
+          "Small set (n=20) limits power for CNV and pathway tests"
         ],
         "tool_refs": [
           "cnv_characterization",
@@ -4271,32 +4241,23 @@
         ],
         "observations": [
           {
-            "metric": "RNA Hallmark ssGSEA (C0004 vs rest)",
-            "finding": "0 of 50 pathways significant at q<0.05 (min q=0.076); largest effects non-significant: INTERFERON_ALPHA_RESPONSE up (SMD 0.785, q=0.076), WNT_BETA_CATENIN down (SMD -0.647, q=0.085), INTERFERON_GAMMA_RESPONSE up (SMD 0.707, q=0.088), MYOGENESIS down (SMD -0.720, q=0.152)."
+            "metric": "RNA pathway enrichment",
+            "finding": "0/50 pathways significant (min q=0.076). Largest effects: INTERFERON_ALPHA_RESPONSE up (SMD 0.785, q=0.076), WNT_BETA_CATENIN down (SMD -0.647, q=0.085), INTERFERON_GAMMA_RESPONSE up (SMD 0.707, q=0.088), MYOGENESIS down (SMD -0.720, q=0.152)."
           },
           {
-            "metric": "WXS mutation enrichment (C0004 vs rest)",
-            "finding": "2 of 22 genes significant at q<0.05; BAP1 enriched (freq 0.333 vs 0.063, OR 7.40, CI 2.14-25.60, Fisher p=0.0017, q=0.0384) and PBRM1 depleted (0.125 vs 0.456, OR 0.171, CI 0.047-0.619, q=0.0398); SPTA1 enriched but not significant (0.167 vs 0.025, q=0.186)."
+            "metric": "WXS mutation enrichment",
+            "finding": "2 genes significant: BAP1 enriched (33.3% vs 6.3%, OR 7.4, 95% CI 2.14-25.6, q=0.038) and PBRM1 depleted (12.5% vs 45.6%, OR 0.171, q=0.040). SPTA1 nominally enriched (16.7% vs 2.5%, q=0.186)."
           },
           {
-            "metric": "CNV continuous (C0004 vs rest)",
-            "finding": "0 of 49 features significant at q<0.05 (min q=0.121); largest effects non-significant: chr19p higher (delta 0.421, q=0.121), chr19q higher (delta 0.406, q=0.121), PTEN higher (delta 0.401, q=0.121), chr6p higher (delta 0.400, q=0.121)."
-          },
-          {
-            "metric": "CNV gain/loss (C0004 vs rest)",
-            "finding": "0 of 107 features significant at q<0.05 (min q=0.900); chr14q loss (0.542 vs 0.367, OR 2.04, q=1.0) and chr12p/chr12q gain (0.042 vs 0.190, q=1.0) not significant."
-          },
-          {
-            "metric": "Availability",
-            "finding": "RNA set_available_n=24, rest_available_n=79 (whole-comparison 103); WXS set 24/rest 79; CNV set 24/rest 79."
+            "metric": "CNV characterization",
+            "finding": "No continuous or gain/loss feature significant (min q=0.121). Nominal: chr19p/chr19q higher (Cliff's delta ~0.41-0.42), PTEN higher, chr6p higher; chr14q loss elevated (54.2% vs 36.7%, ns)."
           }
         ],
-        "statistical_interpretation": "C0004 shows a WXS signal with two FDR-significant genes (BAP1 enrichment, PBRM1 depletion, q=0.038-0.040) but no FDR-significant RNA (0/50, min q=0.076) or CNV (0/49 continuous, 0/107 gain/loss) findings. The RNA interferon-alpha/gamma and WNT effects are moderate but non-significant, and CNV effects are non-significant, so the modalities are not coherent: the WXS BAP1/PBRM1 pattern is not mirrored by FDR-supported RNA or CNV differences.",
-        "medical_interpretation": "C0004 is distinguished from the remaining samples primarily by higher BAP1 and lower PBRM1 mutation frequency. RNA and CNV differences are exploratory and not FDR-supported. These are descriptive molecular differences; no prognostic or mechanistic inference is drawn.",
+        "statistical_interpretation": "RNA is nonsignificant but shows a coherent interferon-response-up pattern. WXS shows a significant, coherent BAP1-enriched / PBRM1-depleted mutation profile. CNV is nonsignificant with only nominal signals.",
+        "medical_interpretation": "C0004 is characterized by a BAP1-mutant, PBRM1-wildtype mutation profile with a suggestive interferon-response transcriptional signature, supporting a distinct biological identity despite nonsignificant RNA and CNV enrichment.",
         "limitations": [
-          "RNA and CNV findings are non-significant (min q 0.076 and 0.121).",
-          "No clinical characterization was supplied.",
-          "No independent validation."
+          "RNA and CNV evidence nonsignificant",
+          "Interferon pathway effects only borderline (q~0.08)"
         ],
         "tool_refs": [
           "cnv_characterization",
@@ -4324,7 +4285,7 @@
             "uncertainty": "no"
           },
           "evidence_requests": [],
-          "reason": "C0001 has coherent, FDR-supported identity evidence: 21/50 RNA Hallmark pathways with moderate-to-large effect sizes (|SMD| 0.73-0.86) forming a biologically interpretable program (mesenchymal/EMT up, DNA repair up, heme and fatty-acid metabolism down), corroborated by a coherent CNV pattern (12/49 continuous features significant, CDKN2A loss and chr20q gain significant in gain/loss analysis). WXS is weaker and not FDR-significant, but a single strong modality with coherent internal structure is sufficient for retention. Structure and alternative-explanation dimensions are unassessed; no structural probe or confounder report was supplied, and neither is decision-critical for retaining this candidate for downstream validation, since no positive Split/Merge evidence exists and no measured technical factor has been shown to dominate the molecular identity."
+          "reason": "Coherent multimodal identity: strong RNA pathway signal (21/50 significant, large effects), concordant CNV pattern (CDKN2A/9p loss, 20q gain), and directionally consistent PBRM1 enrichment. Structure and alternative explanation remain unassessed per coverage; not decision-critical for retaining the candidate."
         },
         {
           "action": "accept",
@@ -4338,35 +4299,35 @@
             "uncertainty": "no"
           },
           "evidence_requests": [],
-          "reason": "C0002 has coherent identity evidence across modalities: a strong CNV signal (18/49 continuous features significant, |delta| 0.56-0.64, all lower in set, plus chr14q and chr8p loss depletion), an FDR-significant WXS finding (PBRM1, q=0.033), and a coherent RNA program (6/50 pathways, |SMD| 0.62-0.96). The modalities point in a consistent direction, supporting a defensible candidate identity. Structure and alternative-explanation dimensions are unassessed; no structural probe or confounder report was supplied, and neither is decision-critical here because no positive Split/Merge evidence exists and no measured technical factor has been shown to dominate the identity."
+          "reason": "Coherent multimodal identity: significant RNA pathways, FDR-significant PBRM1 enrichment, and strong CNV pattern (near-universal 3p loss, reduced 14q/8p loss). Directions internally consistent; structure and alternative explanation unassessed."
         },
         {
-          "action": "drop",
+          "action": "accept",
           "target_ids": [
             "C0003"
           ],
           "decision_state": {
-            "identity": "unsupported",
+            "identity": "supported",
             "structure": "unassessed",
             "alternative_explanation": "unassessed",
             "uncertainty": "no"
           },
           "evidence_requests": [],
-          "reason": "C0003's identity rests on a single WXS depletion pattern (PBRM1 and VHL depleted, q=0.00047 and 0.0011) that is not mirrored by any FDR-supported RNA (0/50, min q=0.112) or CNV (0/49 continuous, 0/107 gain/loss) finding. The RNA and CNV effects are moderate but non-significant, so the modalities are not coherent and the candidate lacks a coherent, biologically interpretable identity beyond a mutation-frequency difference. No available evidence request can realistically rescue this decision, since the missing dimensions (cross_modal_consistency, confounder_exclusion) would not supply the absent coherent identity signal. Drop is therefore better supported than retention."
+          "reason": "Identity defined by strong, coherent FDR-significant depletion of canonical ccRCC drivers VHL and PBRM1. Per policy, nonsignificant RNA/CNV does not invalidate a strong coherent WXS signal; biologically interpretable driver-negative subtype. Structure and alternative explanation unassessed."
         },
         {
-          "action": "drop",
+          "action": "accept",
           "target_ids": [
             "C0004"
           ],
           "decision_state": {
-            "identity": "unsupported",
+            "identity": "supported",
             "structure": "unassessed",
             "alternative_explanation": "unassessed",
             "uncertainty": "no"
           },
           "evidence_requests": [],
-          "reason": "C0004's identity rests on a WXS pattern (BAP1 enriched, PBRM1 depleted, q=0.038-0.040) that is not mirrored by any FDR-supported RNA (0/50, min q=0.076) or CNV (0/49 continuous, 0/107 gain/loss) finding. The RNA interferon and WNT effects are moderate but non-significant, and CNV effects are non-significant, so the modalities are not coherent and the candidate lacks a coherent, biologically interpretable identity beyond a mutation-frequency difference. No available evidence request can realistically rescue this decision, since the missing dimensions would not supply the absent coherent identity signal. Drop is therefore better supported than retention."
+          "reason": "Identity supported by FDR-significant, coherent BAP1-enriched/PBRM1-depleted mutation profile with a concordant interferon-response transcriptional trend. Nonsignificant RNA/CNV does not override the strong coherent WXS signal. Structure and alternative explanation unassessed."
         }
       ]
     },
