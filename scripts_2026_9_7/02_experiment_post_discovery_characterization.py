@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 from tools import post_discovery_characterization as stats
 from tools.ct_radiomics import build_ct_affinity
 from tools.subtype_review_common import clinical_table
-from scripts_2026_8_31 import analyze_multi_k_stable_cores as base
-from scripts_2026_8_31.five_view_experiment import load_five_view_inputs
+from scripts_2026_9_7 import analyze_multi_k_stable_cores as base
+from scripts_2026_9_7.five_view_experiment import load_five_view_inputs
 
 
 def load_saved_affinities(data_root, config_dir):

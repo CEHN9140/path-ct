@@ -19,8 +19,8 @@ sys.path.insert(0, str(ROOT))
 from agents.subtype_review.graph import partition_signature, save_review_outputs
 from agents.subtype_review.llm import review_signature_manifest
 from agents.subtype_review.runner import run_subtype_review
-from scripts_2026_8_31 import analyze_multi_k_stable_cores as core_analysis
-from scripts_2026_8_31 import experiment_multi_k_accepted_core_stability as stability
+from scripts_2026_9_7 import analyze_multi_k_stable_cores as core_analysis
+from scripts_2026_9_7 import experiment_multi_k_accepted_core_stability as stability
 from utils.io import write_json
 from utils.llm_utils import load_yaml_file
 
@@ -52,6 +52,8 @@ def source_identity(root: Path):
         Path(__file__).resolve(),
         Path(core_analysis.__file__).resolve(),
         Path(stability.__file__).resolve(),
+        ROOT / "scripts_2026_9_7" / "five_view_experiment.py",
+        ROOT / "scripts_2026_9_7" / "experiment_initial_k_review_sensitivity.py",
     ]
     files = []
     for path in paths:
@@ -74,6 +76,8 @@ def source_identity(root: Path):
             str(Path(__file__).resolve().relative_to(root)),
             str(Path(core_analysis.__file__).resolve().relative_to(root)),
             str(Path(stability.__file__).resolve().relative_to(root)),
+            "scripts_2026_9_7/five_view_experiment.py",
+            "scripts_2026_9_7/experiment_initial_k_review_sensitivity.py",
         ],
         cwd=root, check=True, capture_output=True, text=True,
     ).stdout
