@@ -1,23 +1,31 @@
 {
   "case": "split",
-  "status": "review_unavailable",
-  "router_calls": 1,
-  "reviser_calls": 3,
-  "verifier_tool_selection_calls": 0,
-  "verifier_report_batches": 0,
-  "reacquired_tools": [],
-  "final_report_count": 7,
-  "revision_applied": false,
-  "partition_changed": false,
-  "verifier_reacquired_after_revision": false,
-  "reports_reacquired_after_revision": false,
-  "full_loop_verified": false,
+  "status": "complete",
+  "router_calls": 3,
+  "reviser_calls": 1,
+  "verifier_tool_selection_calls": 1,
+  "verifier_report_batches": 1,
+  "reacquired_tools": [
+    "pathway_enrichment",
+    "mutation_enrichment",
+    "cnv_characterization",
+    "multimodal_consistency_check",
+    "confound_test",
+    "known_label_echo_test"
+  ],
+  "final_report_count": 10,
+  "revision_applied": true,
+  "partition_changed": true,
+  "verifier_reacquired_after_revision": true,
+  "reports_reacquired_after_revision": true,
+  "full_loop_verified": true,
   "initial_set_ids": [
     "C1",
     "C2"
   ],
   "current_set_ids": [
-    "C1",
+    "C1_S1",
+    "C1_S2",
     "C2"
   ],
   "trace": [
@@ -51,7 +59,7 @@
               "alternative_explanation": "not_supported",
               "uncertainty": "yes"
             },
-            "reason": "C2 has coherent biological identity support and no supported technical confounder, and no positive structural evidence indicates that its current membership or boundaries are invalid; it is retained as a discovery-stage candidate despite residual structural uncertainty."
+            "reason": "C2 has coherent biological identity support and no supported technical confounder. Its structural evidence is not informative for C2 because the reported internal-group finding refers to C1, so C2 is retained as a discovery-stage candidate with uncertainty noted."
           }
         ],
         "evidence_requests": []
@@ -60,26 +68,224 @@
     {
       "round": 1,
       "node": "reviser",
-      "event": "failure",
-      "error": "ValueError: RevisionPlan references unavailable metrics"
+      "event": "revision_applied",
+      "result": {
+        "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\"],\"set_id\":\"C1_S1\"},{\"member_ids\":[\"P10\",\"P11\",\"P12\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_S2\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "operations": [
+          {
+            "action": "split",
+            "target_ids": [
+              "C1"
+            ],
+            "children": [
+              "C1_S1",
+              "C1_S2"
+            ]
+          }
+        ],
+        "superseded_sets": [
+          {
+            "set_id": "C1",
+            "member_ids": [
+              "P1",
+              "P10",
+              "P11",
+              "P12",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9"
+            ],
+            "revision_lineage": []
+          }
+        ],
+        "algorithm": "deterministic_spectral_clustering_and_set_union",
+        "seed": 0,
+        "metric_refs": [
+          "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.median_silhouette",
+          "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.consensus_separation",
+          "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.median_resample_ari",
+          "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.pac"
+        ],
+        "parameters": {
+          "split_strategies": [
+            "fused_similarity_spectral"
+          ]
+        }
+      }
     },
     {
       "round": 1,
-      "node": "reviser",
-      "event": "failure",
-      "error": "ValueError: Reviser returned a previously failed RevisionPlan"
+      "node": "router",
+      "event": "decision",
+      "plan": {
+        "actions": [],
+        "evidence_requests": [
+          {
+            "dimension": "biological_support",
+            "target_ids": [
+              "C1_S1"
+            ],
+            "question": "Does C1_S1 have a coherent and interpretable biological identity that supports retaining it as a distinct candidate?"
+          },
+          {
+            "dimension": "biological_support",
+            "target_ids": [
+              "C1_S2"
+            ],
+            "question": "Does C1_S2 have a coherent and interpretable biological identity that supports retaining it as a distinct candidate?"
+          },
+          {
+            "dimension": "biological_support",
+            "target_ids": [
+              "C2"
+            ],
+            "question": "Does C2 have a coherent and interpretable biological identity that supports retaining it as a candidate?"
+          },
+          {
+            "dimension": "cross_modal_consistency",
+            "target_ids": [
+              "C1_S1"
+            ],
+            "question": "Are the membership and boundaries of C1_S1 defensible across modalities, or is there evidence of further internal subdivision or insufficient separation?"
+          },
+          {
+            "dimension": "cross_modal_consistency",
+            "target_ids": [
+              "C1_S2"
+            ],
+            "question": "Are the membership and boundaries of C1_S2 defensible across modalities, or is there evidence of further internal subdivision or insufficient separation?"
+          },
+          {
+            "dimension": "cross_modal_consistency",
+            "target_ids": [
+              "C2"
+            ],
+            "question": "Are the membership and boundaries of C2 defensible across modalities, or is there evidence of reproducible internal subdivision or insufficient separation?"
+          },
+          {
+            "dimension": "confounder_exclusion",
+            "target_ids": [
+              "C1_S1"
+            ],
+            "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_S1?"
+          },
+          {
+            "dimension": "confounder_exclusion",
+            "target_ids": [
+              "C1_S2"
+            ],
+            "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_S2?"
+          },
+          {
+            "dimension": "confounder_exclusion",
+            "target_ids": [
+              "C2"
+            ],
+            "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C2?"
+          },
+          {
+            "dimension": "known_label_echo",
+            "target_ids": [],
+            "question": "How does the current partition relate to assessed stage/grade labels, as partition-level context?"
+          }
+        ]
+      }
     },
     {
-      "round": 1,
-      "node": "reviser",
-      "event": "failure",
-      "error": "ValueError: Reviser returned a previously failed RevisionPlan"
+      "round": 2,
+      "node": "verifier",
+      "event": "tool_selection",
+      "tools": [
+        "pathway_enrichment",
+        "mutation_enrichment",
+        "cnv_characterization",
+        "multimodal_consistency_check",
+        "confound_test",
+        "known_label_echo_test"
+      ]
+    },
+    {
+      "round": 2,
+      "node": "verifier",
+      "event": "audit_payload_size",
+      "request_chars": 8831,
+      "history_chars": 2340,
+      "tool_message_chars": [
+        255,
+        361,
+        362,
+        363,
+        376,
+        358,
+        265
+      ]
+    },
+    {
+      "round": 2,
+      "node": "verifier",
+      "event": "reports",
+      "count": 10
+    },
+    {
+      "round": 2,
+      "node": "router",
+      "event": "decision",
+      "plan": {
+        "actions": [
+          {
+            "action": "drop",
+            "target_ids": [
+              "C1_S1"
+            ],
+            "decision_state": {
+              "identity": "unsupported",
+              "structure": "unassessed",
+              "alternative_explanation": "uncertain",
+              "uncertainty": "yes"
+            },
+            "reason": "C1_S1 has no affirmative biological evidence: all three modalities report identical non-significant effects (q=0.2) with no coherent distinguishing signal, and cross-modal consistency is likewise non-significant. With no available evidence requests remaining and no credible structural revision indicated, the candidate is insufficiently defensible for retention."
+          },
+          {
+            "action": "drop",
+            "target_ids": [
+              "C1_S2"
+            ],
+            "decision_state": {
+              "identity": "unsupported",
+              "structure": "unassessed",
+              "alternative_explanation": "uncertain",
+              "uncertainty": "yes"
+            },
+            "reason": "C1_S2 shows the same pattern of identical non-significant effects across RNA, WXS, and CNV (q=0.2) and non-significant cross-modal consistency, providing no affirmative biological identity. No available evidence requests remain and no supported structural revision is indicated, so the candidate is not defensible for retention."
+          },
+          {
+            "action": "drop",
+            "target_ids": [
+              "C2"
+            ],
+            "decision_state": {
+              "identity": "unsupported",
+              "structure": "unassessed",
+              "alternative_explanation": "uncertain",
+              "uncertainty": "yes"
+            },
+            "reason": "C2 lacks any affirmative biological support: all modalities report identical non-significant effects (q=0.2) and cross-modal consistency is non-significant. With no remaining evidence requests and no supported structural revision, the candidate is insufficiently defensible to retain."
+          }
+        ],
+        "evidence_requests": []
+      }
     }
   ],
   "llm_usage": {
-    "api_calls": 4,
-    "prompt_tokens": 6157,
-    "completion_tokens": 979,
-    "total_tokens": 7136
+    "api_calls": 7,
+    "prompt_tokens": 24525,
+    "completion_tokens": 4049,
+    "total_tokens": 28574
   }
 }

@@ -477,6 +477,22 @@ def raw_metric_refs(rows: list[Mapping[str, Any]]) -> set[str]:
     }
 
 
+def available_revision_metric_refs(
+    state: Mapping[str, Any], router_plan: Mapping[str, Any] | RouterPlan
+) -> list[str]:
+    plan = router_plan.model_dump() if hasattr(router_plan, "model_dump") else router_plan
+    refs = raw_metric_refs(current_partition_evidence(state))
+    selected = set()
+    for action in plan.get("actions", []) or []:
+        targets = [str(target) for target in action.get("target_ids", []) or []]
+        if action.get("action") == "split" and targets:
+            selected.update(ref for ref in refs if f".{targets[0]}." in ref)
+        elif action.get("action") == "merge" and len(targets) == 2:
+            pair = "+".join(sorted(targets))
+            selected.update(ref for ref in refs if f".{pair}." in ref)
+    return sorted(selected)
+
+
 def metric_blocks_for_report(
     report: Any, state: Mapping[str, Any]
 ) -> list[str]:
@@ -1039,10 +1055,14 @@ def revision_plan_signature(plan: RevisionPlan) -> str:
                 "n_children": item.n_children,
                 "structural_basis": item.structural_basis,
                 "execution_strategy": item.execution_strategy,
+                "metric_refs": item.metric_refs,
             }
             for item in plan.split_plans
         ],
-        "merge_plans": [{"target_ids": item.target_ids} for item in plan.merge_plans],
+        "merge_plans": [
+            {"target_ids": item.target_ids, "metric_refs": item.metric_refs}
+            for item in plan.merge_plans
+        ],
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -1168,6 +1188,7 @@ def reviser_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         "partition": state["partition"],
         "router_plan": router_plan.model_dump(),
         "raw_structural_metrics": revision_metrics(state),
+        "available_metric_refs": available_revision_metric_refs(state, router_plan),
     }
     if control.get("revision_validation_error"):
         payload["previous_revision_plan"] = state.get("revision_plan")

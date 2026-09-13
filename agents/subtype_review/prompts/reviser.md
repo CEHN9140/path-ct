@@ -22,6 +22,7 @@ For every `merge`:
 - cite only supplied pairwise structural metric references.
 
 For both SplitPlan and MergePlan, put structural references only in the schema field `metric_refs`. Never emit `structural_metric_refs` or any other reference field.
+Select `metric_refs` verbatim from `available_metric_refs`. Never invent, rewrite, shorten, or reconstruct a reference. If no supplied reference is needed or available, return `metric_refs: []`.
 
 Python performs the actual split or membership union.
 
