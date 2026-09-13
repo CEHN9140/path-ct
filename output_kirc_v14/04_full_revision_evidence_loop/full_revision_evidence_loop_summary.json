@@ -1,0 +1,545 @@
+{
+  "experiment": "full_revision_evidence_loop",
+  "cases": [
+    "split",
+    "merge"
+  ],
+  "results": {
+    "split": {
+      "case": "split",
+      "status": "complete",
+      "router_calls": 3,
+      "reviser_calls": 1,
+      "verifier_tool_selection_calls": 1,
+      "verifier_report_batches": 1,
+      "reacquired_tools": [
+        "multimodal_consistency_check",
+        "pathway_enrichment",
+        "mutation_enrichment",
+        "cnv_characterization",
+        "confound_test",
+        "known_label_echo_test"
+      ],
+      "final_report_count": 10,
+      "revision_applied": true,
+      "partition_changed": true,
+      "verifier_reacquired_after_revision": true,
+      "reports_reacquired_after_revision": true,
+      "full_loop_verified": true,
+      "initial_set_ids": [
+        "C1",
+        "C2"
+      ],
+      "current_set_ids": [
+        "C1_S1",
+        "C1_S2",
+        "C2"
+      ],
+      "trace": [
+        {
+          "round": 0,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "split",
+                "target_ids": [
+                  "C1"
+                ],
+                "decision_state": {
+                  "identity": "supported",
+                  "structure": "incompatible",
+                  "alternative_explanation": "not_supported",
+                  "uncertainty": "yes"
+                },
+                "reason": "C1 has coherent biological identity support and no supported technical confounder, but its own structural evidence reports two balanced, reproducible internal groups (child sizes 6/6, median ARI 0.92, consensus separation 0.81), indicating the current 12-member granularity is not defensible and should be split."
+              },
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "supported",
+                  "structure": "uncertain",
+                  "alternative_explanation": "not_supported",
+                  "uncertainty": "yes"
+                },
+                "reason": "C2 has coherent biological identity support and no supported technical confounder. Its structural evidence is limited and does not support a specific revision, so it is retained as a discovery-stage candidate with uncertainty noted."
+              }
+            ],
+            "evidence_requests": []
+          }
+        },
+        {
+          "round": 1,
+          "node": "reviser",
+          "event": "revision_applied",
+          "result": {
+            "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\"],\"set_id\":\"C1_S1\"},{\"member_ids\":[\"P10\",\"P11\",\"P12\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_S2\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "operations": [
+              {
+                "action": "split",
+                "target_ids": [
+                  "C1"
+                ],
+                "children": [
+                  "C1_S1",
+                  "C1_S2"
+                ]
+              }
+            ],
+            "superseded_sets": [
+              {
+                "set_id": "C1",
+                "member_ids": [
+                  "P1",
+                  "P10",
+                  "P11",
+                  "P12",
+                  "P2",
+                  "P3",
+                  "P4",
+                  "P5",
+                  "P6",
+                  "P7",
+                  "P8",
+                  "P9"
+                ],
+                "revision_lineage": []
+              }
+            ],
+            "algorithm": "deterministic_spectral_clustering_and_set_union",
+            "seed": 0,
+            "metric_refs": [],
+            "parameters": {
+              "split_strategies": [
+                "fused_similarity_spectral"
+              ]
+            }
+          }
+        },
+        {
+          "round": 1,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [],
+            "evidence_requests": [
+              {
+                "dimension": "cross_modal_consistency",
+                "target_ids": [
+                  "C1_S1",
+                  "C1_S2"
+                ],
+                "question": "Do the fused and modality-specific structures support retaining the C1 split into C1_S1 and C1_S2, or do they indicate insufficient separation or further subdivision?"
+              },
+              {
+                "dimension": "biological_support",
+                "target_ids": [
+                  "C1_S1",
+                  "C1_S2"
+                ],
+                "question": "Do C1_S1 and C1_S2 each have a coherent and interpretable biological identity that justifies retaining them as separate discovery-stage candidates?"
+              },
+              {
+                "dimension": "cross_modal_consistency",
+                "target_ids": [
+                  "C2"
+                ],
+                "question": "Is the current membership and granularity of C2 defensible in the multimodal data, or does it show reproducible internal subdivision or boundary instability?"
+              },
+              {
+                "dimension": "biological_support",
+                "target_ids": [
+                  "C2"
+                ],
+                "question": "Does C2 have a coherent and interpretable biological identity supporting retention as a discovery-stage candidate?"
+              },
+              {
+                "dimension": "confounder_exclusion",
+                "target_ids": [
+                  "C1_S1",
+                  "C1_S2",
+                  "C2"
+                ],
+                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signals defining these candidates?"
+              },
+              {
+                "dimension": "known_label_echo",
+                "target_ids": [],
+                "question": "How does the current partition relate to assessed stage/grade labels, as partition-level context for interpreting the candidates?"
+              }
+            ]
+          }
+        },
+        {
+          "round": 2,
+          "node": "verifier",
+          "event": "tool_selection",
+          "tools": [
+            "multimodal_consistency_check",
+            "pathway_enrichment",
+            "mutation_enrichment",
+            "cnv_characterization",
+            "confound_test",
+            "known_label_echo_test"
+          ]
+        },
+        {
+          "round": 2,
+          "node": "verifier",
+          "event": "audit_payload_size",
+          "request_chars": 8831,
+          "history_chars": 2319,
+          "tool_message_chars": [
+            234,
+            376,
+            361,
+            362,
+            363,
+            358,
+            265
+          ]
+        },
+        {
+          "round": 2,
+          "node": "verifier",
+          "event": "reports",
+          "count": 10
+        },
+        {
+          "round": 2,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "drop",
+                "target_ids": [
+                  "C1_S1"
+                ],
+                "decision_state": {
+                  "identity": "unsupported",
+                  "structure": "uncertain",
+                  "alternative_explanation": "uncertain",
+                  "uncertainty": "yes"
+                },
+                "reason": "C1_S1 has no statistically significant biological enrichment in any modality; the identical non-significant effect/q values across RNA, WXS, and CNV provide only weak, non-affirmative evidence and do not define a coherent biological subtype. Cross-modal consistency and confounder exclusion are likewise non-significant and non-affirmative, and no available evidence request could reverse this conclusion."
+              },
+              {
+                "action": "drop",
+                "target_ids": [
+                  "C1_S2"
+                ],
+                "decision_state": {
+                  "identity": "unsupported",
+                  "structure": "uncertain",
+                  "alternative_explanation": "uncertain",
+                  "uncertainty": "yes"
+                },
+                "reason": "C1_S2 shows no significant biological enrichment in any modality, with identical non-significant metrics across RNA, WXS, and CNV that cannot establish a coherent identity. Cross-modal consistency and confounder exclusion are non-significant and non-affirmative, and no available evidence request could reverse this conclusion."
+              },
+              {
+                "action": "drop",
+                "target_ids": [
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "unsupported",
+                  "structure": "uncertain",
+                  "alternative_explanation": "uncertain",
+                  "uncertainty": "yes"
+                },
+                "reason": "C2 has no statistically significant biological enrichment across RNA, WXS, or CNV; the uniform non-significant effects provide only weak, non-affirmative evidence and do not define a coherent biological subtype. Cross-modal consistency and confounder exclusion are non-significant and non-affirmative, and no available evidence request could reverse this conclusion."
+              }
+            ],
+            "evidence_requests": []
+          }
+        }
+      ],
+      "llm_usage": {
+        "api_calls": 8,
+        "prompt_tokens": 22600,
+        "completion_tokens": 4007,
+        "total_tokens": 26607
+      }
+    },
+    "merge": {
+      "case": "merge",
+      "status": "complete",
+      "router_calls": 4,
+      "reviser_calls": 2,
+      "verifier_tool_selection_calls": 1,
+      "verifier_report_batches": 1,
+      "reacquired_tools": [
+        "pathway_enrichment",
+        "mutation_enrichment",
+        "cnv_characterization",
+        "multimodal_consistency_check",
+        "confound_test"
+      ],
+      "final_report_count": 3,
+      "revision_applied": true,
+      "partition_changed": true,
+      "verifier_reacquired_after_revision": true,
+      "reports_reacquired_after_revision": true,
+      "full_loop_verified": true,
+      "initial_set_ids": [
+        "C1",
+        "C2"
+      ],
+      "current_set_ids": [
+        "C1_M_C2"
+      ],
+      "trace": [
+        {
+          "round": 0,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [],
+            "evidence_requests": [
+              {
+                "dimension": "biological_support",
+                "target_ids": [
+                  "C1"
+                ],
+                "question": "Clarify the current biological_support evidence for C1."
+              },
+              {
+                "dimension": "biological_support",
+                "target_ids": [
+                  "C2"
+                ],
+                "question": "Clarify the current biological_support evidence for C2."
+              }
+            ]
+          }
+        },
+        {
+          "round": 1,
+          "node": "verifier",
+          "event": "tool_selection",
+          "tools": [
+            "cnv_characterization",
+            "mutation_enrichment"
+          ]
+        },
+        {
+          "round": 1,
+          "node": "verifier",
+          "event": "audit_payload_size",
+          "request_chars": 6874,
+          "history_chars": 611,
+          "tool_message_chars": [
+            0,
+            306,
+            305
+          ]
+        },
+        {
+          "round": 1,
+          "node": "verifier",
+          "event": "reports",
+          "count": 2
+        },
+        {
+          "round": 1,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "merge",
+                "target_ids": [
+                  "C1",
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "uncertain",
+                  "structure": "incompatible",
+                  "alternative_explanation": "not_supported",
+                  "uncertainty": "yes"
+                },
+                "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support shows each set is internally coherent but not biologically distinct from the other. This positive structural evidence supports merging the two exact targets rather than retaining them as separate subtypes."
+              }
+            ],
+            "evidence_requests": []
+          }
+        },
+        {
+          "round": 2,
+          "node": "reviser",
+          "event": "failure",
+          "error": "RuntimeError: ValidationError: 1 validation error for RevisionPlan\nmerge_plans.0.structural_metric_refs\n  Extra inputs are not permitted [type=extra_forbidden, input_value=['weak_pairwise_boundary'...nsufficient_separation'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden"
+        },
+        {
+          "round": 2,
+          "node": "reviser",
+          "event": "revision_applied",
+          "result": {
+            "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P2\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_M_C2\"}]",
+            "operations": [
+              {
+                "action": "merge",
+                "target_ids": [
+                  "C1",
+                  "C2"
+                ],
+                "new_set_id": "C1_M_C2"
+              }
+            ],
+            "superseded_sets": [
+              {
+                "set_id": "C1",
+                "member_ids": [
+                  "P1",
+                  "P10",
+                  "P11",
+                  "P12",
+                  "P2",
+                  "P3",
+                  "P4",
+                  "P5",
+                  "P6",
+                  "P7",
+                  "P8",
+                  "P9"
+                ],
+                "revision_lineage": []
+              },
+              {
+                "set_id": "C2",
+                "member_ids": [
+                  "P13",
+                  "P14",
+                  "P15",
+                  "P16",
+                  "P17",
+                  "P18",
+                  "P19",
+                  "P20",
+                  "P21",
+                  "P22",
+                  "P23",
+                  "P24"
+                ],
+                "revision_lineage": []
+              }
+            ],
+            "algorithm": "deterministic_spectral_clustering_and_set_union",
+            "seed": 0,
+            "metric_refs": [],
+            "parameters": {
+              "split_strategies": []
+            }
+          }
+        },
+        {
+          "round": 2,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [],
+            "evidence_requests": [
+              {
+                "dimension": "biological_support",
+                "target_ids": [
+                  "C1_M_C2"
+                ],
+                "question": "Does C1_M_C2 have a coherent and interpretable biological identity that supports retaining this merged candidate?"
+              },
+              {
+                "dimension": "cross_modal_consistency",
+                "target_ids": [
+                  "C1_M_C2"
+                ],
+                "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or is there evidence of internal subdivision or insufficient separation?"
+              },
+              {
+                "dimension": "confounder_exclusion",
+                "target_ids": [
+                  "C1_M_C2"
+                ],
+                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_M_C2?"
+              }
+            ]
+          }
+        },
+        {
+          "round": 3,
+          "node": "verifier",
+          "event": "tool_selection",
+          "tools": [
+            "pathway_enrichment",
+            "mutation_enrichment",
+            "cnv_characterization",
+            "multimodal_consistency_check",
+            "confound_test"
+          ]
+        },
+        {
+          "round": 3,
+          "node": "verifier",
+          "event": "audit_payload_size",
+          "request_chars": 5002,
+          "history_chars": 1601,
+          "tool_message_chars": [
+            241,
+            269,
+            270,
+            271,
+            284,
+            266
+          ]
+        },
+        {
+          "round": 3,
+          "node": "verifier",
+          "event": "reports",
+          "count": 3
+        },
+        {
+          "round": 3,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "drop",
+                "target_ids": [
+                  "C1_M_C2"
+                ],
+                "decision_state": {
+                  "identity": "unsupported",
+                  "structure": "uncertain",
+                  "alternative_explanation": "uncertain",
+                  "uncertainty": "yes"
+                },
+                "reason": "All three biological modalities show only weak, non-significant, and suspiciously identical effects (0.5, q=0.2) with no pathway, mutation, or CNV detail, so no coherent biological identity is established. Cross-modal consistency is non-significant with empty structural metrics, and confounder exclusion is non-estimable; the candidate is therefore insufficiently defensible to retain for downstream validation."
+              }
+            ],
+            "evidence_requests": []
+          }
+        }
+      ],
+      "llm_usage": {
+        "api_calls": 14,
+        "prompt_tokens": 31296,
+        "completion_tokens": 2902,
+        "total_tokens": 34198
+      }
+    }
+  },
+  "verified_cases": 2,
+  "review_signature": {
+    "verifier_prompt_sha256": "c562ccf81e9510f3fcdf6844de3e8b4f15f9fe086bf4652bc9dea6127a88c861",
+    "router_prompt_sha256": "5714dc99a636dda7bcc9babda14d5e83cb3e48740a846acd953f98ea6982834d",
+    "reviser_prompt_sha256": "ae056d48b0f7207465dc9031160bc5764dfaa8433260591f241faf9ffe7f8d3c",
+    "review_signature": "eeead84328d8950245d3824e7fcb70c01c551c8b0eb771580de3f355dd3b0e97"
+  }
+}
