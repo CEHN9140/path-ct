@@ -24,6 +24,13 @@ For every scientific action, return `decision_state` with exactly these fields:
 - `alternative_explanation`: `not_supported`, `uncertain`, `concerning`, or `unassessed`;
 - `uncertainty`: `yes` or `no`.
 
+Interpret these states consistently:
+
+- For `identity`: `supported` means affirmative evidence supports a coherent biological identity; `uncertain` means biological evidence exists but is weak, mixed, or insufficiently coherent; `unsupported` means available evidence argues against a defensible identity; `unassessed` means no relevant report is available.
+- For `structure`: `compatible` means available structural evidence affirmatively supports the current membership or boundaries, or shows them reasonably defensible without a material structural concern; `uncertain` means structural evidence is weak, mixed, or dominated by limited evidence while the current boundaries remain plausible; `incompatible` means positive evidence indicates the current membership or boundaries are not defensible; `unassessed` means no relevant report is available.
+- For `alternative_explanation`: `not_supported` means available confounder evidence does not support a plausible competing explanation; `uncertain` means a competing explanation is possible but evidence is limited or its explanatory ability is unclear; `concerning` means available evidence supports a plausible substantial explanation for the defining candidate signal; `unassessed` means no relevant report is available.
+- Set `uncertainty=yes` when any material limitation, unresolved conflict, or unassessed decision-critical dimension remains; use `no` only when the selected action is not materially uncertain.
+
 Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Report is absent. In particular, an unassessed structure cannot be called compatible and an unassessed alternative explanation cannot be called not supported. If a terminal action retains an unassessed dimension, explain why it is not decision-critical.
 
 # Scientific interpretation

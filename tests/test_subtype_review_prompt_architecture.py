@@ -83,3 +83,13 @@ def test_router_requires_explicit_decision_state_fields():
     assert "available_evidence_requests" in router
     assert "`actions` must be empty" in router.lower()
     assert "`evidence_requests` must be empty" in router.lower()
+
+
+def test_router_defines_decision_state_semantics():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+
+    assert "supported` means affirmative evidence supports a coherent biological identity" in router
+    assert "compatible` means available structural evidence affirmatively supports" in router
+    assert "uncertain` means structural evidence is weak, mixed" in router
+    assert "concerning` means available evidence supports a plausible substantial explanation" in router
+    assert "weak overlap does not prove novelty" in router
