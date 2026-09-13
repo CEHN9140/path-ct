@@ -21,6 +21,19 @@ EXPERIMENT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(EXPERIMENT)
 
 
+def add_scientific_inputs(data_root):
+    candidate = data_root / "candidate_subtype"
+    wxs = data_root / "wxs"
+    states = data_root / "storage" / "patient_states"
+    wxs.mkdir(parents=True, exist_ok=True)
+    states.mkdir(parents=True, exist_ok=True)
+    for name in ("ct", "wsi", "rna"):
+        (candidate / f"{name}_affinity.npy").write_bytes(name.encode())
+    for name in ("wxs", "cnv"):
+        (wxs / f"{name}_affinity.npy").write_bytes(name.encode())
+    (states / "patient_states.jsonl").write_text("{}\n", encoding="utf-8")
+
+
 def test_post_discovery_defaults_to_current_main_output():
     defaults = inspect.signature(EXPERIMENT.run).parameters
     assert defaults["data_root"].default == EXPERIMENT.ROOT / "output_kirc"
@@ -33,6 +46,7 @@ def test_post_discovery_rejects_multi_k_from_another_main_output(tmp_path):
     data_root = tmp_path / "output_kirc"
     candidate_dir = data_root / "candidate_subtype"
     candidate_dir.mkdir(parents=True)
+    add_scientific_inputs(data_root)
     (candidate_dir / "fused_similarity.npy").write_bytes(b"current-fused")
     (candidate_dir / "affinity_patient_order.json").write_text("[]", encoding="utf-8")
     multi_k_root = tmp_path / "multi_k"
@@ -54,6 +68,7 @@ def test_post_discovery_requires_completed_stable_core_analysis(tmp_path):
     data_root = tmp_path / "output_kirc"
     candidate_dir = data_root / "candidate_subtype"
     candidate_dir.mkdir(parents=True)
+    add_scientific_inputs(data_root)
     fused = candidate_dir / "fused_similarity.npy"
     order = candidate_dir / "affinity_patient_order.json"
     fused.write_bytes(b"fused")
@@ -62,6 +77,7 @@ def test_post_discovery_requires_completed_stable_core_analysis(tmp_path):
         "status": "review_complete",
         "fused_similarity_sha256": EXPERIMENT.base.file_sha256(fused),
         "patient_order_sha256": EXPERIMENT.base.file_sha256(order),
+        **EXPERIMENT.base.scientific_input_identity(data_root),
     }
     multi_k_root = tmp_path / "multi_k"
     for repeat in range(1, 4):

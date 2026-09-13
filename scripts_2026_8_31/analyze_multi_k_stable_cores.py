@@ -77,6 +77,37 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def scientific_input_identity(data_root: Path) -> dict[str, int | str]:
+    required = [
+        data_root / "candidate_subtype" / f"{view}_affinity.npy"
+        for view in ("ct", "wsi", "rna")
+    ] + [
+        data_root / "wxs" / "wxs_affinity.npy",
+        data_root / "wxs" / "cnv_affinity.npy",
+        data_root / "storage" / "patient_states" / "patient_states.jsonl",
+    ]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("Missing scientific inputs: " + ", ".join(missing))
+    paths = list(required)
+    for directory in (
+        data_root / "candidate_subtype", data_root / "wxs",
+        data_root / "storage" / "patient_states", data_root / "ct_radiomics",
+        data_root / "rna",
+    ):
+        if directory.is_dir():
+            paths.extend(path for path in directory.rglob("*") if path.is_file())
+    digest = hashlib.sha256()
+    unique_paths = sorted(set(paths))
+    for path in unique_paths:
+        digest.update(str(path.relative_to(data_root)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return {
+        "scientific_input_sha256": digest.hexdigest(),
+        "scientific_input_file_count": len(unique_paths),
+    }
+
+
 def numeric_test(left: list[float], right: list[float]) -> tuple[float | None, float | None]:
     if not left or not right or len(set(left + right)) < 2:
         return None, None

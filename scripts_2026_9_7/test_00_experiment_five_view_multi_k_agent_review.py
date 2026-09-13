@@ -87,6 +87,7 @@ def test_cache_reuse_requires_complete_status_and_matching_identity():
         "review_signature": "review",
         "fused_similarity_sha256": "fused",
         "patient_order_sha256": "order",
+        "scientific_input_sha256": "input",
         "initial_partition_sha256": "partition",
         "git_commit_sha": "a" * 40,
         "source_tree_sha256": "b" * 64,
@@ -120,6 +121,28 @@ def test_source_identity_records_commit_cleanliness_and_source_hash():
     assert len(identity["git_commit_sha"]) == 40
     assert isinstance(identity["git_worktree_clean"], bool)
     assert len(identity["source_tree_sha256"]) == 64
+
+
+def test_scientific_input_identity_covers_canonical_inputs(tmp_path):
+    candidate = tmp_path / "candidate_subtype"
+    wxs = tmp_path / "wxs"
+    states = tmp_path / "storage" / "patient_states"
+    candidate.mkdir(parents=True)
+    wxs.mkdir()
+    states.mkdir(parents=True)
+    np.save(candidate / "ct_affinity.npy", np.eye(2))
+    np.save(candidate / "wsi_affinity.npy", np.eye(2))
+    np.save(candidate / "rna_affinity.npy", np.eye(2))
+    np.save(candidate / "fused_similarity.npy", np.eye(2))
+    np.save(wxs / "wxs_affinity.npy", np.eye(2))
+    np.save(wxs / "cnv_affinity.npy", np.eye(2))
+    (states / "patient_states.jsonl").write_text('{"case_id":"P1"}\n', encoding="utf-8")
+
+    first = MODULE.core_analysis.scientific_input_identity(tmp_path)
+    assert len(first["scientific_input_sha256"]) == 64
+    np.save(wxs / "wxs_affinity.npy", np.ones((2, 2)))
+    second = MODULE.core_analysis.scientific_input_identity(tmp_path)
+    assert first["scientific_input_sha256"] != second["scientific_input_sha256"]
 
 
 def test_stable_core_analysis_uses_full_multi_k_universe(monkeypatch, tmp_path):
@@ -158,3 +181,15 @@ def test_stable_core_analysis_waits_for_all_current_runs(monkeypatch, tmp_path):
         "valid_run_count": 3,
         "expected_run_count": 21,
     }
+
+
+def test_stable_core_analysis_honors_supplied_universe(monkeypatch, tmp_path):
+    captured = {}
+
+    def analyze(root, patient_ids, initial_ks, repeats, min_core_size):
+        captured.update({"initial_ks": initial_ks, "repeats": repeats})
+        return {"analysis_status": "complete"}
+
+    monkeypatch.setattr(MODULE.stability, "analyze", analyze)
+    MODULE.analyze_stable_cores(tmp_path, ["P1"], 1, (2,), (1,))
+    assert captured == {"initial_ks": (2,), "repeats": (1,)}

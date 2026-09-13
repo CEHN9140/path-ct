@@ -727,8 +727,8 @@ def analyze(
     family_jaccard_threshold: float = FAMILY_JACCARD_THRESHOLD,
     family_overlap_threshold: float = FAMILY_OVERLAP_THRESHOLD,
 ) -> dict[str, Any]:
-    initial_ks = list(INITIAL_KS)
-    repeats = list(REPEATS)
+    initial_ks = list(initial_ks)
+    repeats = list(repeats)
     experiment_root.mkdir(parents=True, exist_ok=True)
     for name in DERIVED_ANALYSIS_ARTIFACTS:
         path = experiment_root / name

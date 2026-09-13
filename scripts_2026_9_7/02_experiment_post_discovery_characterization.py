@@ -33,6 +33,7 @@ def validate_multi_k_binding(data_root, multi_k_root):
     hashes = {
         "fused_similarity_sha256": base.file_sha256(candidate_dir / "fused_similarity.npy"),
         "patient_order_sha256": base.file_sha256(candidate_dir / "affinity_patient_order.json"),
+        **base.scientific_input_identity(data_root),
     }
     metadata_paths = sorted(Path(multi_k_root).glob("run*/K*/run_metadata.json"))
     if len(metadata_paths) != 21:

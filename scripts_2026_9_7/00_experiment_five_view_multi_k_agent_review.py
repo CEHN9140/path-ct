@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from agents.subtype_review.graph import partition_signature, save_review_outputs
 from agents.subtype_review.llm import review_signature_manifest
 from agents.subtype_review.runner import run_subtype_review
+from scripts_2026_8_31 import analyze_multi_k_stable_cores as core_analysis
 from scripts_2026_8_31 import experiment_multi_k_accepted_core_stability as stability
 from utils.io import write_json
 from utils.llm_utils import load_yaml_file
@@ -49,6 +50,7 @@ def source_identity(root: Path):
         root / "utils",
         root / "configs",
         Path(__file__).resolve(),
+        Path(core_analysis.__file__).resolve(),
         Path(stability.__file__).resolve(),
     ]
     files = []
@@ -70,6 +72,8 @@ def source_identity(root: Path):
             "git", "status", "--porcelain", "--untracked-files=all", "--",
             "agents", "tools", "utils", "configs",
             str(Path(__file__).resolve().relative_to(root)),
+            str(Path(core_analysis.__file__).resolve().relative_to(root)),
+            str(Path(stability.__file__).resolve().relative_to(root)),
         ],
         cwd=root, check=True, capture_output=True, text=True,
     ).stdout
@@ -162,9 +166,11 @@ def load_patient_states(data_root: Path):
 
 
 def analyze_stable_cores(
-    output_root: Path, patient_ids: list[str], valid_run_count: int
+    output_root: Path, patient_ids: list[str], valid_run_count: int,
+    initial_ks: tuple[int, ...] = INITIAL_KS,
+    repeats: tuple[int, ...] = REPEATS,
 ):
-    expected_run_count = len(INITIAL_KS) * len(REPEATS)
+    expected_run_count = len(initial_ks) * len(repeats)
     if valid_run_count != expected_run_count:
         return {
             "analysis_status": "pending",
@@ -172,7 +178,7 @@ def analyze_stable_cores(
             "expected_run_count": expected_run_count,
         }
     return stability.analyze(
-        output_root, patient_ids, INITIAL_KS, REPEATS, min_core_size=5
+        output_root, patient_ids, initial_ks, repeats, min_core_size=5
     )
 
 
@@ -196,6 +202,7 @@ def run(
         "review_signature": review_signature["review_signature"],
         "fused_similarity_sha256": file_sha256(candidate_dir / "fused_similarity.npy"),
         "patient_order_sha256": file_sha256(candidate_dir / "affinity_patient_order.json"),
+        **core_analysis.scientific_input_identity(data_root),
         **source_identity(ROOT),
     }
     write_json(output_root / "experiment_manifest.json", {
@@ -302,7 +309,16 @@ def run(
         "views": list(VIEWS),
         "runs": rows,
     })
-    stable_core_analysis = analyze_stable_cores(output_root, patient_ids, len(rows))
+    if tuple(initial_ks) == INITIAL_KS and tuple(repeats) == REPEATS:
+        stable_core_analysis = analyze_stable_cores(
+            output_root, patient_ids, len(rows), initial_ks, repeats
+        )
+    else:
+        stable_core_analysis = {
+            "analysis_status": "pending",
+            "valid_run_count": len(rows),
+            "expected_run_count": len(INITIAL_KS) * len(REPEATS),
+        }
     return {
         "output_root": str(output_root),
         "initial_k": list(initial_ks),
