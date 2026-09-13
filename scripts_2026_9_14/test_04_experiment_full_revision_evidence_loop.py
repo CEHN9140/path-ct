@@ -106,7 +106,11 @@ def test_reviser_receives_only_refs_for_router_targets():
     }
     refs = available_revision_metric_refs(state, plan)
     assert refs
-    assert all(".C1." in ref for ref in refs)
+    assert all(
+        ".multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure."
+        in ref
+        for ref in refs
+    )
 
 
 def test_reviser_merge_refs_are_limited_to_the_requested_pair():
@@ -125,7 +129,24 @@ def test_reviser_merge_refs_are_limited_to_the_requested_pair():
     }
     refs = available_revision_metric_refs(state, plan)
     assert refs
-    assert all(".C1+C2." in ref for ref in refs)
+    assert all(
+        ".multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2."
+        in ref
+        or ".multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C2.boundary_to_other_sets.C1."
+        in ref
+        for ref in refs
+    )
+
+
+def test_revision_refs_exclude_other_tool_metrics_for_the_same_target():
+    state = MODULE.build_initial_state("split")
+    state["round_evidence"].append({
+        "tool_name": "pathway_enrichment",
+        "metric_refs": ["tool_results.pathway_enrichment.metrics.sets.C1.effect"],
+    })
+    plan = {"actions": [{"action": "split", "target_ids": ["C1"]}]}
+    refs = available_revision_metric_refs(state, plan)
+    assert all("pathway_enrichment" not in ref for ref in refs)
 
 
 def test_revision_retry_signature_includes_metric_refs():

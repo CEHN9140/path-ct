@@ -52,13 +52,13 @@ def build_initial_state(name: str) -> dict:
         if item["tool_name"] == "multimodal_consistency_check"
     )
     if name == "split":
-        base = "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe"
+        base = "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure.fused_binary_probe"
         row["metric_refs"] = [
             f"{base}.{field}"
             for field in ("median_silhouette", "resampling.median_resample_ari", "resampling.consensus_separation", "resampling.pac")
         ]
     else:
-        base = "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused"
+        base = "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused"
         row["metric_refs"] = [
             f"{base}.{field}"
             for field in ("pair_median_silhouette", "left_median_margin", "right_median_margin", "left_boundary_separation", "right_boundary_separation")

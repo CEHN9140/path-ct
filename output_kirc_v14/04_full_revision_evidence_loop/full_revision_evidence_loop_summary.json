@@ -53,7 +53,7 @@
                   "alternative_explanation": "not_supported",
                   "uncertainty": "yes"
                 },
-                "reason": "C1 has coherent biological identity support and no supported technical confounder, but its own structural evidence shows two balanced, reproducible internal groups (child sizes 6/6, median ARI 0.92, consensus separation 0.81), indicating the current granularity is not defensible and should be revised by splitting C1."
+                "reason": "C1 has coherent biological identity support and no supported technical confounder, but its own structural evidence reports two balanced, reproducible internal groups (child sizes 6/6, median ARI 0.92, consensus separation 0.81), indicating the current 12-member granularity is not defensible and should be split into the two reproducible subgroups."
               },
               {
                 "action": "accept",
@@ -66,7 +66,7 @@
                   "alternative_explanation": "not_supported",
                   "uncertainty": "yes"
                 },
-                "reason": "C2 has coherent biological identity support and no supported technical confounder. Its structural evidence is not informative for C2 because the reported internal-group finding refers to C1, so C2 is retained as a discovery-stage candidate with uncertainty noted."
+                "reason": "C2 has coherent biological identity support and no supported technical confounder, and no positive structural evidence indicates that its current membership or boundaries are invalid; it is retained as a discovery-stage candidate for downstream validation despite residual structural uncertainty."
               }
             ],
             "evidence_requests": []
@@ -114,10 +114,10 @@
             "algorithm": "deterministic_spectral_clustering_and_set_union",
             "seed": 0,
             "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.median_silhouette",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.consensus_separation",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.median_resample_ari",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.internal_structure_by_set.C1.fused_binary_probe.resampling.pac"
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure.fused_binary_probe.median_silhouette",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure.fused_binary_probe.resampling.consensus_separation",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure.fused_binary_probe.resampling.median_resample_ari",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure.fused_binary_probe.resampling.pac"
             ],
             "parameters": {
               "split_strategies": [
@@ -152,54 +152,36 @@
                 "target_ids": [
                   "C2"
                 ],
-                "question": "Does C2 have a coherent and interpretable biological identity that supports retaining it as a candidate?"
+                "question": "Does C2 have a coherent and interpretable biological identity that supports retaining it as a distinct candidate?"
               },
               {
                 "dimension": "cross_modal_consistency",
                 "target_ids": [
-                  "C1_S1"
-                ],
-                "question": "Are the membership and boundaries of C1_S1 defensible across modalities, or is there evidence of further internal subdivision or insufficient separation?"
-              },
-              {
-                "dimension": "cross_modal_consistency",
-                "target_ids": [
+                  "C1_S1",
                   "C1_S2"
                 ],
-                "question": "Are the membership and boundaries of C1_S2 defensible across modalities, or is there evidence of further internal subdivision or insufficient separation?"
+                "question": "Are the membership and boundaries of C1_S1 and C1_S2 defensible in the multimodal data, and is their separation supported?"
               },
               {
                 "dimension": "cross_modal_consistency",
                 "target_ids": [
                   "C2"
                 ],
-                "question": "Are the membership and boundaries of C2 defensible across modalities, or is there evidence of reproducible internal subdivision or insufficient separation?"
+                "question": "Are the membership, boundaries, and granularity of C2 defensible in the multimodal data?"
               },
               {
                 "dimension": "confounder_exclusion",
                 "target_ids": [
-                  "C1_S1"
-                ],
-                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_S1?"
-              },
-              {
-                "dimension": "confounder_exclusion",
-                "target_ids": [
-                  "C1_S2"
-                ],
-                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C1_S2?"
-              },
-              {
-                "dimension": "confounder_exclusion",
-                "target_ids": [
+                  "C1_S1",
+                  "C1_S2",
                   "C2"
                 ],
-                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signal defining C2?"
+                "question": "Could measured technical, acquisition, or site-related factors plausibly explain the signals defining these candidates?"
               },
               {
                 "dimension": "known_label_echo",
                 "target_ids": [],
-                "question": "How does the current partition relate to assessed stage/grade labels, as partition-level context?"
+                "question": "What is the relationship between the current partition and assessed stage/grade labels?"
               }
             ]
           }
@@ -222,9 +204,9 @@
           "node": "verifier",
           "event": "audit_payload_size",
           "request_chars": 8831,
-          "history_chars": 2340,
+          "history_chars": 2328,
           "tool_message_chars": [
-            255,
+            243,
             361,
             362,
             363,
@@ -252,11 +234,11 @@
                 ],
                 "decision_state": {
                   "identity": "unsupported",
-                  "structure": "unassessed",
+                  "structure": "uncertain",
                   "alternative_explanation": "uncertain",
                   "uncertainty": "yes"
                 },
-                "reason": "C1_S1 has no affirmative biological evidence: all three modalities report identical non-significant effects (q=0.2) with no coherent distinguishing signal, and cross-modal consistency is likewise non-significant. With no available evidence requests remaining and no credible structural revision indicated, the candidate is insufficiently defensible for retention."
+                "reason": "C1_S1 has no affirmative biological evidence: all modalities show identical nonsignificant effects (q=0.2) that are non-discriminating across sets, indicating no coherent biological identity. Cross-modal consistency is likewise nonsignificant, and confounder evidence is uninformative. No available evidence request could reverse this, so the candidate is not defensible."
               },
               {
                 "action": "drop",
@@ -265,11 +247,11 @@
                 ],
                 "decision_state": {
                   "identity": "unsupported",
-                  "structure": "unassessed",
+                  "structure": "uncertain",
                   "alternative_explanation": "uncertain",
                   "uncertainty": "yes"
                 },
-                "reason": "C1_S2 shows the same pattern of identical non-significant effects across RNA, WXS, and CNV (q=0.2) and non-significant cross-modal consistency, providing no affirmative biological identity. No available evidence requests remain and no supported structural revision is indicated, so the candidate is not defensible for retention."
+                "reason": "C1_S2 shows the same pattern: identical nonsignificant effects across all modalities with no discriminating signal, providing no affirmative biological identity. Cross-modal consistency is nonsignificant and confounder evidence is uninformative. No available request could change this conclusion, so the candidate is not defensible."
               },
               {
                 "action": "drop",
@@ -278,11 +260,11 @@
                 ],
                 "decision_state": {
                   "identity": "unsupported",
-                  "structure": "unassessed",
+                  "structure": "uncertain",
                   "alternative_explanation": "uncertain",
                   "uncertainty": "yes"
                 },
-                "reason": "C2 lacks any affirmative biological support: all modalities report identical non-significant effects (q=0.2) and cross-modal consistency is non-significant. With no remaining evidence requests and no supported structural revision, the candidate is insufficiently defensible to retain."
+                "reason": "C2 also lacks affirmative biological evidence, with identical nonsignificant effects across modalities that do not distinguish it from other sets. Cross-modal consistency is nonsignificant and confounder evidence is uninformative. No available evidence request could reverse this, so the candidate is not defensible."
               }
             ],
             "evidence_requests": []
@@ -290,10 +272,10 @@
         }
       ],
       "llm_usage": {
-        "api_calls": 7,
-        "prompt_tokens": 24525,
-        "completion_tokens": 4049,
-        "total_tokens": 28574
+        "api_calls": 8,
+        "prompt_tokens": 27878,
+        "completion_tokens": 4186,
+        "total_tokens": 32064
       }
     },
     "merge": {
@@ -362,7 +344,7 @@
           "round": 1,
           "node": "verifier",
           "event": "audit_payload_size",
-          "request_chars": 8234,
+          "request_chars": 8334,
           "history_chars": 611,
           "tool_message_chars": [
             0,
@@ -394,7 +376,7 @@
                   "alternative_explanation": "not_supported",
                   "uncertainty": "yes"
                 },
-                "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support is only weak and non-significant with identical effect sizes across sets, so the two sets are not defensibly distinct at the current granularity and should be merged."
+                "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support shows each has a coherent profile but no modality distinguishes them from the other. This positive structural evidence supports merging the two sets rather than retaining them as separate candidates."
               }
             ],
             "evidence_requests": []
@@ -458,11 +440,11 @@
             "algorithm": "deterministic_spectral_clustering_and_set_union",
             "seed": 0,
             "metric_refs": [
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.left_boundary_separation",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.left_median_margin",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.pair_median_silhouette",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.right_boundary_separation",
-              "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.right_median_margin"
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.left_boundary_separation",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.left_median_margin",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.pair_median_silhouette",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.right_boundary_separation",
+              "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.right_median_margin"
             ],
             "parameters": {
               "split_strategies": []
@@ -488,7 +470,7 @@
                 "target_ids": [
                   "C1_M_C2"
                 ],
-                "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or does the fused structure indicate insufficient separation or internal subdivision?"
+                "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or does the merged set show insufficient separation or internal subdivision?"
               },
               {
                 "dimension": "confounder_exclusion",
@@ -523,9 +505,9 @@
           "node": "verifier",
           "event": "audit_payload_size",
           "request_chars": 5981,
-          "history_chars": 1904,
+          "history_chars": 1892,
           "tool_message_chars": [
-            279,
+            267,
             269,
             270,
             271,
@@ -552,12 +534,12 @@
                   "C1_M_C2"
                 ],
                 "decision_state": {
-                  "identity": "unsupported",
-                  "structure": "uncertain",
+                  "identity": "uncertain",
+                  "structure": "unassessed",
                   "alternative_explanation": "uncertain",
                   "uncertainty": "yes"
                 },
-                "reason": "C1_M_C2 lacks affirmative biological support: all three modalities show only a moderate, nonsignificant effect (q=0.2) with no pathway, mutation, or CNV detail to establish a coherent identity. Cross-modal consistency is not estimable because the structural characterization payload is empty, and the nonsignificant confounder test cannot exclude technical confounding. With no available evidence requests remaining and no positive structural evidence supporting a split or merge, the candidate is insufficiently defensible for retention."
+                "reason": "C1_M_C2 has only weak, nonsignificant, directionally consistent biological evidence across pathway, mutation, and CNV modalities, with no modality providing a strong coherent identity signal. Cross-modal consistency is likewise nonsignificant and structural detail is empty, so membership and boundaries cannot be affirmed. Confounder testing is nonsignificant and therefore does not affirmatively exclude a competing technical explanation. With no available evidence requests remaining and no positive structural evidence supporting split or merge, the candidate is insufficiently defensible to retain."
               }
             ],
             "evidence_requests": []
@@ -566,9 +548,9 @@
       ],
       "llm_usage": {
         "api_calls": 11,
-        "prompt_tokens": 31340,
-        "completion_tokens": 2963,
-        "total_tokens": 34303
+        "prompt_tokens": 31900,
+        "completion_tokens": 3193,
+        "total_tokens": 35093
       }
     }
   },

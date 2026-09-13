@@ -64,7 +64,7 @@
       "round": 1,
       "node": "verifier",
       "event": "audit_payload_size",
-      "request_chars": 8234,
+      "request_chars": 8334,
       "history_chars": 611,
       "tool_message_chars": [
         0,
@@ -96,7 +96,7 @@
               "alternative_explanation": "not_supported",
               "uncertainty": "yes"
             },
-            "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support is only weak and non-significant with identical effect sizes across sets, so the two sets are not defensibly distinct at the current granularity and should be merged."
+            "reason": "Cross-modal evidence reports a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, and biological support shows each has a coherent profile but no modality distinguishes them from the other. This positive structural evidence supports merging the two sets rather than retaining them as separate candidates."
           }
         ],
         "evidence_requests": []
@@ -160,11 +160,11 @@
         "algorithm": "deterministic_spectral_clustering_and_set_union",
         "seed": 0,
         "metric_refs": [
-          "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.left_boundary_separation",
-          "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.left_median_margin",
-          "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.pair_median_silhouette",
-          "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.right_boundary_separation",
-          "tool_results.multimodal_consistency_check.metrics.structural_characterization.boundary_by_pair.C1+C2.fused.right_median_margin"
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.left_boundary_separation",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.left_median_margin",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.pair_median_silhouette",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.right_boundary_separation",
+          "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2.fused.right_median_margin"
         ],
         "parameters": {
           "split_strategies": []
@@ -190,7 +190,7 @@
             "target_ids": [
               "C1_M_C2"
             ],
-            "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or does the fused structure indicate insufficient separation or internal subdivision?"
+            "question": "Are the current membership and boundaries of C1_M_C2 defensible across modalities, or does the merged set show insufficient separation or internal subdivision?"
           },
           {
             "dimension": "confounder_exclusion",
@@ -225,9 +225,9 @@
       "node": "verifier",
       "event": "audit_payload_size",
       "request_chars": 5981,
-      "history_chars": 1904,
+      "history_chars": 1892,
       "tool_message_chars": [
-        279,
+        267,
         269,
         270,
         271,
@@ -254,12 +254,12 @@
               "C1_M_C2"
             ],
             "decision_state": {
-              "identity": "unsupported",
-              "structure": "uncertain",
+              "identity": "uncertain",
+              "structure": "unassessed",
               "alternative_explanation": "uncertain",
               "uncertainty": "yes"
             },
-            "reason": "C1_M_C2 lacks affirmative biological support: all three modalities show only a moderate, nonsignificant effect (q=0.2) with no pathway, mutation, or CNV detail to establish a coherent identity. Cross-modal consistency is not estimable because the structural characterization payload is empty, and the nonsignificant confounder test cannot exclude technical confounding. With no available evidence requests remaining and no positive structural evidence supporting a split or merge, the candidate is insufficiently defensible for retention."
+            "reason": "C1_M_C2 has only weak, nonsignificant, directionally consistent biological evidence across pathway, mutation, and CNV modalities, with no modality providing a strong coherent identity signal. Cross-modal consistency is likewise nonsignificant and structural detail is empty, so membership and boundaries cannot be affirmed. Confounder testing is nonsignificant and therefore does not affirmatively exclude a competing technical explanation. With no available evidence requests remaining and no positive structural evidence supporting split or merge, the candidate is insufficiently defensible to retain."
           }
         ],
         "evidence_requests": []
@@ -268,8 +268,8 @@
   ],
   "llm_usage": {
     "api_calls": 11,
-    "prompt_tokens": 31340,
-    "completion_tokens": 2963,
-    "total_tokens": 34303
+    "prompt_tokens": 31900,
+    "completion_tokens": 3193,
+    "total_tokens": 35093
   }
 }

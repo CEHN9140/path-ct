@@ -482,14 +482,20 @@ def available_revision_metric_refs(
 ) -> list[str]:
     plan = router_plan.model_dump() if hasattr(router_plan, "model_dump") else router_plan
     refs = raw_metric_refs(current_partition_evidence(state))
+    prefix = "tool_results.multimodal_consistency_check.metrics.cross_modal_consistency.per_set."
     selected = set()
     for action in plan.get("actions", []) or []:
         targets = [str(target) for target in action.get("target_ids", []) or []]
         if action.get("action") == "split" and targets:
-            selected.update(ref for ref in refs if f".{targets[0]}." in ref)
+            path = f"{prefix}{targets[0]}.internal_structure."
+            selected.update(ref for ref in refs if ref.startswith(path))
         elif action.get("action") == "merge" and len(targets) == 2:
-            pair = "+".join(sorted(targets))
-            selected.update(ref for ref in refs if f".{pair}." in ref)
+            left, right = sorted(targets)
+            paths = (
+                f"{prefix}{left}.boundary_to_other_sets.{right}.",
+                f"{prefix}{right}.boundary_to_other_sets.{left}.",
+            )
+            selected.update(ref for ref in refs if ref.startswith(paths))
     return sorted(selected)
 
 
