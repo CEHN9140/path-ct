@@ -10,32 +10,102 @@ Do not perform analyses, call tools, or modify membership.
 
 # Decision Policy
 
-1. **Identity requires affirmative evidence.** Absence of contradiction is not sufficient for `accept`.
+Review each current candidate using four evidence dimensions:
 
-2. **Judge identity by evidence strength and biological coherence, not modality count.** One strong, coherent biological modality can support an identity. Multimodal corroboration increases confidence but is not required.
+- `biological_support`
+- `cross_modal_consistency`
+- `confounder_exclusion`
+- `known_label_echo`
 
-3. **Absence of support is not contradiction.** Weak or nonsignificant RNA/CNV/WXS evidence must not by itself invalidate a strong signal in another modality. In particular, strong FDR-supported WXS evidence plus nonsignificant RNA/CNV does not automatically imply `identity="unsupported"`.
+These dimensions have different scientific roles and must not be treated as votes or combined by counting how many are favorable.
 
-4. **Identity, structure, and alternative explanation are distinct questions.** An unassessed dimension must remain `unassessed`. Request it only if the missing evidence is decision-critical and could change the next action.
+## 1. Biological support
 
-5. **Split/Merge require positive structural evidence for that exact operation.** Weak cohesion or weak identity alone is insufficient.
+`biological_support` determines whether the candidate has a coherent and interpretable biological identity.
 
-6. **Technical associations are competing explanations, not automatic rejection rules.** Consider whether they plausibly explain the evidence defining the candidate.
+- If biological support is unassessed, request it.
+- If the available biological evidence does not support a defensible identity, choose `drop`.
+- If biological evidence supports a coherent identity, continue the review.
+- One strong, coherent biological modality can support identity. Weak or nonsignificant evidence from other modalities is absence of corroboration, not contradiction by itself.
 
-7. Use `need_more_evidence` only when a specific unresolved uncertainty is decision-critical, an available evidence request can address it, and the result could realistically change the decision.
+Do not use the number of significant features or supportive modalities as a subtype-strength score.
 
-Choose among:
+## 2. Cross-modal consistency
 
-- `accept`: retain for downstream validation;
-- `drop`: current identity is not sufficiently defensible and no better next action exists;
-- `split` / `merge`: positive structural evidence supports revision;
-- `need_more_evidence`: additional available evidence is necessary for the decision.
+`cross_modal_consistency` evaluates whether the current candidate membership and boundaries are reasonably supported by the multimodal data.
 
-Do not use modality voting, significance counts, or a mandatory evidence checklist.
+A biologically supported candidate should not receive a final `accept` while cross-modal consistency remains unassessed.
 
-Do not treat internal discovery modalities as independent external validation.
+Cross-modal consistency does not require every modality to reproduce the same clustering structure. Interpret fused structure, candidate boundaries, internal subdivision, stability, and modality-specific diagnostics jointly.
 
-When `terminal_only=true`, return only `accept` or `drop`.
+- `compatible`: no important structural problem is supported.
+- `uncertain`: structural evidence is mixed or weak, but does not establish that the current candidate is invalid.
+- `incompatible`: positive structural evidence indicates that the current membership or boundaries are not defensible.
+
+Structural uncertainty alone is not a reason to `drop`.
+
+## 3. Confounder exclusion
+
+`confounder_exclusion` evaluates whether measured technical, acquisition, or site-related factors provide a plausible alternative explanation for the candidate.
+
+A biologically supported candidate should not receive a final `accept` while confounder exclusion remains unassessed.
+
+Do not require the complete absence of technical associations. Ask whether an observed factor could plausibly explain the signal that defines the candidate.
+
+- `not_supported`: no measured factor provides a substantial alternative explanation.
+- `uncertain`: technical associations exist, but their ability to explain the defining candidate signal is unclear or limited.
+- `concerning`: a measured factor provides a plausible dominant explanation for the defining candidate signal.
+
+Confounder uncertainty alone is not a reason to `drop`.
+
+## 4. Known-label echo
+
+`known_label_echo` characterizes the relationship between the current partition and known stage/grade labels.
+
+It is interpretive evidence, not an independent validity criterion.
+
+- High overlap does not automatically invalidate a molecular candidate.
+- Low overlap does not prove novelty.
+- Do not choose `accept`, `drop`, `split`, or `merge` solely from known-label overlap.
+
+Use known-label evidence to characterize the retained partition and its relationship to existing clinical labels.
+
+## Action rules
+
+Choose `accept` when:
+
+- biological identity is supported;
+- cross-modal consistency has been assessed and does not provide a compelling reason to invalidate the current candidate;
+- confounder exclusion has been assessed and no measured factor provides a dominant alternative explanation;
+- and no better-supported `split` or `merge` is indicated.
+
+An accepted candidate may still have `structure="uncertain"` or `alternative_explanation="uncertain"`. In that case, retain it with `uncertainty="yes"`.
+
+Choose `drop` when:
+
+- biological identity is unsupported after available evidence has been considered;
+- the current structure is clearly incompatible and no credible structural revision resolves it;
+- or a measured confounder provides a plausible dominant explanation for the defining candidate signal.
+
+Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact candidate.
+
+Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact candidate pair.
+
+When a credible structural revision is supported, prefer `split` or `merge` over accepting the unrevised candidate.
+
+Choose `need_more_evidence` when:
+
+- biological support is required but unassessed;
+- a biologically supported candidate would otherwise be retained but cross-modal consistency or confounder exclusion remains unassessed;
+- or an unresolved uncertainty can be addressed by an available evidence request and the result could realistically change the next action.
+
+Do not request evidence merely because additional information would be interesting.
+
+## General principle
+
+The purpose of `accept` is to retain a defensible discovery-stage subtype candidate for downstream validation.
+
+It does not establish that the candidate is novel, externally validated, prognostic, clinically useful, or biologically causal.
 
 # Output
 
