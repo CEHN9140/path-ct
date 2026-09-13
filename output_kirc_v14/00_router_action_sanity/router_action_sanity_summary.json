@@ -1,0 +1,137 @@
+{
+  "experiment": "router_action_sanity",
+  "cases": [
+    "split",
+    "merge",
+    "drop"
+  ],
+  "passed_cases": 1,
+  "router_errors": 0,
+  "results": {
+    "split": {
+      "status": "success",
+      "expected_actions": {
+        "C1": "split",
+        "C2": "accept"
+      },
+      "actual_actions": {
+        "C1": "accept",
+        "C2": "accept"
+      },
+      "passed": false,
+      "router_plan": {
+        "actions": [
+          {
+            "action": "accept",
+            "target_ids": [
+              "C1"
+            ],
+            "decision_state": {
+              "identity": "supported",
+              "structure": "compatible",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "no"
+            },
+            "reason": "C1 has coherent biological support, reproducible positive internal binary structure with strong stability metrics, and controlled technical context that does not support a competing explanation. The candidate is defensible for downstream validation."
+          },
+          {
+            "action": "accept",
+            "target_ids": [
+              "C2"
+            ],
+            "decision_state": {
+              "identity": "supported",
+              "structure": "uncertain",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "no"
+            },
+            "reason": "C2 has coherent biological support and controlled technical context. Structural evidence is limited because C2 is a retained control set without a binary probe, but this is not decision-critical for retaining it as a discovery-stage candidate."
+          }
+        ],
+        "evidence_requests": []
+      }
+    },
+    "merge": {
+      "status": "success",
+      "expected_actions": {
+        "C1+C2": "merge"
+      },
+      "actual_actions": {
+        "C1": "drop",
+        "C2": "drop"
+      },
+      "passed": false,
+      "router_plan": {
+        "actions": [
+          {
+            "action": "drop",
+            "target_ids": [
+              "C1"
+            ],
+            "decision_state": {
+              "identity": "uncertain",
+              "structure": "incompatible",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "yes"
+            },
+            "reason": "C1 has only controlled biological evidence and no coherent structural support; the fused boundary with C2 is reproducibly weak with negative silhouette and separation values, indicating the current membership and boundaries are not defensible and no credible structural revision is available."
+          },
+          {
+            "action": "drop",
+            "target_ids": [
+              "C2"
+            ],
+            "decision_state": {
+              "identity": "uncertain",
+              "structure": "incompatible",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "yes"
+            },
+            "reason": "C2 likewise has only controlled biological evidence and no coherent structural support; the fused boundary with C1 is reproducibly weak with negative silhouette and separation values, indicating the current membership and boundaries are not defensible and no credible structural revision is available."
+          }
+        ],
+        "evidence_requests": []
+      }
+    },
+    "drop": {
+      "status": "success",
+      "expected_actions": {
+        "C1": "drop"
+      },
+      "actual_actions": {
+        "C1": "drop"
+      },
+      "passed": true,
+      "router_plan": {
+        "actions": [
+          {
+            "action": "drop",
+            "target_ids": [
+              "C1"
+            ],
+            "decision_state": {
+              "identity": "unsupported",
+              "structure": "uncertain",
+              "alternative_explanation": "concerning",
+              "uncertainty": "no"
+            },
+            "reason": "Cross-modal evidence reports that C1 lacks a defensible identity and has a substantial competing technical explanation, and confounder evidence is concerning, so the candidate is not sufficiently defensible and no available request could reasonably reverse this conclusion."
+          }
+        ],
+        "evidence_requests": []
+      }
+    }
+  },
+  "llm_usage": {
+    "api_calls": 5,
+    "prompt_tokens": 13349,
+    "completion_tokens": 887,
+    "total_tokens": 14236
+  },
+  "review_signature": {
+    "verifier_prompt_sha256": "c562ccf81e9510f3fcdf6844de3e8b4f15f9fe086bf4652bc9dea6127a88c861",
+    "router_prompt_sha256": "17a0b52e9f6dac29f587c6add7d9e0359d1c3b70d7272779cbe08f2faf4b2f45",
+    "reviser_prompt_sha256": "ae056d48b0f7207465dc9031160bc5764dfaa8433260591f241faf9ffe7f8d3c",
+    "review_signature": "c1dae97952543199d0f8eeb57923a31df9989fc49828d07b25559180c3d2baae"
+  }
+}
