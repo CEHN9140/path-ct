@@ -193,17 +193,14 @@ def test_router_plan_requires_complete_nonoverlapping_coverage():
         }]), state, runtime())
 
 
-def test_router_stores_evidence_requests_not_tools():
+def test_router_stores_top_level_evidence_requests():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
 
     class Router:
         def invoke(self, payload):
-            return {"actions": [
-                {"action": "need_more_evidence", "target_ids": ["C1"], "evidence_requests": [{
-                    "dimension": "biological_support", "target_ids": ["C1"], "question": "Clarify C1."
-                }], "decision_state": decision_state()},
-                {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
-            ]}
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "biological_support", "target_ids": ["C1"], "question": "Clarify C1."
+            }]}
 
     router_node(state, {**runtime(), "router_model": Router()})
     assert state["control"]["pending_evidence_requests"][0]["target_ids"] == ["C1"]
@@ -293,11 +290,7 @@ def test_verifier_clears_request_after_audit_and_returns_to_router():
 def test_router_first_graph_supports_multiple_evidence_rounds():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     calls = []
-    decisions = [
-        {"dimension": "biological_support", "question": "Clarify biology."},
-        {"dimension": "cross_modal_consistency", "question": "Clarify structure."},
-        {"dimension": "confounder_exclusion", "question": "Clarify confounding."},
-    ]
+    dimensions = ["biological_support", "confounder_exclusion", "known_label_echo"]
 
     class Router:
         def invoke(self, payload):
@@ -305,31 +298,17 @@ def test_router_first_graph_supports_multiple_evidence_rounds():
             step = sum(item == "router" for item in calls)
             if step == 1:
                 assert payload["evidence_reports"] == []
-                assert any(
-                    item["dimension"] == "biological_support"
-                    and item["target_ids"] == ["C1"]
-                    for item in payload["available_evidence_requests"]
-                )
+                assert payload["evidence_coverage"]["set_identity"]["C1"]["biological_support"] == "unassessed"
             action_state = decision_state()
-            if step == 2:
-                action_state = decision_state(identity="supported")
-            elif step >= 3:
-                action_state = decision_state(identity="supported", structure="compatible")
             if step >= 4:
-                action_state = decision_state(
-                    identity="supported", structure="compatible",
-                    alternative_explanation="not_supported", uncertainty="no",
-                )
                 return {"actions": [
-                    {"action": "accept", "target_ids": ["C1"], "decision_state": action_state},
+                    {"action": "accept", "target_ids": ["C1"], "decision_state": decision_state()},
                     {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
                 ]}
-            request = {**decisions[step - 1], "target_ids": ["C1"]}
-            return {"actions": [
-                {"action": "need_more_evidence", "target_ids": ["C1"],
-                 "decision_state": action_state, "evidence_requests": [request]},
-                {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
-            ]}
+            target_ids = [] if dimensions[step - 1] == "known_label_echo" else ["C1"]
+            return {"actions": [], "evidence_requests": [{
+                "dimension": dimensions[step - 1], "target_ids": target_ids, "question": "Clarify the current evidence."
+            }]}
 
     class Verifier:
         def invoke(self, payload):
@@ -337,15 +316,18 @@ def test_router_first_graph_supports_multiple_evidence_rounds():
                 calls.append("verifier")
                 name = {
                     "biological_support": "pathway_enrichment",
-                    "cross_modal_consistency": "multimodal_consistency_check",
                     "confounder_exclusion": "confound_test",
+                    "known_label_echo": "known_label_echo_test",
                 }[payload["evidence_requests"][0]["dimension"]]
+                target_ids = payload["evidence_requests"][0]["target_ids"]
                 return {"tool_calls": [{
-                    "name": name, "id": name, "args": {"target_ids": ["C1"]},
+                    "name": name, "id": name, "args": {"target_ids": target_ids},
                 }]}
             dimension = payload["required_reports"][0]["dimension"]
+            scope = "partition" if dimension == "known_label_echo" else "set_identity"
             return {"reports": [{
-                "dimension": dimension, "scope": "set_identity", "target_ids": ["C1"],
+                "dimension": dimension, "scope": scope,
+                "target_ids": [] if scope == "partition" else ["C1"],
                 "observations": [], "limitations": [], "tool_refs": [],
             }]}
 
@@ -415,7 +397,7 @@ def test_router_payload_reports_unassessed_dimensions():
             }]}
 
     router_node(state, {**runtime(), "router_model": Router()})
-    assert captured["evidence_coverage"]["C1"]["biological_support"] == "unassessed"
+    assert captured["evidence_coverage"]["set_identity"]["C1"]["biological_support"] == "unassessed"
 
 
 def test_router_validation_retry_returns_previous_plan_and_correction_rules():
@@ -495,17 +477,12 @@ def test_partition_request_requires_a_partition_tool_call():
     }], [request], registry())
 
 
-def test_router_plan_cannot_mix_evidence_and_revision():
-    with pytest.raises(ValueError, match="cannot mix evidence acquisition"):
-        RouterPlan(actions=[
-            {"action": "need_more_evidence", "target_ids": ["C1"],
-             "decision_state": decision_state(), "evidence_requests": [{
-                 "dimension": "biological_support", "target_ids": ["C1"], "question": "x"
-             }]},
-            {"action": "split", "target_ids": ["C2"], "decision_state": decision_state(
-                structure="incompatible"
-            )},
-        ])
+def test_router_plan_evidence_mode_does_not_require_action_coverage():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]), ("C3", ["P5", "P6"]))
+    plan = RouterPlan(evidence_requests=[{
+        "dimension": "confounder_exclusion", "target_ids": ["C2"], "question": "x",
+    }])
+    validate_router_plan(plan, state, runtime())
 
 
 def test_round_budget_returns_after_evidence_for_terminal_router_decision():

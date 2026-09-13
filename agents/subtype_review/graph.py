@@ -216,7 +216,7 @@ def eligible_tools_for_requests(
         if not matching:
             continue
         if metadata["scope"] == "partition":
-            if any(item["target_ids"] for item in matching) or (name, signature, "") in completed:
+            if not any(not item["target_ids"] for item in matching) or (name, signature, "") in completed:
                 continue
             eligible[name] = {
                 "dimension": metadata["dimension"],
@@ -661,46 +661,57 @@ def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
 
 
 def validate_evidence_request(
-    request: EvidenceRequest, state: Mapping[str, Any], runtime: Mapping[str, Any], action_targets: set[str]
+    request: EvidenceRequest, state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> None:
-    known = {set_id(item) for item in current_sets(state)}
-    targets = set(request.target_ids)
-    if not targets.issubset(known) or not targets.issubset(action_targets):
-        raise ValueError("Evidence request targets are outside its action")
-    if request.dimension == "known_label_echo" and targets:
-        raise ValueError("known_label_echo requests are partition-scoped")
-    if request.dimension != "known_label_echo" and not targets:
-        raise ValueError("set-level evidence requests require targets")
     available = available_evidence_requests(state, runtime)
-    if request.dimension == "known_label_echo":
-        valid = any(item["dimension"] == request.dimension and not item["target_ids"] for item in available)
+    same_dimension = [
+        item for item in available if item["dimension"] == request.dimension
+    ]
+    targets = set(request.target_ids)
+    if not targets:
+        valid = any(not item["target_ids"] for item in same_dimension)
     else:
-        valid = set(request.target_ids).issubset({
+        available_targets = {
             target
-            for item in available
-            if item["dimension"] == request.dimension
+            for item in same_dimension
             for target in item["target_ids"]
-        })
+        }
+        valid = targets.issubset(available_targets)
     if not valid:
-        raise ValueError("Evidence request is not currently available to Verifier")
+        raise ValueError(
+            "EvidenceRequest is not currently available "
+            "for the requested dimension/targets"
+        )
 
 
 def evidence_coverage(state: Mapping[str, Any], runtime: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    scope_dimensions = {"set_identity": set(), "partition": set()}
+    for metadata in registry(context_values(runtime or {})).values():
+        if metadata.get("verifier_selectable"):
+            scope_dimensions[metadata["scope"]].add(metadata["dimension"])
     coverage = {
-        set_id(item): {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS}
-        for item in current_sets(state)
+        "set_identity": {
+            set_id(item): {
+                dimension: "unassessed"
+                for dimension in sorted(scope_dimensions["set_identity"])
+            }
+            for item in current_sets(state)
+        },
+        "partition": {
+            dimension: "unassessed"
+            for dimension in sorted(scope_dimensions["partition"])
+        },
     }
-    coverage["partition"] = {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS}
     for report in state.get("reports", []) or []:
         dimension = str(report.get("dimension", ""))
-        if dimension not in EVIDENCE_DIMENSIONS:
-            continue
         if report.get("scope") == "partition":
-            coverage["partition"][dimension] = "assessed"
+            if dimension in coverage["partition"]:
+                coverage["partition"][dimension] = "assessed"
         else:
             for target in report.get("target_ids", []) or []:
-                if str(target) in coverage:
-                    coverage[str(target)][dimension] = "assessed"
+                target = str(target)
+                if dimension in coverage["set_identity"].get(target, {}):
+                    coverage["set_identity"][target][dimension] = "assessed"
     return coverage
 
 
@@ -709,14 +720,14 @@ def validate_decision_state_evidence(
 ) -> None:
     coverage = evidence_coverage(state, runtime)
     for target in action.target_ids:
-        current = coverage[target]
-        if action.decision_state.identity != "unassessed" and current["biological_support"] != "assessed":
+        current = coverage["set_identity"].get(target, {})
+        if action.decision_state.identity != "unassessed" and current.get("biological_support") != "assessed":
             raise ValueError("identity assessment requires biological_support evidence")
-        if action.decision_state.structure != "unassessed" and current["cross_modal_consistency"] != "assessed":
+        if action.decision_state.structure != "unassessed" and current.get("cross_modal_consistency") != "assessed":
             raise ValueError("structure assessment requires cross_modal_consistency evidence")
         if (
             action.decision_state.alternative_explanation != "unassessed"
-            and current["confounder_exclusion"] != "assessed"
+            and current.get("confounder_exclusion") != "assessed"
         ):
             raise ValueError("alternative-explanation assessment requires confounder evidence")
 
@@ -748,15 +759,6 @@ def validate_action_contract(
     if not set(action.target_ids).issubset(known):
         raise ValueError("Router referenced a non-current set")
     validate_decision_state_evidence(action, state, runtime)
-    if action.action == "need_more_evidence":
-        seen = set()
-        for request in action.evidence_requests:
-            validate_evidence_request(request, state, runtime, set(action.target_ids))
-            key = (request.dimension, tuple(request.target_ids))
-            if key in seen:
-                raise ValueError("Duplicate extra tool request")
-            seen.add(key)
-        return
     if action.action == "split":
         if action.decision_state.structure != "incompatible":
             raise ValueError("split requires structure=incompatible")
@@ -772,6 +774,17 @@ def validate_action_contract(
 def validate_router_plan(
     plan: RouterPlan, state: Mapping[str, Any], runtime: Mapping[str, Any]
 ) -> None:
+    if plan.evidence_requests:
+        seen = set()
+        for request in plan.evidence_requests:
+            validate_evidence_request(request, state, runtime)
+            targets = request.target_ids or ["__partition__"]
+            for target in targets:
+                key = (request.dimension, target)
+                if key in seen:
+                    raise ValueError("Duplicate or overlapping EvidenceRequest coverage")
+                seen.add(key)
+        return
     known = {set_id(item) for item in current_sets(state)}
     occupied = set()
     for action in plan.actions:
@@ -842,8 +855,9 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
             values["router_model"].invoke(copy.deepcopy(payload))
         )
         validate_router_plan(plan, state, values)
-        if terminal_only and any(
-            action.action not in {"accept", "drop"} for action in plan.actions
+        if terminal_only and (
+            plan.evidence_requests
+            or any(action.action not in {"accept", "drop"} for action in plan.actions)
         ):
             control["status"] = "review_incomplete_due_to_round_budget"
             control["next"] = "end"
@@ -892,13 +906,8 @@ def router_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:
         "event": "decision",
         "plan": plan.model_dump(),
     })
-    if any(action.action == "need_more_evidence" for action in plan.actions):
-        requests = [
-            request.model_dump()
-            for action in plan.actions
-            if action.action == "need_more_evidence"
-            for request in action.evidence_requests
-        ]
+    if plan.evidence_requests:
+        requests = [request.model_dump() for request in plan.evidence_requests]
         control["pending_evidence_requests"] = requests
         control["eligible_tools"] = {}
         reset_verifier_round_state(state)

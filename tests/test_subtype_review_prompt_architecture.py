@@ -23,7 +23,7 @@ def test_agent_prompts_keep_semantic_responsibilities_separate():
     reviser = (PROMPT_DIR / "reviser.md").read_text(encoding="utf-8")
 
     assert "evidence interpretation" in verifier.lower()
-    assert "decide what should happen" in router.lower()
+    assert "decide what should happen next" in router.lower()
     assert "revisionplan" in reviser.lower()
     assert "supports accept" not in verifier.lower()
     assert "should be dropped" not in verifier.lower()
@@ -78,3 +78,8 @@ def test_router_requires_explicit_decision_state_fields():
     assert "decision_state" in router
     assert "unassessed" in router
     assert "alternative_explanation" in router
+    assert "no predetermined acquisition order" in router.lower()
+    assert "do not request evidence merely because a dimension is unassessed" in router.lower()
+    assert "available_evidence_requests" in router
+    assert "`actions` must be empty" in router.lower()
+    assert "`evidence_requests` must be empty" in router.lower()

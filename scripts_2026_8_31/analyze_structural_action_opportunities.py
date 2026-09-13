@@ -168,7 +168,7 @@ def audit_experiment(
     (output_root / "merge_opportunities.json").write_text(json.dumps(merge_rows, ensure_ascii=False, indent=2), encoding="utf-8")
     action_counts = {}
     for row in split_rows:
-        bucket = action_counts.setdefault(str(row["initial_k"]), {action: 0 for action in ("accept", "drop", "split", "merge", "need_more_evidence")})
+        bucket = action_counts.setdefault(str(row["initial_k"]), {action: 0 for action in ("accept", "drop", "split", "merge")})
         bucket[row["router_action"]] = bucket.get(row["router_action"], 0) + 1
     summary = {
         "experiment": "structural_action_opportunities",

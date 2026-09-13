@@ -96,10 +96,9 @@ class RouterDecisionState(BaseModel):
 class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["need_more_evidence", "accept", "drop", "split", "merge"]
+    action: Literal["accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
     decision_state: RouterDecisionState
-    evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
     reason: str = ""
 
     @field_validator("target_ids")
@@ -109,16 +108,6 @@ class RouterAction(BaseModel):
 
     @model_validator(mode="after")
     def valid_shape(self) -> "RouterAction":
-        if self.action == "need_more_evidence":
-            if not self.evidence_requests:
-                raise ValueError("need_more_evidence requires evidence_requests")
-            if any(
-                not set(request.target_ids).issubset(self.target_ids)
-                for request in self.evidence_requests
-            ):
-                raise ValueError("evidence request targets must belong to the action")
-        elif self.evidence_requests:
-            raise ValueError("scientific actions cannot contain evidence_requests")
         if self.action in {"accept", "drop", "split"} and len(self.target_ids) != 1:
             raise ValueError(f"{self.action} requires one target")
         if self.action == "merge" and len(self.target_ids) != 2:
@@ -129,15 +118,15 @@ class RouterAction(BaseModel):
 class RouterPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actions: list[RouterAction] = Field(min_length=1)
+    actions: list[RouterAction] = Field(default_factory=list)
+    evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def valid_action_phase(self) -> "RouterPlan":
-        has_need = any(item.action == "need_more_evidence" for item in self.actions)
-        has_revision = any(item.action in {"split", "merge"} for item in self.actions)
-        if has_need and has_revision:
+    def valid_mode(self) -> "RouterPlan":
+        if bool(self.actions) == bool(self.evidence_requests):
             raise ValueError(
-                "RouterPlan cannot mix evidence acquisition with split/merge actions"
+                "RouterPlan must contain exactly one mode: "
+                "scientific actions or evidence requests"
             )
         return self
 

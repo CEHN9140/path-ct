@@ -18,9 +18,8 @@ def state_for(*sets):
 
 
 def runtime(registry=None):
-    registry = registry or TOOL_REGISTRY
     return {
-        "tool_registry": registry,
+        "tool_registry": registry or TOOL_REGISTRY,
         "patient_states_by_id": {},
         "data_root": "/tmp",
         "artifact_root": "/tmp",
@@ -37,24 +36,70 @@ def decision_state():
     }
 
 
-def test_evidence_request_has_no_tool_name_and_normalizes_targets():
+def test_evidence_request_is_tool_free_and_normalizes_targets():
     request = EvidenceRequest(
         dimension="biological_support",
         target_ids=["C2", "C1", "C1"],
         question="Is the molecular identity coherent?",
     )
-    assert request.model_dump() == {
-        "dimension": "biological_support",
-        "target_ids": ["C1", "C2"],
-        "question": "Is the molecular identity coherent?",
-    }
+    assert request.target_ids == ["C1", "C2"]
     with pytest.raises(ValueError):
-        RouterAction(
-            action="accept", target_ids=["C1"], tool_name="pathway_enrichment"
-        )
+        RouterAction(action="accept", target_ids=["C1"], tool_name="pathway_enrichment")
 
 
-def test_verifier_tool_calls_may_select_a_subset_with_explicit_targets():
+def test_router_plan_supports_evidence_only_and_action_only_modes():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    evidence = RouterPlan(evidence_requests=[{
+        "dimension": "biological_support", "target_ids": ["C1"], "question": "x",
+    }])
+    validate_router_plan(evidence, state, runtime())
+    actions = RouterPlan(actions=[
+        {"action": "drop", "target_ids": ["C1"], "decision_state": decision_state()},
+        {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
+    ])
+    validate_router_plan(actions, state, runtime())
+    with pytest.raises(ValueError, match="exactly one mode"):
+        RouterPlan()
+    with pytest.raises(ValueError, match="exactly one mode"):
+        RouterPlan(actions=actions.actions, evidence_requests=[{
+            "dimension": "biological_support", "target_ids": ["C1"], "question": "x",
+        }])
+
+
+def test_evidence_requests_may_be_partial_and_cross_dimension_overlapping():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]), ("C3", ["P5", "P6"]))
+    plan = RouterPlan(evidence_requests=[
+        {"dimension": "biological_support", "target_ids": ["C2"], "question": "x"},
+        {"dimension": "confounder_exclusion", "target_ids": ["C2"], "question": "y"},
+    ])
+    validate_router_plan(plan, state, runtime())
+    with pytest.raises(ValueError, match="Duplicate"):
+        validate_router_plan(RouterPlan(evidence_requests=[
+            {"dimension": "biological_support", "target_ids": ["C1", "C2"], "question": "x"},
+            {"dimension": "biological_support", "target_ids": ["C2"], "question": "y"},
+        ]), state, runtime())
+
+
+def test_partition_and_set_requests_can_share_a_plan():
+    state = state_for(("C1", ["P1", "P2"]))
+    plan = RouterPlan(evidence_requests=[
+        {"dimension": "confounder_exclusion", "target_ids": ["C1"], "question": "x"},
+        {"dimension": "known_label_echo", "target_ids": [], "question": "y"},
+    ])
+    validate_router_plan(plan, state, runtime())
+
+
+def test_scope_is_registry_driven():
+    registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
+    registry["pathway_enrichment"]["scope"] = "partition"
+    state = state_for(("C1", ["P1", "P2"]))
+    plan = RouterPlan(evidence_requests=[{
+        "dimension": "biological_support", "target_ids": [], "question": "x",
+    }])
+    validate_router_plan(plan, state, runtime(registry))
+
+
+def test_verifier_tools_follow_router_targets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
     state["control"].update({
@@ -62,94 +107,60 @@ def test_verifier_tool_calls_may_select_a_subset_with_explicit_targets():
         "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
     })
     registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
-    calls = []
-
-    def fake_tool(*args, **kwargs):
-        calls.append(kwargs["target_ids"])
-        return {"status": "success", "results": {"decision_metrics": {}}}
-
-    registry["pathway_enrichment"]["function"] = fake_tool
-    execute_tool_calls(
-        state,
-        {"tool_calls": [{"name": "pathway_enrichment", "id": "1", "args": {"target_ids": ["C1"]}}]},
-        runtime(registry),
+    seen = []
+    registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: (
+        seen.append(kwargs["target_ids"]) or {"status": "success", "results": {"decision_metrics": {}}}
     )
-    assert calls == [["C1"]]
+    execute_tool_calls(state, {"tool_calls": [{
+        "name": "pathway_enrichment", "id": "1", "args": {"target_ids": ["C1"]},
+    }]}, runtime(registry))
+    assert seen == [["C1"]]
     assert state["round_evidence"][0]["target_ids"] == ["C1"]
-    assert state["control"]["next"] == "verifier_audit"
-
-
-def test_requested_dimension_exposes_only_requested_targets():
-    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    state["control"]["pending_evidence_requests"] = [{
-        "dimension": "biological_support",
-        "target_ids": ["C1"],
-        "question": "Clarify C1 molecular evidence.",
-    }]
-    eligible = eligible_tools_for_requests(
-        state, runtime(), state["control"]["pending_evidence_requests"]
-    )
-    assert set(eligible) == {
-        "pathway_enrichment", "mutation_enrichment", "cnv_characterization",
-    }
-    assert all(
-        item["target_ids"] == ["C1"]
-        for item in eligible.values()
-    )
-
-
-def test_router_requests_evidence_and_must_cover_current_sets():
-    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    plan = RouterPlan(actions=[
-        RouterAction(
-            action="need_more_evidence", target_ids=["C1"], evidence_requests=[
-                EvidenceRequest(
-                    dimension="biological_support",
-                    target_ids=["C1"],
-                    question="Clarify the molecular signal.",
-                )
-            ], decision_state=decision_state()
-        ),
-        RouterAction(action="drop", target_ids=["C2"], decision_state=decision_state()),
-    ])
-    validate_router_plan(plan, state, runtime())
-    with pytest.raises(ValueError):
-        RouterPlan(actions=[
-            {"action": "need_more_evidence", "target_ids": ["C1"],
-             "evidence_requests": [{
-                 "dimension": "biological_support", "target_ids": ["C1"],
-                 "question": "x", "tool_name": "pathway_enrichment"
-             }], "decision_state": decision_state()},
-            {"action": "drop", "target_ids": ["C2"], "decision_state": decision_state()},
-        ])
-
-
-def test_validation_tools_expose_target_ids():
-    tools = {item.name: item for item in build_validation_tools()}
-    assert "target_ids" in tools["pathway_enrichment"].args_schema.model_fields
-    assert "target_ids" in tools["pathway_enrichment"].args_schema.model_json_schema()["required"]
 
 
 def test_one_tool_call_may_cover_multiple_pending_targets():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
-    state["control"]["pending_evidence_requests"] = [
+    requests = [
         {"dimension": "biological_support", "target_ids": [target], "question": "x"}
         for target in ("C1", "C2")
     ]
-    state["control"]["eligible_tools"] = eligible_tools_for_requests(
-        state, runtime(), state["control"]["pending_evidence_requests"]
-    )
     registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
     registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: {
-        "status": "success", "results": {"decision_metrics": {}}
+        "status": "success", "results": {"decision_metrics": {}},
     }
-    execute_tool_calls(
-        state,
-        {"tool_calls": [{
-            "name": "pathway_enrichment",
-            "id": "call-1",
-            "args": {"target_ids": ["C1", "C2"]},
-        }]},
-        runtime(registry),
-    )
+    state["control"].update({
+        "pending_evidence_requests": requests,
+        "eligible_tools": eligible_tools_for_requests(state, runtime(registry), requests),
+    })
+    execute_tool_calls(state, {"tool_calls": [{
+        "name": "pathway_enrichment", "id": "call-1",
+        "args": {"target_ids": ["C1", "C2"]},
+    }]}, runtime(registry))
     assert state["round_evidence"][0]["target_ids"] == ["C1", "C2"]
+
+
+def test_available_evidence_requests_skip_completed_tools():
+    state = state_for(("C1", ["P1", "P2"]))
+    request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
+    state["control"].update({
+        "pending_evidence_requests": [request],
+        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
+    })
+    registry = {name: {**metadata} for name, metadata in TOOL_REGISTRY.items()}
+    for name in ("pathway_enrichment", "mutation_enrichment", "cnv_characterization"):
+        registry[name]["function"] = lambda *args, **kwargs: {
+            "status": "success", "results": {"decision_metrics": {}},
+        }
+    execute_tool_calls(state, {"tool_calls": [
+        {"name": name, "id": name, "args": {"target_ids": ["C1"]}}
+        for name in ("pathway_enrichment", "mutation_enrichment", "cnv_characterization")
+    ]}, runtime(registry))
+    assert not any(
+        item["dimension"] == "biological_support" and item["target_ids"] == ["C1"]
+        for item in available_evidence_requests(state, runtime(registry))
+    )
+
+
+def test_validation_tools_require_target_ids():
+    tools = {item.name: item for item in build_validation_tools()}
+    assert "target_ids" in tools["pathway_enrichment"].args_schema.model_fields

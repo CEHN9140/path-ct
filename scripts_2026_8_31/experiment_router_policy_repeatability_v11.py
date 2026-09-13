@@ -48,15 +48,18 @@ def plan_signature(plan: Mapping[str, Any]) -> str:
         actions.append({
             "action": action.get("action"),
             "target_ids": sorted(action.get("target_ids", []) or []),
-            "evidence_requests": sorted(
-                (
-                    request.get("dimension"),
-                    tuple(sorted(request.get("target_ids", []) or [])),
-                )
-                for request in action.get("evidence_requests", []) or []
-            ),
         })
-    return json.dumps(sorted(actions, key=lambda item: (item["action"], item["target_ids"])), sort_keys=True)
+    requests = sorted(
+        (
+            request.get("dimension"),
+            tuple(sorted(request.get("target_ids", []) or [])),
+        )
+        for request in plan.get("evidence_requests", []) or []
+    )
+    return json.dumps({
+        "actions": sorted(actions, key=lambda item: (item["action"], item["target_ids"])),
+        "evidence_requests": requests,
+    }, sort_keys=True)
 
 
 def load_source_entry(experiment_root: Path, initial_k: int, source_repeat: int) -> tuple[Path, dict[str, Any] | None, str | None]:
@@ -181,7 +184,7 @@ def calibrate(
                     if results[(initial_k, replay)]["status"] == "success" else ""
                     for replay in range(1, replay_count + 1)
                 },
-                **{f"{action}_count": counts[action] for action in ("accept", "drop", "split", "merge", "need_more_evidence")},
+                **{f"{action}_count": counts[action] for action in ("accept", "drop", "split", "merge")},
                 "decision_agreement_fraction": max(counts.values()) / len(actions) if actions else None,
                 "decision_discordant": len(counts) > 1,
                 "identical_payload_all_replays": identical_payload,

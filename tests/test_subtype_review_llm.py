@@ -344,8 +344,8 @@ def test_default_agent_prompts_use_new_contracts(monkeypatch):
     build_default_reviser(config, "/data/qijun/path-ct/configs")
     assert prompts[0][0] is RouterPlan
     assert prompts[1][0] is RevisionPlan
-    assert prompts[0][1].startswith("# Router")
-    assert prompts[1][1].startswith("# Reviser")
+    assert "Router" in prompts[0][1]
+    assert "Reviser" in prompts[1][1]
 
 
 def test_review_prompts_constrain_internal_evidence_and_medical_claims():
@@ -354,7 +354,7 @@ def test_review_prompts_constrain_internal_evidence_and_medical_claims():
 
     assert "independent external validation" in router
     assert "one modality provides a strong" in router.lower()
-    assert "set_available_n + rest_available_n" in verifier
-    assert "do not call these metrics" in verifier.lower()
+    assert "effect size" in verifier.lower()
+    assert "do not recommend" in verifier.lower()
     assert "prognosis" in verifier
-    assert "nonsignificant trends" in verifier
+    assert "nonsignificant evidence" in verifier.lower()

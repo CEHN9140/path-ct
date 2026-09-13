@@ -26,8 +26,8 @@ def test_replay_payload_contains_structural_index_and_does_not_execute_actions()
         }],
         "evidence_reports": [],
         "router_plan": {"actions": [
-            {"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "ok"},
-            {"action": "accept", "target_ids": ["C2"], "evidence_requests": [], "reason": "ok"},
+            {"action": "accept", "target_ids": ["C1"], "decision_state": {"identity": "unassessed", "structure": "unassessed", "alternative_explanation": "unassessed", "uncertainty": "yes"}, "reason": "ok"},
+            {"action": "accept", "target_ids": ["C2"], "decision_state": {"identity": "unassessed", "structure": "unassessed", "alternative_explanation": "unassessed", "uncertainty": "yes"}, "reason": "ok"},
         ]},
     }
 
@@ -40,8 +40,8 @@ def test_replay_payload_contains_structural_index_and_does_not_execute_actions()
             assert payload["available_evidence_requests"] == []
             assert payload["structural_index"]["per_set"]["C1"]["binary_probe"]["fused_silhouette"] == 0.2
             return {"actions": [
-                {"action": "accept", "target_ids": ["C1"], "evidence_requests": [], "reason": "ok"},
-                {"action": "accept", "target_ids": ["C2"], "evidence_requests": [], "reason": "ok"},
+                {"action": "accept", "target_ids": ["C1"], "decision_state": {"identity": "unassessed", "structure": "unassessed", "alternative_explanation": "unassessed", "uncertainty": "yes"}, "reason": "ok"},
+                {"action": "accept", "target_ids": ["C2"], "decision_state": {"identity": "unassessed", "structure": "unassessed", "alternative_explanation": "unassessed", "uncertainty": "yes"}, "reason": "ok"},
             ]}
 
     model = Router()
