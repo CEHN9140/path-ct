@@ -43,6 +43,24 @@ def test_drop_plan_is_a_valid_terminal_action():
     validate_router_plan(plan, MODULE.build_case("drop"), {"tool_registry": MODULE.TOOL_REGISTRY})
 
 
+def test_controlled_cases_keep_evidence_dimensions_separate():
+    split = MODULE.build_case("split")["reports"]
+    merge = MODULE.build_case("merge")["reports"]
+    drop = MODULE.build_case("drop")["reports"]
+    split_cross = next(row for row in split if row["dimension"] == "cross_modal_consistency")
+    merge_biology = [row for row in merge if row["dimension"] == "biological_support"]
+    drop_cross = next(row for row in drop if row["dimension"] == "cross_modal_consistency")
+    drop_biology = next(row for row in drop if row["dimension"] == "biological_support")
+    drop_confound = next(row for row in drop if row["dimension"] == "confounder_exclusion")
+
+    assert "outer boundary remains acceptable" in split_cross["observations"][0]["finding"]
+    assert all("coherent biological identity" in row["observations"][0]["finding"] for row in merge_biology)
+    assert "lacks a defensible identity" not in drop_cross["observations"][0]["finding"]
+    assert "substantial competing technical explanation" not in drop_cross["observations"][0]["finding"]
+    assert "no coherent biological identity" in drop_biology["observations"][0]["finding"].lower()
+    assert "substantial competing technical explanation" in drop_confound["observations"][0]["finding"]
+
+
 def test_action_summary_preserves_merge_targets():
     plan = {"actions": [{"action": "merge", "target_ids": ["C2", "C1"]}]}
     assert MODULE.action_summary(plan) == {"C1+C2": "merge"}

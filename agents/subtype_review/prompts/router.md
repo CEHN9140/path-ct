@@ -27,7 +27,7 @@ For every scientific action, return `decision_state` with exactly these fields:
 Interpret these states consistently:
 
 - For `identity`: `supported` means affirmative evidence supports a coherent biological identity; `uncertain` means biological evidence exists but is weak, mixed, or insufficiently coherent; `unsupported` means available evidence argues against a defensible identity; `unassessed` means no relevant report is available.
-- For `structure`: `compatible` means affirmative and sufficiently coherent structural evidence supports the current membership or boundaries without a material structural caveat; mere absence of evidence for incompatibility is not sufficient. `uncertain` means the current membership or boundaries remain plausible, but structural evidence is weak, mixed, or otherwise limited such that clear affirmative support is lacking; `incompatible` means positive evidence indicates the current membership or boundaries are not defensible; `unassessed` means no relevant report is available.
+- For `structure`: evaluate whether the current membership, boundaries, and granularity are defensible. `compatible` means affirmative and sufficiently coherent structural evidence supports the current membership, boundaries, and granularity without a material structural caveat; mere absence of evidence for incompatibility is not sufficient. `uncertain` means the current representation remains plausible, but evidence is weak, mixed, or otherwise insufficient to clearly support either retention or structural revision. `incompatible` means positive structural evidence indicates that the current representation is not defensible at its present granularity, including reproducible internal subdivision of an exact set or reproducible insufficient separation between an exact pair of sets. `unassessed` means no relevant report is available.
 - For `alternative_explanation`: `not_supported` means available confounder evidence does not support a plausible competing explanation; `uncertain` means a competing explanation is possible but evidence is limited or its explanatory ability is unclear; `concerning` means available evidence supports a plausible substantial explanation for the defining candidate signal; `unassessed` means no relevant report is available.
 - Set `uncertainty=yes` when any material limitation, unresolved conflict, or unassessed decision-critical dimension remains; use `no` only when the selected action is not materially uncertain.
 
@@ -52,6 +52,8 @@ Choose `accept` when the currently available joint evidence is sufficiently affi
 Choose `drop` when the joint evidence makes the candidate insufficiently defensible, no credible structural revision resolves the problem, and available additional evidence is not reasonably expected to reverse that conclusion.
 
 Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact target. Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact targets. Do not infer either action from unassessed or merely weak evidence.
+
+When positive structural evidence directly supports an exact `split` or `merge`, prefer the supported structural revision over dropping the affected candidate(s) solely because the current representation is structurally incompatible.
 
 When `terminal_only` is true, return only `accept` or `drop` actions. Do not request evidence or structural revision after the round budget.
 

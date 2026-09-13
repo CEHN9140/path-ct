@@ -52,15 +52,15 @@ def assessed_state(
 CASES = {
     "split": {
         "expected": {"C1": "split", "C2": "accept"},
-        "description": "C1 has a reproducible positive internal binary structure; C2 is a retained control set.",
+        "description": "C1 contains two balanced, reproducible internal groups while its outer boundary remains acceptable.",
     },
     "merge": {
         "expected": {"C1+C2": "merge"},
-        "description": "C1 and C2 have a reproducibly weak pairwise boundary.",
+        "description": "C1 and C2 have a reproducibly weak pairwise boundary and insufficient separation.",
     },
     "drop": {
         "expected": {"C1": "drop"},
-        "description": "C1 lacks a defensible identity and has a substantial competing technical explanation.",
+        "description": "C1 has no reproducible internal structure or stable structural basis.",
     },
 }
 
@@ -82,6 +82,17 @@ def build_case(name: str) -> dict[str, Any]:
     rows = []
     for item in sets:
         target = item["set_id"]
+        if name == "merge":
+            biological_finding = "Each current set has a coherent biological identity, but no compelling biology requires separate identities."
+        elif name == "drop":
+            biological_finding = "No coherent biological identity is supported by the available molecular evidence."
+        else:
+            biological_finding = "A coherent biological identity is supported for the current candidate."
+        confound_finding = (
+            "A substantial competing technical explanation is supported by measured technical factors."
+            if name == "drop"
+            else "No plausible competing technical explanation is supported by the measured technical factors."
+        )
         rows.extend([
             {
                 "tool_name": "pathway_enrichment",
@@ -90,7 +101,7 @@ def build_case(name: str) -> dict[str, Any]:
                 "target_ids": [target],
                 "status": "success",
                 "partition_signature": signature,
-                "observations": [{"metric": "coherent_signal", "finding": "controlled biological evidence"}],
+                "observations": [{"metric": "coherent_signal", "finding": biological_finding}],
             },
             {
                 "tool_name": "multimodal_consistency_check",
@@ -108,7 +119,7 @@ def build_case(name: str) -> dict[str, Any]:
                 "target_ids": [target],
                 "status": "success",
                 "partition_signature": signature,
-                "observations": [{"metric": "technical_context", "finding": "controlled technical context"}],
+                "observations": [{"metric": "technical_context", "finding": confound_finding}],
             },
         ])
     rows.append({

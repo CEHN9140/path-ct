@@ -90,7 +90,7 @@ def test_router_defines_decision_state_semantics():
 
     assert "supported` means affirmative evidence supports a coherent biological identity" in router
     assert "compatible` means affirmative and sufficiently coherent structural evidence supports" in router
-    assert "uncertain` means the current membership or boundaries remain plausible" in router
+    assert "uncertain` means the current representation remains plausible" in router
     assert "concerning` means available evidence supports a plausible substantial explanation" in router
     assert "weak overlap does not prove novelty" in router
 
@@ -100,8 +100,10 @@ def test_router_separates_affirmative_structure_from_plausibility():
 
     assert "without a material structural caveat" in router
     assert "mere absence of evidence for incompatibility is not sufficient" in router
-    assert "structural evidence is weak, mixed, or otherwise limited" in router
+    assert "evidence is weak, mixed, or otherwise insufficient" in router
     assert "or shows them reasonably defensible" not in router
+    assert "membership, boundaries, and granularity" in router
+    assert "prefer the supported structural revision over dropping" in router
 
 
 def test_verifier_does_not_call_nonsignificant_trends_corroboration():
