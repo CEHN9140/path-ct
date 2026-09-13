@@ -1,5 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).with_name("04_experiment_known_ccrcc_subtype_core_mapping.py")
 SPEC = importlib.util.spec_from_file_location("core_mapping", SCRIPT)
@@ -7,6 +10,18 @@ MAPPING = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MAPPING)
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_core_mapping_rejects_characterization_from_another_multi_k_root(tmp_path):
+    discovery_root = tmp_path / "discovery"
+    discovery_root.mkdir()
+    (discovery_root / "source_manifest.json").write_text(
+        json.dumps({"multi_k_root": str(tmp_path / "old_multi_k")}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="different multi-K root"):
+        MAPPING.validate_discovery_binding(tmp_path / "current_multi_k", discovery_root)
 
 
 def test_current_seven_core_sizes_union_and_disjointness_are_frozen():

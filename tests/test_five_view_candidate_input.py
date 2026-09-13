@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -130,3 +132,105 @@ def test_distance_to_affinity_preserves_valid_kernel_values_above_one():
         {"neighbor_count": 1, "mu": 0.5},
     )
     assert float(affinity.max()) > 1.0
+
+
+def test_k_selector_publishes_deterministic_diagnostics_not_free_text_claims(
+    tmp_path, monkeypatch
+):
+    import agents.candidate_proposer as proposer
+
+    prompt = tmp_path / "candidate_k_selector.md"
+    prompt.write_text("Select K.", encoding="utf-8")
+    monkeypatch.setattr(proposer, "load_candidate_proposer_config", lambda _: {
+        "k_selector": {
+            "prompt_path": str(prompt),
+            "llm": {
+                "provider": "deepseek", "model_name": "test", "temperature": 0,
+                "max_new_tokens": 128, "json_retries": 0,
+            },
+        }
+    })
+    bad_reason = "K3 has weaker item consensus than K4."
+    response = SimpleNamespace(
+        id="response", model="test",
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(
+                content=json.dumps({
+                    "selected_k": 4,
+                    "confidence": "medium",
+                    "reasoning_summary": bad_reason,
+                    "evidence_refs": ["K4.pac", "K4.item_consensus.p10"],
+                }),
+                reasoning_content="",
+            ),
+        )],
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=lambda **_: response)
+    ))
+    records = []
+    for k, pac, item_value in ((3, 0.7, 0.6), (4, 0.6, 0.5)):
+        labels = np.repeat(np.arange(k), 2)
+        consensus = np.full((2 * k, 2 * k), 0.1)
+        for label in range(k):
+            indexes = np.where(labels == label)[0]
+            consensus[np.ix_(indexes, indexes)] = item_value
+        np.fill_diagonal(consensus, 1.0)
+        records.append({
+            "n_clusters": k, "cluster_sizes": [2] * k,
+            "consensus": consensus, "labels": labels,
+            "relative_delta_area": 0.1, "pac": pac,
+        })
+
+    result = proposer.select_k_with_llm(
+        records, output_root=str(tmp_path), config_dir=str(tmp_path),
+        min_cluster_size=2, llm_client=client,
+    )
+    audit = json.loads(Path(result["audit_path"]).read_text(encoding="utf-8"))
+
+    assert result["selected_k"] == 4
+    assert bad_reason not in result["reasoning_summary"]
+    assert "K3[PAC=0.7" in result["reasoning_summary"]
+    assert "item_p10=0.6" in result["reasoning_summary"]
+    assert audit["llm_decision"]["reasoning_summary"] == bad_reason
+
+
+def test_k_selector_rejects_unknown_evidence_reference(tmp_path, monkeypatch):
+    import agents.candidate_proposer as proposer
+
+    prompt = tmp_path / "candidate_k_selector.md"
+    prompt.write_text("Select K.", encoding="utf-8")
+    monkeypatch.setattr(proposer, "load_candidate_proposer_config", lambda _: {
+        "k_selector": {
+            "prompt_path": str(prompt),
+            "llm": {
+                "provider": "deepseek", "model_name": "test", "temperature": 0,
+                "max_new_tokens": 128, "json_retries": 0,
+            },
+        }
+    })
+    response = SimpleNamespace(
+        id="response", model="test",
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(content=json.dumps({
+                "selected_k": 2, "confidence": "medium", "reasoning_summary": "x",
+                "evidence_refs": ["K2.nonexistent"],
+            }), reasoning_content=""),
+        )],
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=lambda **_: response)
+    ))
+    record = {
+        "n_clusters": 2, "cluster_sizes": [2, 2],
+        "consensus": np.eye(4), "labels": np.array([0, 0, 1, 1]),
+        "relative_delta_area": 0.0, "pac": 0.5,
+    }
+
+    with pytest.raises(RuntimeError, match="unknown evidence_refs"):
+        proposer.select_k_with_llm(
+            [record], output_root=str(tmp_path), config_dir=str(tmp_path),
+            min_cluster_size=2, llm_client=client,
+        )

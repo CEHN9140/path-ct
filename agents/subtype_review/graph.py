@@ -499,7 +499,7 @@ def available_revision_metric_refs(
     return sorted(selected)
 
 
-def metric_blocks_for_report(
+def metric_refs_for_report(
     report: Any, state: Mapping[str, Any]
 ) -> list[str]:
     rows = {
@@ -509,25 +509,32 @@ def metric_blocks_for_report(
     target = next(iter(report.target_ids), "")
     refs = []
     for tool_name in report.tool_refs:
-        metrics = rows.get(tool_name, {}).get("metrics", {}) or {}
+        row = rows.get(tool_name, {})
+        metrics = row.get("metrics", {}) or {}
+        leaves = [str(ref) for ref in row.get("metric_refs", []) or []]
         base = f"tool_results.{tool_name}.metrics"
         if report.scope == "partition":
-            refs.extend(f"{base}.{key}" for key in sorted(metrics))
+            refs.extend(leaves)
             continue
+        prefixes = []
         for key, value in metrics.items():
             if not isinstance(value, Mapping):
                 continue
             if key == "cross_modal_consistency":
                 if target in value.get("per_set", {}):
-                    refs.append(f"{base}.{key}.per_set.{target}")
+                    prefixes.append(f"{base}.{key}.per_set.{target}")
                 if "partition" in value:
-                    refs.append(f"{base}.{key}.partition")
+                    prefixes.append(f"{base}.{key}.partition")
             elif key == "sets" and target in value:
-                refs.append(f"{base}.{key}.{target}")
+                prefixes.append(f"{base}.{key}.{target}")
             elif target in value:
-                refs.append(f"{base}.{key}.{target}")
+                prefixes.append(f"{base}.{key}.{target}")
             elif f"{target}_vs_rest" in value:
-                refs.append(f"{base}.{key}.{target}_vs_rest")
+                prefixes.append(f"{base}.{key}.{target}_vs_rest")
+        refs.extend(
+            ref for ref in leaves
+            if any(ref.startswith(f"{prefix}.") or ref.startswith(f"{prefix}[") for prefix in prefixes)
+        )
     return sorted(set(refs))
 
 
@@ -579,7 +586,7 @@ def validate_reports(
     if not expected.issubset(reported):
         raise ValueError(f"Evidence Reports must cover exactly current targets: {expected - reported}")
     for report in batch.reports:
-        report.metric_refs = metric_blocks_for_report(report, state)
+        report.metric_refs = metric_refs_for_report(report, state)
 
 
 def verifier_node(state: dict[str, Any], runtime: Any) -> dict[str, Any]:

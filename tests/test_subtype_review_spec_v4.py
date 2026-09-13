@@ -234,6 +234,45 @@ def test_reports_are_checked_against_actual_current_calls():
     validate_reports(batch, state, runtime())
 
 
+def test_reports_receive_target_specific_leaf_metric_refs():
+    state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
+    signature = partition_signature(state["partition"]["sets"])
+    base = "tool_results.pathway_enrichment.metrics.per_set_rna_pathway_enrichment"
+    c1_refs = [f"{base}.C1.HALLMARK_HYPOXIA.{field}" for field in ("smd", "q_value")]
+    c2_ref = f"{base}.C2.HALLMARK_MYC_TARGETS.smd"
+    state["round_evidence"] = [{
+        "tool_name": "pathway_enrichment",
+        "dimension": "biological_support",
+        "scope": "set_identity",
+        "target_ids": ["C1", "C2"],
+        "status": "success",
+        "metrics": {
+            "per_set_rna_pathway_enrichment": {
+                "C1": {"HALLMARK_HYPOXIA": {"smd": 1.2, "q_value": 0.01}},
+                "C2": {"HALLMARK_MYC_TARGETS": {"smd": -0.8}},
+            }
+        },
+        "metric_refs": c1_refs + [c2_ref],
+        "partition_signature": signature,
+    }]
+    batch = EvidenceReportBatch.model_validate({"reports": [
+        {
+            "dimension": "biological_support", "scope": "set_identity",
+            "target_ids": [target], "observations": [],
+            "tool_refs": ["pathway_enrichment"],
+        }
+        for target in ("C1", "C2")
+    ]})
+
+    validate_reports(batch, state, runtime())
+
+    assert batch.reports[0].metric_refs == sorted(c1_refs)
+    assert batch.reports[1].metric_refs == [c2_ref]
+    assert set(batch.reports[0].metric_refs).issubset(
+        set(state["round_evidence"][0]["metric_refs"])
+    )
+
+
 def test_audit_merges_reports_into_partition_memory():
     state = state_for(("C1", ["P1", "P2"]))
     signature = partition_signature(state["partition"]["sets"])

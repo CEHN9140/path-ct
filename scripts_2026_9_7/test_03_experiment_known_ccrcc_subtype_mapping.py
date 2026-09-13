@@ -1,14 +1,36 @@
 import importlib.util
+import inspect
+import json
 from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import pytest
 
 
 SCRIPT = Path(__file__).with_name("03_experiment_known_ccrcc_subtype_mapping.py")
 SPEC = importlib.util.spec_from_file_location("known_ccrcc_mapping", SCRIPT)
 MAPPING = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MAPPING)
+
+
+def test_mapping_defaults_to_current_main_cohort():
+    defaults = inspect.signature(MAPPING.run).parameters
+    assert defaults["cohort_root"].default == MAPPING.ROOT / "output_kirc"
+    assert defaults["discovery_root"].default == (
+        MAPPING.ROOT / "output_kirc_v13/02_post_discovery_characterization"
+    )
+
+
+def test_mapping_rejects_characterization_from_another_cohort(tmp_path):
+    discovery_root = tmp_path / "discovery"
+    discovery_root.mkdir()
+    (discovery_root / "source_manifest.json").write_text(
+        json.dumps({"data_root": str(tmp_path / "old_output")}), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="different cohort root"):
+        MAPPING.validate_discovery_binding(discovery_root, tmp_path / "output_kirc")
 
 
 def test_normalize_tcga_patient_id_accepts_patient_and_sample_barcodes():

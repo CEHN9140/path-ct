@@ -28,6 +28,30 @@ def load_saved_affinities(data_root, config_dir):
     return patient_ids, affinities
 
 
+def validate_multi_k_binding(data_root, multi_k_root):
+    candidate_dir = Path(data_root) / "candidate_subtype"
+    hashes = {
+        "fused_similarity_sha256": base.file_sha256(candidate_dir / "fused_similarity.npy"),
+        "patient_order_sha256": base.file_sha256(candidate_dir / "affinity_patient_order.json"),
+    }
+    metadata_paths = sorted(Path(multi_k_root).glob("run*/K*/run_metadata.json"))
+    if len(metadata_paths) != 21:
+        raise ValueError(f"Expected 21 complete multi-K runs, found {len(metadata_paths)}")
+    for path in metadata_paths:
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        if metadata.get("status") != "review_complete" or any(
+            metadata.get(key) != value for key, value in hashes.items()
+        ):
+            raise ValueError(f"{path} does not match current output_kirc")
+    for name in ("stable_core_membership.csv", "stable_core_summary.csv", "summary.json"):
+        if not (Path(multi_k_root) / name).is_file():
+            raise FileNotFoundError(f"Missing multi-K stable-core artifact: {name}")
+    summary = json.loads((Path(multi_k_root) / "summary.json").read_text(encoding="utf-8"))
+    if summary.get("analysis_status") != "complete":
+        raise ValueError("Multi-K stable-core analysis is not complete")
+    return hashes
+
+
 def rebase_ct_paths(states, patient_ids, data_root):
     rebased = []
     for case_id in patient_ids:
@@ -193,10 +217,11 @@ def characterize_groups(data_root, output_root, config_dir, groups, label, top_p
     return manifest
 
 
-def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
+def run(data_root=ROOT / "output_kirc", multi_k_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", output_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", config_dir=ROOT / "configs", permutations=9999, bootstrap_iterations=2000, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     multi_k_root = Path(multi_k_root)
+    input_hashes = validate_multi_k_binding(data_root, multi_k_root)
     cores, _ = base.load_cores(multi_k_root)
     groups_by_label = {"5view_7state": {key: sorted(value) for key, value in cores.items()}}
     states, _ = base.load_states(data_root)
@@ -212,6 +237,7 @@ def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13
         "data_root": str(Path(data_root).resolve()),
         "multi_k_root": str(multi_k_root.resolve()),
         "stable_core_membership": str((multi_k_root / "stable_core_membership.csv").resolve()),
+        **input_hashes,
     })
     base.write_json(output_root / "characterization_summary.json", summaries)
     return summaries
@@ -219,7 +245,7 @@ def run(data_root=ROOT / "output_kirc_raw", multi_k_root=ROOT / "output_kirc_v13
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc_raw")
+    parser.add_argument("--data-root", type=Path, default=ROOT / "output_kirc")
     parser.add_argument("--multi-k-root", type=Path, default=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/02_post_discovery_characterization")
     parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")

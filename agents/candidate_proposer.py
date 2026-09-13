@@ -277,6 +277,36 @@ def build_k_selection_evidence(
     }
 
 
+def k_evidence_refs(evidence: Mapping[str, Any]) -> set[str]:
+    fields = (
+        "eligible", "relative_delta_area", "pac", "cluster_sizes",
+        "cluster_consensus.min", "item_consensus.p10",
+    )
+    return {
+        f"K{row['k']}.{field}"
+        for row in evidence.get("k_evidence", [])
+        for field in fields
+    }
+
+
+def deterministic_k_summary(evidence: Mapping[str, Any], selected_k: int) -> str:
+    rows = []
+    for row in evidence.get("k_evidence", []):
+        if not row.get("eligible"):
+            continue
+        delta = row.get("relative_delta_area")
+        rows.append(
+            f"K{row['k']}[PAC={row['pac']},delta={delta if delta is not None else 'NA'},"
+            f"cluster_min={row['cluster_consensus']['min']},"
+            f"item_p10={row['item_consensus']['p10']},sizes={row['cluster_sizes']}]"
+        )
+    return (
+        f"LLM selected K={selected_k}. Eligible diagnostics: {'; '.join(rows)}. "
+        "Directions: lower PAC, higher cluster_min and higher item_p10 are favorable; "
+        "delta is interpreted as elbow gain."
+    )
+
+
 def select_k_with_llm(
     consensus_records: list[dict[str, Any]],
     *,
@@ -412,6 +442,10 @@ def select_k_with_llm(
             errors.append("evidence_refs must be a non-empty list")
         elif not all(isinstance(r, str) and r.strip() for r in ev_refs):
             errors.append("each evidence_ref must be a non-empty string")
+        else:
+            unknown_refs = sorted(set(ev_refs) - k_evidence_refs(evidence))
+            if unknown_refs:
+                errors.append(f"unknown evidence_refs: {unknown_refs}")
         if decision.get("selected_k") not in candidate:
             errors.append(
                 f"selected_k {decision['selected_k']} not in candidate K values {candidate}"
@@ -438,7 +472,14 @@ def select_k_with_llm(
                 )
             continue
 
-        # Success
+        # Keep the model's selection but publish only deterministic numeric context.
+        llm_decision = dict(decision)
+        decision = {
+            **decision,
+            "reasoning_summary": deterministic_k_summary(
+                evidence, int(decision["selected_k"])
+            ),
+        }
         attempt_audit["error"] = ""
         attempts.append(attempt_audit)
         audit_path = audit_dir / "k_selection_llm_audit.json"
@@ -452,6 +493,7 @@ def select_k_with_llm(
             "prompt_path": str(prompt_path),
             "evidence_input": evidence,
             "raw_response": raw_response,
+            "llm_decision": llm_decision,
             "decision": decision,
             "attempts": attempts,
         }

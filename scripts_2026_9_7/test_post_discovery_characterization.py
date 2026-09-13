@@ -1,4 +1,10 @@
+import importlib.util
+import inspect
+import json
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from tools.post_discovery_characterization import (
     bh_adjust,
@@ -8,6 +14,71 @@ from tools.post_discovery_characterization import (
     holm_adjust,
     stable_analysis_universe,
 )
+
+SCRIPT = Path(__file__).with_name("02_experiment_post_discovery_characterization.py")
+SPEC = importlib.util.spec_from_file_location("post_discovery_experiment", SCRIPT)
+EXPERIMENT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(EXPERIMENT)
+
+
+def test_post_discovery_defaults_to_current_main_output():
+    defaults = inspect.signature(EXPERIMENT.run).parameters
+    assert defaults["data_root"].default == EXPERIMENT.ROOT / "output_kirc"
+    assert defaults["multi_k_root"].default == (
+        EXPERIMENT.ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review"
+    )
+
+
+def test_post_discovery_rejects_multi_k_from_another_main_output(tmp_path):
+    data_root = tmp_path / "output_kirc"
+    candidate_dir = data_root / "candidate_subtype"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "fused_similarity.npy").write_bytes(b"current-fused")
+    (candidate_dir / "affinity_patient_order.json").write_text("[]", encoding="utf-8")
+    multi_k_root = tmp_path / "multi_k"
+    for repeat in range(1, 4):
+        for initial_k in range(2, 9):
+            run_root = multi_k_root / f"run{repeat}" / f"K{initial_k}"
+            run_root.mkdir(parents=True)
+            (run_root / "run_metadata.json").write_text(json.dumps({
+                "status": "review_complete",
+                "fused_similarity_sha256": "stale",
+                "patient_order_sha256": "stale",
+            }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not match current output_kirc"):
+        EXPERIMENT.validate_multi_k_binding(data_root, multi_k_root)
+
+
+def test_post_discovery_requires_completed_stable_core_analysis(tmp_path):
+    data_root = tmp_path / "output_kirc"
+    candidate_dir = data_root / "candidate_subtype"
+    candidate_dir.mkdir(parents=True)
+    fused = candidate_dir / "fused_similarity.npy"
+    order = candidate_dir / "affinity_patient_order.json"
+    fused.write_bytes(b"fused")
+    order.write_text("[]", encoding="utf-8")
+    hashes = {
+        "status": "review_complete",
+        "fused_similarity_sha256": EXPERIMENT.base.file_sha256(fused),
+        "patient_order_sha256": EXPERIMENT.base.file_sha256(order),
+    }
+    multi_k_root = tmp_path / "multi_k"
+    for repeat in range(1, 4):
+        for initial_k in range(2, 9):
+            run_root = multi_k_root / f"run{repeat}" / f"K{initial_k}"
+            run_root.mkdir(parents=True)
+            (run_root / "run_metadata.json").write_text(
+                json.dumps(hashes), encoding="utf-8"
+            )
+    for name in ("stable_core_membership.csv", "stable_core_summary.csv"):
+        (multi_k_root / name).write_text("x\n", encoding="utf-8")
+    (multi_k_root / "summary.json").write_text(
+        json.dumps({"analysis_status": "primary_unavailable"}), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="stable-core analysis is not complete"):
+        EXPERIMENT.validate_multi_k_binding(data_root, multi_k_root)
 
 
 def test_bh_adjust_sorts_by_p_value_before_adjusting():

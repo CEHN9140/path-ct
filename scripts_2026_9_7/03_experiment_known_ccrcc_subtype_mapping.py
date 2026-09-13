@@ -441,9 +441,18 @@ def analyze_partition(name, state_labels, mrna, clearcode, output_root, permutat
     return rows
 
 
-def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc_raw", output_root=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping", discovery_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", permutations=9999, force=False):
+def validate_discovery_binding(discovery_root, cohort_root):
+    manifest = json.loads(
+        (Path(discovery_root) / "source_manifest.json").read_text(encoding="utf-8")
+    )
+    if Path(manifest["data_root"]).resolve() != Path(cohort_root).resolve():
+        raise ValueError("Post-discovery characterization uses a different cohort root")
+
+
+def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc", output_root=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping", discovery_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", permutations=9999, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
+    validate_discovery_binding(discovery_root, cohort_root)
     if force and output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -520,7 +529,7 @@ def run(data_root=ROOT / "data", cohort_root=ROOT / "output_kirc_raw", output_ro
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "data")
-    parser.add_argument("--cohort-root", type=Path, default=ROOT / "output_kirc_raw")
+    parser.add_argument("--cohort-root", type=Path, default=ROOT / "output_kirc")
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v13/03_known_ccrcc_subtype_mapping")
     parser.add_argument("--discovery-root", type=Path, default=ROOT / "output_kirc_v13/02_post_discovery_characterization")
     parser.add_argument("--permutations", type=int, default=9999)

@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,9 +16,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agents.subtype_review.graph import save_review_outputs
+from agents.subtype_review.graph import partition_signature, save_review_outputs
 from agents.subtype_review.llm import review_signature_manifest
 from agents.subtype_review.runner import run_subtype_review
+from scripts_2026_8_31 import experiment_multi_k_accepted_core_stability as stability
 from utils.io import write_json
 from utils.llm_utils import load_yaml_file
 
@@ -40,11 +42,51 @@ def json_sha256(payload):
     ).encode("utf-8")).hexdigest()
 
 
+def source_identity(root: Path):
+    paths = [
+        root / "agents",
+        root / "tools",
+        root / "utils",
+        root / "configs",
+        Path(__file__).resolve(),
+        Path(stability.__file__).resolve(),
+    ]
+    files = []
+    for path in paths:
+        files.extend(
+            item for item in (path.rglob("*") if path.is_dir() else [path])
+            if item.is_file() and item.suffix in {".py", ".md", ".yaml", ".yml"}
+        )
+    digest = hashlib.sha256()
+    for path in sorted(set(files)):
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    git_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True,
+        capture_output=True, text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        [
+            "git", "status", "--porcelain", "--untracked-files=all", "--",
+            "agents", "tools", "utils", "configs",
+            str(Path(__file__).resolve().relative_to(root)),
+        ],
+        cwd=root, check=True, capture_output=True, text=True,
+    ).stdout
+    return {
+        "git_commit_sha": git_commit,
+        "git_worktree_clean": not bool(status.strip()),
+        "source_tree_sha256": digest.hexdigest(),
+    }
+
+
 def cache_reusable(summary, metadata, identity):
     return (
         summary.get("status") == "review_complete"
         and summary.get("raw_control_status") == "complete"
         and all(metadata.get(key) == value for key, value in identity.items())
+        and metadata.get("final_partition_signature")
+        == partition_signature(summary.get("partition", {}).get("sets", []))
     )
 
 
@@ -61,7 +103,13 @@ def load_main_inputs(data_root: Path):
     paths = dict(cache.get("paths", {}) or {})
     if any(name not in paths for name in VIEWS):
         raise ValueError("Current main output does not contain all five view affinities.")
-    matrices = {name: np.asarray(np.load(paths[name]), dtype=float) for name in VIEWS}
+    matrices = {
+        name: np.asarray(np.load(
+            (candidate_dir if name in {"ct", "wsi", "rna"} else data_root / "wxs")
+            / Path(paths[name]).name
+        ), dtype=float)
+        for name in VIEWS
+    }
     fused = np.asarray(np.load(candidate_dir / "fused_similarity.npy"), dtype=float)
     expected_shape = (len(order), len(order))
     if fused.shape != expected_shape or any(
@@ -113,6 +161,21 @@ def load_patient_states(data_root: Path):
     return states
 
 
+def analyze_stable_cores(
+    output_root: Path, patient_ids: list[str], valid_run_count: int
+):
+    expected_run_count = len(INITIAL_KS) * len(REPEATS)
+    if valid_run_count != expected_run_count:
+        return {
+            "analysis_status": "pending",
+            "valid_run_count": valid_run_count,
+            "expected_run_count": expected_run_count,
+        }
+    return stability.analyze(
+        output_root, patient_ids, INITIAL_KS, REPEATS, min_core_size=5
+    )
+
+
 def run(
     data_root: Path,
     config_dir: Path,
@@ -133,6 +196,7 @@ def run(
         "review_signature": review_signature["review_signature"],
         "fused_similarity_sha256": file_sha256(candidate_dir / "fused_similarity.npy"),
         "patient_order_sha256": file_sha256(candidate_dir / "affinity_patient_order.json"),
+        **source_identity(ROOT),
     }
     write_json(output_root / "experiment_manifest.json", {
         "experiment": "five_view_multi_k_agent_review",
@@ -142,6 +206,7 @@ def run(
         "fused_shape": list(fused.shape),
         "initial_k": list(initial_ks),
         "repeats": list(repeats),
+        **input_identity,
     })
 
     rows = []
@@ -193,6 +258,9 @@ def run(
                 "repeat": repeat,
                 "patient_count": len(patient_ids),
                 "status": summary.get("status"),
+                "final_partition_signature": partition_signature(
+                    summary.get("partition", {}).get("sets", [])
+                ),
                 **identity,
             }
             write_json(run_root / "run_metadata.json", metadata)
@@ -234,11 +302,13 @@ def run(
         "views": list(VIEWS),
         "runs": rows,
     })
+    stable_core_analysis = analyze_stable_cores(output_root, patient_ids, len(rows))
     return {
         "output_root": str(output_root),
         "initial_k": list(initial_ks),
         "repeats": list(repeats),
         "run_count": len(rows),
+        "stable_core_analysis_status": stable_core_analysis["analysis_status"],
     }
 
 

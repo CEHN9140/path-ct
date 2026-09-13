@@ -195,9 +195,18 @@ def run_partition(partition, cores, output_root, mrna, clearcode, permutations):
     }
 
 
+def validate_discovery_binding(stable_root, discovery_root):
+    manifest = json.loads(
+        (Path(discovery_root) / "source_manifest.json").read_text(encoding="utf-8")
+    )
+    if Path(manifest["multi_k_root"]).resolve() != Path(stable_root).resolve():
+        raise ValueError("Post-discovery characterization uses a different multi-K root")
+
+
 def run(data_root=ROOT / "data", stable_root=ROOT / "output_kirc_v13/00_five_view_multi_k_agent_review", output_root=ROOT / "output_kirc_v13/04_known_ccrcc_subtype_core_mapping", discovery_root=ROOT / "output_kirc_v13/02_post_discovery_characterization", permutations=9999, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
+    validate_discovery_binding(stable_root, discovery_root)
     if force and output_root.exists():
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
