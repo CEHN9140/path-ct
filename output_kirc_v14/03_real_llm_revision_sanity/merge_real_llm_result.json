@@ -1,0 +1,134 @@
+{
+  "case": "merge",
+  "status": "complete",
+  "router_calls": 2,
+  "reviser_calls": 1,
+  "revision_applied": true,
+  "partition_changed": true,
+  "revisited_after_revision": true,
+  "initial_set_ids": [
+    "C1",
+    "C2"
+  ],
+  "current_set_ids": [
+    "C1_M_C2"
+  ],
+  "trace": [
+    {
+      "round": 0,
+      "node": "router",
+      "event": "decision",
+      "plan": {
+        "actions": [
+          {
+            "action": "merge",
+            "target_ids": [
+              "C1",
+              "C2"
+            ],
+            "decision_state": {
+              "identity": "supported",
+              "structure": "incompatible",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "no"
+            },
+            "reason": "Both C1 and C2 have coherent biological identity evidence, but the cross-modal structural evidence shows a reproducibly weak pairwise boundary and insufficient separation between C1 and C2, with negative fused silhouette and boundary-separation metrics. This positive pairwise structural evidence supports merging the two sets rather than retaining them as separate candidates. Confounder evidence does not support a technical explanation, and no material unresolved question requires further evidence."
+          }
+        ],
+        "evidence_requests": []
+      }
+    },
+    {
+      "round": 1,
+      "node": "reviser",
+      "event": "revision_applied",
+      "result": {
+        "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P2\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_M_C2\"}]",
+        "operations": [
+          {
+            "action": "merge",
+            "target_ids": [
+              "C1",
+              "C2"
+            ],
+            "new_set_id": "C1_M_C2"
+          }
+        ],
+        "superseded_sets": [
+          {
+            "set_id": "C1",
+            "member_ids": [
+              "P1",
+              "P10",
+              "P11",
+              "P12",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9"
+            ],
+            "revision_lineage": []
+          },
+          {
+            "set_id": "C2",
+            "member_ids": [
+              "P13",
+              "P14",
+              "P15",
+              "P16",
+              "P17",
+              "P18",
+              "P19",
+              "P20",
+              "P21",
+              "P22",
+              "P23",
+              "P24"
+            ],
+            "revision_lineage": []
+          }
+        ],
+        "algorithm": "deterministic_spectral_clustering_and_set_union",
+        "seed": 0,
+        "metric_refs": [],
+        "parameters": {
+          "split_strategies": []
+        }
+      }
+    },
+    {
+      "round": 1,
+      "node": "router",
+      "event": "decision",
+      "plan": {
+        "actions": [
+          {
+            "action": "accept",
+            "target_ids": [
+              "C1_M_C2"
+            ],
+            "decision_state": {
+              "identity": "supported",
+              "structure": "compatible",
+              "alternative_explanation": "not_supported",
+              "uncertainty": "no"
+            },
+            "reason": "C1_M_C2 has coherent controlled biological identity evidence, cross-modal review supports the revised membership, and confounder assessment found no plausible competing technical explanation. Known-label echo is controlled partition-level context. The candidate is sufficiently defensible for downstream validation."
+          }
+        ],
+        "evidence_requests": []
+      }
+    }
+  ],
+  "llm_usage": {
+    "api_calls": 5,
+    "prompt_tokens": 10312,
+    "completion_tokens": 674,
+    "total_tokens": 10986
+  }
+}
