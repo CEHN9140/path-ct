@@ -1,0 +1,391 @@
+{
+  "experiment": "revision_sanity",
+  "mode": "deterministic_mock_agents",
+  "results": {
+    "split": {
+      "case": "split",
+      "status": "complete",
+      "router_calls": 2,
+      "reviser_calls": 1,
+      "revision_applied": true,
+      "partition_changed": true,
+      "revisited_after_revision": true,
+      "initial_set_ids": [
+        "C1",
+        "C2"
+      ],
+      "current_set_ids": [
+        "C1_S1",
+        "C1_S2",
+        "C2"
+      ],
+      "revision_result": {
+        "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\"],\"set_id\":\"C1_S1\"},{\"member_ids\":[\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_S2\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "operations": [
+          {
+            "action": "split",
+            "target_ids": [
+              "C1"
+            ],
+            "children": [
+              "C1_S1",
+              "C1_S2"
+            ]
+          }
+        ],
+        "superseded_sets": [
+          {
+            "set_id": "C1",
+            "member_ids": [
+              "P1",
+              "P10",
+              "P11",
+              "P12",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9"
+            ],
+            "revision_lineage": []
+          }
+        ],
+        "algorithm": "deterministic_spectral_clustering_and_set_union",
+        "seed": 0,
+        "metric_refs": [],
+        "parameters": {
+          "split_strategies": [
+            "fused_similarity_spectral"
+          ]
+        }
+      },
+      "trace": [
+        {
+          "round": 0,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "split",
+                "target_ids": [
+                  "C1"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "incompatible",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled split action"
+              },
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "unassessed",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled accept action"
+              }
+            ],
+            "evidence_requests": []
+          }
+        },
+        {
+          "round": 1,
+          "node": "reviser",
+          "event": "revision_applied",
+          "result": {
+            "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\"],\"set_id\":\"C1_S1\"},{\"member_ids\":[\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_S2\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "operations": [
+              {
+                "action": "split",
+                "target_ids": [
+                  "C1"
+                ],
+                "children": [
+                  "C1_S1",
+                  "C1_S2"
+                ]
+              }
+            ],
+            "superseded_sets": [
+              {
+                "set_id": "C1",
+                "member_ids": [
+                  "P1",
+                  "P10",
+                  "P11",
+                  "P12",
+                  "P2",
+                  "P3",
+                  "P4",
+                  "P5",
+                  "P6",
+                  "P7",
+                  "P8",
+                  "P9"
+                ],
+                "revision_lineage": []
+              }
+            ],
+            "algorithm": "deterministic_spectral_clustering_and_set_union",
+            "seed": 0,
+            "metric_refs": [],
+            "parameters": {
+              "split_strategies": [
+                "fused_similarity_spectral"
+              ]
+            }
+          }
+        },
+        {
+          "round": 1,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C1_S1"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "unassessed",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled accept action"
+              },
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C1_S2"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "unassessed",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled accept action"
+              },
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "unassessed",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled accept action"
+              }
+            ],
+            "evidence_requests": []
+          }
+        }
+      ]
+    },
+    "merge": {
+      "case": "merge",
+      "status": "complete",
+      "router_calls": 2,
+      "reviser_calls": 1,
+      "revision_applied": true,
+      "partition_changed": true,
+      "revisited_after_revision": true,
+      "initial_set_ids": [
+        "C1",
+        "C2"
+      ],
+      "current_set_ids": [
+        "C1_M_C2"
+      ],
+      "revision_result": {
+        "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+        "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P2\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_M_C2\"}]",
+        "operations": [
+          {
+            "action": "merge",
+            "target_ids": [
+              "C1",
+              "C2"
+            ],
+            "new_set_id": "C1_M_C2"
+          }
+        ],
+        "superseded_sets": [
+          {
+            "set_id": "C1",
+            "member_ids": [
+              "P1",
+              "P10",
+              "P11",
+              "P12",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7",
+              "P8",
+              "P9"
+            ],
+            "revision_lineage": []
+          },
+          {
+            "set_id": "C2",
+            "member_ids": [
+              "P13",
+              "P14",
+              "P15",
+              "P16",
+              "P17",
+              "P18",
+              "P19",
+              "P20",
+              "P21",
+              "P22",
+              "P23",
+              "P24"
+            ],
+            "revision_lineage": []
+          }
+        ],
+        "algorithm": "deterministic_spectral_clustering_and_set_union",
+        "seed": 0,
+        "metric_refs": [],
+        "parameters": {
+          "split_strategies": []
+        }
+      },
+      "trace": [
+        {
+          "round": 0,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "merge",
+                "target_ids": [
+                  "C1",
+                  "C2"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "incompatible",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled merge action"
+              }
+            ],
+            "evidence_requests": []
+          }
+        },
+        {
+          "round": 1,
+          "node": "reviser",
+          "event": "revision_applied",
+          "result": {
+            "old_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P2\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1\"},{\"member_ids\":[\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\"],\"set_id\":\"C2\"}]",
+            "new_partition_signature": "[{\"member_ids\":[\"P1\",\"P10\",\"P11\",\"P12\",\"P13\",\"P14\",\"P15\",\"P16\",\"P17\",\"P18\",\"P19\",\"P2\",\"P20\",\"P21\",\"P22\",\"P23\",\"P24\",\"P3\",\"P4\",\"P5\",\"P6\",\"P7\",\"P8\",\"P9\"],\"set_id\":\"C1_M_C2\"}]",
+            "operations": [
+              {
+                "action": "merge",
+                "target_ids": [
+                  "C1",
+                  "C2"
+                ],
+                "new_set_id": "C1_M_C2"
+              }
+            ],
+            "superseded_sets": [
+              {
+                "set_id": "C1",
+                "member_ids": [
+                  "P1",
+                  "P10",
+                  "P11",
+                  "P12",
+                  "P2",
+                  "P3",
+                  "P4",
+                  "P5",
+                  "P6",
+                  "P7",
+                  "P8",
+                  "P9"
+                ],
+                "revision_lineage": []
+              },
+              {
+                "set_id": "C2",
+                "member_ids": [
+                  "P13",
+                  "P14",
+                  "P15",
+                  "P16",
+                  "P17",
+                  "P18",
+                  "P19",
+                  "P20",
+                  "P21",
+                  "P22",
+                  "P23",
+                  "P24"
+                ],
+                "revision_lineage": []
+              }
+            ],
+            "algorithm": "deterministic_spectral_clustering_and_set_union",
+            "seed": 0,
+            "metric_refs": [],
+            "parameters": {
+              "split_strategies": []
+            }
+          }
+        },
+        {
+          "round": 1,
+          "node": "router",
+          "event": "decision",
+          "plan": {
+            "actions": [
+              {
+                "action": "accept",
+                "target_ids": [
+                  "C1_M_C2"
+                ],
+                "decision_state": {
+                  "identity": "unassessed",
+                  "structure": "unassessed",
+                  "alternative_explanation": "unassessed",
+                  "uncertainty": "yes"
+                },
+                "reason": "controlled accept action"
+              }
+            ],
+            "evidence_requests": []
+          }
+        }
+      ]
+    }
+  },
+  "passed_cases": 2
+}
