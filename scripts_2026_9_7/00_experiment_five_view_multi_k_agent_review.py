@@ -218,6 +218,7 @@ def leave_one_k_out(
     repeats: tuple[int, ...], reference_cores,
 ):
     rows = []
+    reference_count = len(reference_cores)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for excluded_k in initial_ks:
@@ -233,6 +234,12 @@ def leave_one_k_out(
             mean_jaccard, min_jaccard = matched_core_jaccard(
                 reference_cores, summary.get("primary_cores", [])
             )
+            candidate_count = summary.get("primary_core_count") or 0
+            matched_count = min(reference_count, candidate_count)
+            matched_mean = (
+                mean_jaccard * max(reference_count, candidate_count) / matched_count
+                if mean_jaccard is not None and matched_count else None
+            )
             rows.append({
                 "excluded_k": excluded_k,
                 "valid_run_count": summary.get("valid_run_count"),
@@ -240,9 +247,16 @@ def leave_one_k_out(
                 "primary_core_patient_count": summary.get("primary_core_patient_count"),
                 "mean_matched_jaccard": mean_jaccard,
                 "min_matched_jaccard": min_jaccard,
+                "matched_core_mean_jaccard": matched_mean,
+                "extra_core_count": max(0, candidate_count - reference_count),
+                "missing_core_count": max(0, reference_count - candidate_count),
                 "primary_cores": summary.get("primary_cores", []),
             })
     write_json(output_root / "leave_one_k_out_summary.json", {"results": rows})
+    core_analysis.write_csv(
+        output_root / "leave_one_k_out_summary.csv",
+        [{key: value for key, value in row.items() if key != "primary_cores"} for row in rows],
+    )
     return rows
 
 
