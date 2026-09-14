@@ -221,5 +221,13 @@ def test_leave_one_k_out_uses_each_reduced_k_universe(monkeypatch, tmp_path):
                 "primary_cores": []}
 
     monkeypatch.setattr(MODULE.stability, "analyze", analyze)
-    MODULE.leave_one_k_out(tmp_path, ["P1"], MODULE.REPEATS)
+    MODULE.leave_one_k_out(tmp_path, ["P1"], MODULE.INITIAL_KS, MODULE.REPEATS, [])
     assert calls == [tuple(k for k in MODULE.INITIAL_KS if k != excluded) for excluded in MODULE.INITIAL_KS]
+
+
+def test_matched_core_jaccard_uses_one_to_one_matching():
+    reference = [{"member_ids": ["a", "b"]}, {"member_ids": ["c", "d"]}]
+    candidate = [{"member_ids": ["a", "b"]}, {"member_ids": ["c", "x"]}]
+    mean, minimum = MODULE.matched_core_jaccard(reference, candidate)
+    assert mean == 2 / 3
+    assert minimum == 1 / 3

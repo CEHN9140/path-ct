@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -187,12 +188,29 @@ def analyze_stable_cores(
     )
 
 
-def leave_one_k_out(output_root: Path, patient_ids: list[str], repeats: tuple[int, ...]):
+def matched_core_jaccard(reference, candidate):
+    if not reference or not candidate:
+        return None, None
+    scores = np.asarray([
+        [len(set(left["member_ids"]) & set(right["member_ids"])) /
+         len(set(left["member_ids"]) | set(right["member_ids"]))
+         for right in candidate]
+        for left in reference
+    ])
+    rows, columns = linear_sum_assignment(1.0 - scores)
+    matched = scores[rows, columns]
+    return float(matched.mean()), float(matched.min())
+
+
+def leave_one_k_out(
+    output_root: Path, patient_ids: list[str], initial_ks: tuple[int, ...],
+    repeats: tuple[int, ...], reference_cores,
+):
     rows = []
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        for excluded_k in INITIAL_KS:
-            kept_ks = tuple(k for k in INITIAL_KS if k != excluded_k)
+        for excluded_k in initial_ks:
+            kept_ks = tuple(k for k in initial_ks if k != excluded_k)
             reduced_root = root / f"exclude{excluded_k}"
             for repeat in repeats:
                 for initial_k in kept_ks:
@@ -201,11 +219,16 @@ def leave_one_k_out(output_root: Path, patient_ids: list[str], repeats: tuple[in
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.symlink_to(source, target_is_directory=True)
             summary = stability.analyze(reduced_root, patient_ids, kept_ks, repeats, min_core_size=5)
+            mean_jaccard, min_jaccard = matched_core_jaccard(
+                reference_cores, summary.get("primary_cores", [])
+            )
             rows.append({
                 "excluded_k": excluded_k,
                 "valid_run_count": summary.get("valid_run_count"),
                 "primary_core_count": summary.get("primary_core_count"),
                 "primary_core_patient_count": summary.get("primary_core_patient_count"),
+                "mean_matched_jaccard": mean_jaccard,
+                "min_matched_jaccard": min_jaccard,
                 "primary_cores": summary.get("primary_cores", []),
             })
     write_json(output_root / "leave_one_k_out_summary.json", {"results": rows})
@@ -344,7 +367,10 @@ def run(
             output_root, patient_ids, len(rows), initial_ks, repeats
         )
         if stable_core_analysis["analysis_status"] == "complete":
-            leave_one_k_out(output_root, patient_ids, repeats)
+            leave_one_k_out(
+                output_root, patient_ids, initial_ks, repeats,
+                stable_core_analysis.get("primary_cores", []),
+            )
     else:
         stable_core_analysis = {
             "analysis_status": "pending",
