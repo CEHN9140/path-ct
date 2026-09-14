@@ -30,7 +30,10 @@ def finite(value):
 
 
 def bh(values):
-    valid = sorted((i, float(value)) for i, value in enumerate(values) if value is not None and math.isfinite(value))
+    valid = sorted(
+        ((i, float(value)) for i, value in enumerate(values) if value is not None and math.isfinite(value)),
+        key=lambda item: item[1],
+    )
     result = [None] * len(values)
     for rank, (index, value) in enumerate(valid, 1):
         result[index] = min(1.0, value * len(valid) / rank)
@@ -61,16 +64,16 @@ def load_inputs(data_root, multi_k_root):
 def categorical_rows(records, groups, fields):
     rows = []
     for field in fields:
-        levels = sorted({str(records[case].get(field, "") or "") for case in records} - {""})
-        table = [[sum(records[case].get(field) == level for case in members) for level in levels] for members in groups.values()]
+        levels = sorted({str(records[case].get(field, "")) for case in records if records[case].get(field) is not None and str(records[case].get(field)) != ""})
+        table = [[sum(str(records[case].get(field)) == level for case in members) for level in levels] for members in groups.values()]
         table = np.asarray(table, dtype=int)
         p_value = None
         if len(levels) > 1 and np.all(table.sum(axis=0) > 0):
             p_value = float(chi2_contingency(table, correction=False)[1])
         v = confound.cramers_v(table) if p_value is not None else None
         for level in levels:
-            core_n = sum(records[case].get(field) == level for case in groups["core"])
-            non_core_n = sum(records[case].get(field) == level for case in groups["non_core"])
+            core_n = sum(str(records[case].get(field)) == level for case in groups["core"])
+            non_core_n = sum(str(records[case].get(field)) == level for case in groups["non_core"])
             rows.append({"field": field, "level": level, "core_n": core_n, "non_core_n": non_core_n, "core_fraction": core_n / len(groups["core"]), "non_core_fraction": non_core_n / len(groups["non_core"]), "cramers_v": v, "p_value": p_value, "q_value": None})
     tests = {}
     for row in rows:
@@ -95,7 +98,7 @@ def numeric_rows(records, groups, fields):
     return rows
 
 
-def run(data_root, multi_k_root, output_root, force=False):
+def run(data_root, multi_k_root, output_root, reference_coverage, force=False):
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     if force and output_root.exists():
@@ -105,11 +108,23 @@ def run(data_root, multi_k_root, output_root, force=False):
     clinical = clinical_table(states)
     technical = confound.confounder_values(states, str(data_root))
     records = {case: {**clinical.get(case, {}), **technical.get(case, {})} for case in patient_ids}
+    coverage = {row["case_id"]: row for row in base.read_csv(reference_coverage)}
+    if set(patient_ids) - set(coverage):
+        raise ValueError("Known-label coverage does not cover the affinity cohort")
+    for case in patient_ids:
+        records[case].update({
+            "has_mrna_label": coverage[case].get("has_mrna_label"),
+            "has_clearcode_label": coverage[case].get("has_clearcode_label"),
+        })
     groups = {"core": sorted(core_ids), "non_core": sorted(set(patient_ids) - core_ids)}
-    categorical_fields = ("stage_group", "t_stage", "m_stage", "grade", "gender", "race", "tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel")
+    categorical_fields = ("stage_group", "t_stage", "m_stage", "grade", "gender", "race", "os_event", "tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel", "has_mrna_label", "has_clearcode_label")
     numeric_fields = ("age", "os_time", "ct_slice_thickness", "ct_z_spacing", "ct_pixel_spacing", "ct_n_images", "ct_study_year")
     categorical = categorical_rows(records, groups, categorical_fields)
     numeric = numeric_rows(records, groups, numeric_fields)
+    known_m = {case: record for case, record in records.items() if record.get("m_stage") in {"M0", "M1"}}
+    known_groups = {group: [case for case in cases if case in known_m] for group, cases in groups.items()}
+    m_known = categorical_rows(known_m, known_groups, ("m_stage",))
+    m_missing = [{"group": group, "known_m_n": sum(case in known_m for case in cases), "unknown_m_n": sum(case not in known_m for case in cases), "total_n": len(cases)} for group, cases in groups.items()]
     quality = []
     for case in patient_ids:
         state = states[case]
@@ -117,6 +132,8 @@ def run(data_root, multi_k_root, output_root, force=False):
         quality.append({"case_id": case, "group": "core" if case in core_ids else "non_core", "qc": state.get("qc"), **{f"{view}_available": bool(inventory.get(view)) for view in ("CT", "WSI", "RNA_Seq", "WXS", "CNV")}})
     base.write_csv(output_root / "core_non_core_categorical.csv", categorical)
     base.write_csv(output_root / "core_non_core_numeric.csv", numeric)
+    base.write_csv(output_root / "core_non_core_m_stage_known_only.csv", m_known)
+    base.write_csv(output_root / "core_non_core_m_stage_missingness.csv", m_missing)
     base.write_csv(output_root / "core_non_core_view_quality.csv", quality)
     summary = {"patient_count": len(patient_ids), "core_count": len(core_ids), "non_core_count": len(patient_ids) - len(core_ids), "core_ids": sorted(cores), "categorical_fields": list(categorical_fields), "numeric_fields": list(numeric_fields), "q_value_family": "within audit table", "interpretation": "descriptive selection-bias audit; no subtype assignment"}
     base.write_json(output_root / "core_non_core_audit_summary.json", summary)
@@ -128,6 +145,7 @@ def main():
     parser.add_argument("--data-root", type=Path, default=Path("output_kirc"))
     parser.add_argument("--multi-k-root", type=Path, default=Path("output_kirc_v13/00_five_view_multi_k_agent_review"))
     parser.add_argument("--output-root", type=Path, default=Path("output_kirc_v13/05_core_non_core_audit"))
+    parser.add_argument("--reference-coverage", type=Path, default=Path("output_kirc_v13/03_known_ccrcc_subtype_mapping/reference_coverage_all_cases.csv"))
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     print(json.dumps(run(**vars(args)), ensure_ascii=False, indent=2))
