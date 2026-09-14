@@ -129,7 +129,7 @@ def load_variants(data_root, patient_ids, canonical, snf_config):
     wxs = pd.read_csv(data_root / "wxs/wxs_discovery_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
     prevalence = wxs.mean()
     selected = prevalence[prevalence >= .05].index
-    for name, empty_distance, columns in (("wxs_prevalence_only", 0.0, selected), ("wxs_zero_distance_1", 1.0, wxs.columns)):
+    for name, empty_distance, columns in (("wxs_prevalence_only", 0.0, selected), ("wxs_zero_distance_05", 0.5, wxs.columns), ("wxs_zero_distance_1", 1.0, wxs.columns)):
         views = dict(canonical); views["wxs"] = mutation_affinity(wxs[columns].to_numpy(), empty_distance, snf_config)
         variants[name] = (fuse(views, snf_config), {"feature_count": len(columns), "view": "wxs", "empty_mutation_distance": empty_distance})
     cnv = pd.read_csv(data_root / "cnv/case_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
