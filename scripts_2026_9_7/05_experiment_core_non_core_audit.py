@@ -73,8 +73,21 @@ def categorical_rows(records, groups, fields):
                 odds_ratio, p_value = map(float, fisher_exact(table))
                 test = "fisher_exact"
             else:
-                p_value = float(chi2_contingency(table, correction=False)[1])
-                test = "pearson_chi2"
+                expected = chi2_contingency(table, correction=False)[3]
+                sparse = bool((expected < 1).any() or (expected < 5).mean() > .2)
+                if sparse:
+                    labels = np.asarray([1] * len(groups["core"]) + [0] * len(groups["non_core"]))
+                    values_for_field = np.asarray([records[case].get(field) for case in groups["core"] + groups["non_core"]])
+                    observed = float(chi2_contingency(table, correction=False)[0])
+                    rng = np.random.default_rng(20260914 + fields.index(field))
+                    exceed = 0
+                    for _ in range(10000):
+                        shuffled = rng.permutation(labels)
+                        permuted = np.asarray([[np.sum((shuffled == group) & (values_for_field == level)) for level in levels] for group in (1, 0)])
+                        exceed += chi2_contingency(permuted, correction=False)[0] >= observed
+                    p_value, test = (exceed + 1) / 10001, "monte_carlo_chi2"
+                else:
+                    p_value, test = float(chi2_contingency(table, correction=False)[1]), "pearson_chi2"
         v = confound.cramers_v(table) if p_value is not None else None
         for level in levels:
             core_n = sum(str(records[case].get(field)) == level for case in groups["core"])
@@ -132,12 +145,17 @@ def run(data_root, multi_k_root, output_root, reference_coverage, force=False):
     m_missing = [{"group": group, "known_m_n": sum(case in known_m for case in cases), "unknown_m_n": sum(case not in known_m for case in cases), "total_n": len(cases)} for group, cases in groups.items()]
     missing_table = np.asarray([[row["known_m_n"], row["unknown_m_n"]] for row in m_missing])
     missing_or, missing_p = map(float, fisher_exact(missing_table))
-    missing_audit = {"comparison": "known_M_vs_unknown_M", "core_known": m_missing[0]["known_m_n"], "core_unknown": m_missing[0]["unknown_m_n"], "non_core_known": m_missing[1]["known_m_n"], "non_core_unknown": m_missing[1]["unknown_m_n"], "odds_ratio": missing_or, "p_value": missing_p, "q_value": None, "test": "fisher_exact"}
+    missing_audit = {"comparison": "missing_vs_known", "core_known": m_missing[0]["known_m_n"], "core_unknown": m_missing[0]["unknown_m_n"], "non_core_known": m_missing[1]["known_m_n"], "non_core_unknown": m_missing[1]["unknown_m_n"], "odds_ratio": "infinite" if missing_or == 0 else 1 / missing_or, "p_value": missing_p, "q_value": None, "test": "fisher_exact"}
     known_m_rows = [row for row in m_known]
+    known_m_counts = {group: {level: sum(records[case].get("m_stage") == level for case in cases) for level in ("M0", "M1")} for group, cases in known_groups.items()}
+    known_m_or, known_m_p = map(float, fisher_exact([[known_m_counts["core"]["M1"], known_m_counts["core"]["M0"]], [known_m_counts["non_core"]["M1"], known_m_counts["non_core"]["M0"]]]))
     known_m_q = bh([missing_p, m_known[0]["p_value"] if m_known else None])
     missing_audit["q_value"], q_known = known_m_q[0], known_m_q[1]
     for row in known_m_rows:
         row["q_value"] = q_known
+        row["contrast"] = "M1_vs_M0"
+        row["odds_ratio"] = known_m_or
+        row["p_value"] = known_m_p
     quality = []
     for case in patient_ids:
         state = states[case]
