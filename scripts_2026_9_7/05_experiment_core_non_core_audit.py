@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import chi2_contingency, mannwhitneyu
+from scipy.stats import chi2_contingency, fisher_exact, mannwhitneyu
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -67,14 +67,19 @@ def categorical_rows(records, groups, fields):
         levels = sorted({str(records[case].get(field, "")) for case in records if records[case].get(field) is not None and str(records[case].get(field)) != ""})
         table = [[sum(str(records[case].get(field)) == level for case in members) for level in levels] for members in groups.values()]
         table = np.asarray(table, dtype=int)
-        p_value = None
+        p_value, odds_ratio, test = None, None, None
         if len(levels) > 1 and np.all(table.sum(axis=0) > 0):
-            p_value = float(chi2_contingency(table, correction=False)[1])
+            if table.shape == (2, 2):
+                odds_ratio, p_value = map(float, fisher_exact(table))
+                test = "fisher_exact"
+            else:
+                p_value = float(chi2_contingency(table, correction=False)[1])
+                test = "pearson_chi2"
         v = confound.cramers_v(table) if p_value is not None else None
         for level in levels:
             core_n = sum(str(records[case].get(field)) == level for case in groups["core"])
             non_core_n = sum(str(records[case].get(field)) == level for case in groups["non_core"])
-            rows.append({"field": field, "level": level, "core_n": core_n, "non_core_n": non_core_n, "core_fraction": core_n / len(groups["core"]), "non_core_fraction": non_core_n / len(groups["non_core"]), "cramers_v": v, "p_value": p_value, "q_value": None})
+            rows.append({"field": field, "level": level, "core_n": core_n, "non_core_n": non_core_n, "core_fraction": core_n / len(groups["core"]), "non_core_fraction": non_core_n / len(groups["non_core"]), "cramers_v": v, "odds_ratio": odds_ratio, "test": test, "p_value": p_value, "q_value": None})
     tests = {}
     for row in rows:
         tests[row["field"]] = row["p_value"]
@@ -125,6 +130,14 @@ def run(data_root, multi_k_root, output_root, reference_coverage, force=False):
     known_groups = {group: [case for case in cases if case in known_m] for group, cases in groups.items()}
     m_known = categorical_rows(known_m, known_groups, ("m_stage",))
     m_missing = [{"group": group, "known_m_n": sum(case in known_m for case in cases), "unknown_m_n": sum(case not in known_m for case in cases), "total_n": len(cases)} for group, cases in groups.items()]
+    missing_table = np.asarray([[row["known_m_n"], row["unknown_m_n"]] for row in m_missing])
+    missing_or, missing_p = map(float, fisher_exact(missing_table))
+    missing_audit = {"comparison": "known_M_vs_unknown_M", "core_known": m_missing[0]["known_m_n"], "core_unknown": m_missing[0]["unknown_m_n"], "non_core_known": m_missing[1]["known_m_n"], "non_core_unknown": m_missing[1]["unknown_m_n"], "odds_ratio": missing_or, "p_value": missing_p, "q_value": None, "test": "fisher_exact"}
+    known_m_rows = [row for row in m_known]
+    known_m_q = bh([missing_p, m_known[0]["p_value"] if m_known else None])
+    missing_audit["q_value"], q_known = known_m_q[0], known_m_q[1]
+    for row in known_m_rows:
+        row["q_value"] = q_known
     quality = []
     for case in patient_ids:
         state = states[case]
@@ -134,6 +147,7 @@ def run(data_root, multi_k_root, output_root, reference_coverage, force=False):
     base.write_csv(output_root / "core_non_core_numeric.csv", numeric)
     base.write_csv(output_root / "core_non_core_m_stage_known_only.csv", m_known)
     base.write_csv(output_root / "core_non_core_m_stage_missingness.csv", m_missing)
+    base.write_csv(output_root / "core_non_core_m_stage_missingness_test.csv", [missing_audit])
     base.write_csv(output_root / "core_non_core_view_quality.csv", quality)
     summary = {"patient_count": len(patient_ids), "core_count": len(core_ids), "non_core_count": len(patient_ids) - len(core_ids), "core_ids": sorted(cores), "categorical_fields": list(categorical_fields), "numeric_fields": list(numeric_fields), "q_value_family": "within audit table", "interpretation": "descriptive selection-bias audit; no subtype assignment"}
     base.write_json(output_root / "core_non_core_audit_summary.json", summary)

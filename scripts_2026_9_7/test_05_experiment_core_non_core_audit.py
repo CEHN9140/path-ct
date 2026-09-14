@@ -13,3 +13,14 @@ SPEC.loader.exec_module(MODULE)
 def test_bh_sorts_by_p_value_not_input_index():
     q_values = MODULE.bh([0.9, 0.001, 0.2])
     assert q_values == pytest.approx([0.9, 0.003, 0.3])
+
+
+def test_binary_categorical_comparison_uses_fisher_exact():
+    records = {
+        "a": {"event": "1"}, "b": {"event": "1"},
+        "c": {"event": "0"}, "d": {"event": "0"},
+    }
+    rows = MODULE.categorical_rows(
+        records, {"core": ["a", "b"], "non_core": ["c", "d"]}, ("event",)
+    )
+    assert {row["test"] for row in rows} == {"fisher_exact"}
