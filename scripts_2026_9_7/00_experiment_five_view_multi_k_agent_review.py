@@ -189,8 +189,10 @@ def analyze_stable_cores(
 
 
 def matched_core_jaccard(reference, candidate):
-    if not reference or not candidate:
+    if not reference and not candidate:
         return None, None
+    if not reference or not candidate:
+        return 0.0, 0.0
     scores = np.asarray([
         [len(set(left["member_ids"]) & set(right["member_ids"])) /
          len(set(left["member_ids"]) | set(right["member_ids"]))
@@ -198,7 +200,9 @@ def matched_core_jaccard(reference, candidate):
         for left in reference
     ])
     rows, columns = linear_sum_assignment(1.0 - scores)
-    matched = scores[rows, columns]
+    matched = np.pad(
+        scores[rows, columns], (0, max(len(reference), len(candidate)) - len(rows))
+    )
     return float(matched.mean()), float(matched.min())
 
 
@@ -242,12 +246,21 @@ def run(
     initial_ks: tuple[int, ...],
     repeats: tuple[int, ...],
     force: bool = False,
+    analysis_only: bool = False,
 ):
     patient_ids, _, fused = load_main_inputs(data_root)
     patient_states = load_patient_states(data_root)
     if not set(patient_ids).issubset(patient_states):
         raise ValueError("Main patient-state records do not cover affinity patient order.")
     output_root.mkdir(parents=True, exist_ok=True)
+    if analysis_only:
+        if tuple(initial_ks) != INITIAL_KS or tuple(repeats) != REPEATS:
+            raise ValueError("analysis-only requires the complete K2-K8 and repeat1-3 universe")
+        summary = stability.analyze(output_root, patient_ids, initial_ks, repeats, min_core_size=5)
+        if summary.get("analysis_status") != "complete":
+            raise RuntimeError("analysis-only requires 21 scientifically complete runs")
+        leave_one_k_out(output_root, patient_ids, initial_ks, repeats, summary.get("primary_cores", []))
+        return {"output_root": str(output_root), "analysis_status": "complete", "analysis_only": True}
     review_config = load_yaml_file(config_dir / "subtype_review.yaml")
     review_signature = review_signature_manifest(review_config, config_dir)
     candidate_dir = data_root / "candidate_subtype"
@@ -398,6 +411,7 @@ def main():
     parser.add_argument("--initial-k", dest="initial_ks", type=int, choices=INITIAL_KS, action="append")
     parser.add_argument("--repeat", dest="repeats", type=int, choices=REPEATS, action="append")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--analysis-only", action="store_true")
     args = parser.parse_args()
     args.initial_ks = parse_values(args.initial_ks, INITIAL_KS)
     args.repeats = parse_values(args.repeats, REPEATS)

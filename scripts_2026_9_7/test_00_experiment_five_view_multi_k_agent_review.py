@@ -231,3 +231,11 @@ def test_matched_core_jaccard_uses_one_to_one_matching():
     mean, minimum = MODULE.matched_core_jaccard(reference, candidate)
     assert mean == 2 / 3
     assert minimum == 1 / 3
+
+
+def test_matched_core_jaccard_penalizes_unmatched_cores():
+    reference = [{"member_ids": ["a"]}, {"member_ids": ["b"]}]
+    candidate = [{"member_ids": ["a"]}]
+    mean, minimum = MODULE.matched_core_jaccard(reference, candidate)
+    assert mean == 0.5
+    assert minimum == 0.0
