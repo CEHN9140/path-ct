@@ -226,16 +226,16 @@ def test_leave_one_k_out_uses_each_reduced_k_universe(monkeypatch, tmp_path):
 
 
 def test_matched_core_jaccard_uses_one_to_one_matching():
-    reference = [{"member_ids": ["a", "b"]}, {"member_ids": ["c", "d"]}]
-    candidate = [{"member_ids": ["a", "b"]}, {"member_ids": ["c", "x"]}]
+    reference = [{"member_ids": '["a", "b"]'}, {"member_ids": '["c", "d"]'}]
+    candidate = [{"member_ids": '["a", "b"]'}, {"member_ids": '["c", "x"]'}]
     mean, minimum = MODULE.matched_core_jaccard(reference, candidate)
     assert mean == 2 / 3
     assert minimum == 1 / 3
 
 
 def test_matched_core_jaccard_penalizes_unmatched_cores():
-    reference = [{"member_ids": ["a"]}, {"member_ids": ["b"]}]
-    candidate = [{"member_ids": ["a"]}]
+    reference = [{"member_ids": '["a"]'}, {"member_ids": '["b"]'}]
+    candidate = [{"member_ids": '["a"]'}]
     mean, minimum = MODULE.matched_core_jaccard(reference, candidate)
     assert mean == 0.5
     assert minimum == 0.0

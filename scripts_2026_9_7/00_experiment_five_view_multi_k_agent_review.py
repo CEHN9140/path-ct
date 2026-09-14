@@ -193,11 +193,18 @@ def matched_core_jaccard(reference, candidate):
         return None, None
     if not reference or not candidate:
         return 0.0, 0.0
+    def core_member_set(core):
+        members = core["member_ids"]
+        if isinstance(members, str):
+            members = json.loads(members)
+        return set(map(str, members))
+
+    reference_members = [core_member_set(core) for core in reference]
+    candidate_members = [core_member_set(core) for core in candidate]
     scores = np.asarray([
-        [len(set(left["member_ids"]) & set(right["member_ids"])) /
-         len(set(left["member_ids"]) | set(right["member_ids"]))
-         for right in candidate]
-        for left in reference
+        [len(left & right) / len(left | right)
+         for right in candidate_members]
+        for left in reference_members
     ])
     rows, columns = linear_sum_assignment(1.0 - scores)
     matched = np.pad(
