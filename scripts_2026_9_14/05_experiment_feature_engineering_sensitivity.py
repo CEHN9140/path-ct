@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts_2026_9_7 import analyze_multi_k_stable_cores as core_analysis
 from tools.evidence_features import distance_to_affinity
+from tools.evidence_features import fuse_affinities
 from tools.multimodal_consistency_check import normalize_affinity
 from utils.llm_utils import load_candidate_proposer_config
 
@@ -71,11 +72,7 @@ def mutation_affinity(values, empty_distance, snf_config):
 
 
 def fuse(views, snf_config):
-    import snf
-    fused = snf.snf(*[views[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")], K=int(snf_config["neighbor_count"]), t=int(snf_config["iterations"]), alpha=float(snf_config["alpha"]))
-    fused = np.maximum((np.asarray(fused) + np.asarray(fused).T) / 2, 0)
-    np.fill_diagonal(fused, 1.0)
-    return fused
+    return fuse_affinities({name: views[name] for name in ("ct", "wsi", "rna", "wxs", "cnv")}, snf_config)
 
 
 def core_jaccard(reference, candidate):
@@ -120,22 +117,22 @@ def recovery_metrics(fused, patient_ids, cores):
 
 
 def load_variants(data_root, patient_ids, canonical, snf_config):
-    variants = {"canonical": (fuse(canonical, snf_config), {})}
+    variants = {name: (dict(canonical), {}) for name in ["canonical"]}
     rna = pd.read_csv(data_root / "rna/case_pathway_features.csv").set_index("case_id").reindex(patient_ids)
     for count in (1000, 2000, 3000, 5000):
         rna_view, feature_count = rna_affinity_from_full_table(rna, count, snf_config)
         views = dict(canonical); views["rna"] = rna_view
-        variants[f"rna_top_{count}"] = (fuse(views, snf_config), {"feature_count": feature_count, "view": "rna", "normalization": "cohort_zscore"})
+        variants[f"rna_top_{count}"] = (views, {"feature_count": feature_count, "view": "rna", "normalization": "cohort_zscore"})
     wxs = pd.read_csv(data_root / "wxs/wxs_discovery_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
     prevalence = wxs.mean()
     selected = prevalence[prevalence >= .05].index
     for name, empty_distance, columns in (("wxs_prevalence_only", 0.0, selected), ("wxs_zero_distance_05", 0.5, wxs.columns), ("wxs_zero_distance_1", 1.0, wxs.columns)):
         views = dict(canonical); views["wxs"] = mutation_affinity(wxs[columns].to_numpy(), empty_distance, snf_config)
-        variants[name] = (fuse(views, snf_config), {"feature_count": len(columns), "view": "wxs", "empty_mutation_distance": empty_distance})
+        variants[name] = (views, {"feature_count": len(columns), "view": "wxs", "empty_mutation_distance": empty_distance})
     cnv = pd.read_csv(data_root / "cnv/case_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
     for name, columns in (("cnv_arm_only", [x for x in cnv if x.startswith("chr")]), ("cnv_arm_locus", [x for x in cnv if x.startswith("chr") or x.startswith("locus::")])):
         views = dict(canonical); views["cnv"] = affinity(robust_scale_cnv(cnv[columns].to_numpy()), "euclidean", snf_config)
-        variants[name] = (fuse(views, snf_config), {"feature_count": len(columns), "view": "cnv", "normalization": "median_iqr"})
+        variants[name] = (views, {"feature_count": len(columns), "view": "cnv", "normalization": "median_iqr"})
     return variants
 
 
@@ -149,11 +146,13 @@ def run(data_root, multi_k_root, config_dir, output_root, force=False):
     snf_config = load_candidate_proposer_config(config_dir)["snf"]
     variants = load_variants(data_root, patient_ids, canonical, snf_config)
     rows = []
-    for name, (fused, metadata) in variants.items():
+    for name, (views, metadata) in variants.items():
+        fused = fuse(views, snf_config)
         metrics = recovery_metrics(fused, patient_ids, cores)
         similarity = normalize_affinity(fused)
         offdiag = ~np.eye(len(patient_ids), dtype=bool)
-        metrics["fused_correlation_with_canonical"] = float(np.corrcoef(similarity[offdiag], normalize_affinity(variants["canonical"][0])[offdiag])[0, 1])
+        canonical_similarity = normalize_affinity(fuse(variants["canonical"][0], snf_config))
+        metrics["fused_correlation_with_canonical"] = float(np.corrcoef(similarity[offdiag], canonical_similarity[offdiag])[0, 1])
         rows.append({"variant": name, **metadata, **metrics})
     wxs = pd.read_csv(data_root / "wxs/wxs_discovery_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
     zero = wxs.sum(axis=1).eq(0)
