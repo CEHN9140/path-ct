@@ -212,7 +212,7 @@ def run(data_root=ROOT / "data", stable_root=ROOT / "output_kirc_v13/00_five_vie
     output_root.mkdir(parents=True, exist_ok=True)
     inputs = {
         "stable_core_membership": Path(stable_root) / "stable_core_membership.csv",
-        "stable_core_universe": discovery_root / "5view_7state/analysis_universe.csv",
+        "stable_core_universe": discovery_root / "5view_4stable_cores/analysis_universe.csv",
         "mrna_reference": data_root / "tcga_kirc_mrna_m1_m4.csv",
         "clearcode_reference": data_root / "tcga_kirc_clearcode34.csv",
     }
@@ -236,7 +236,7 @@ def run(data_root=ROOT / "data", stable_root=ROOT / "output_kirc_v13/00_five_vie
         missingness.append({"partition": "5V-stable-cores", "reference": reference, "available_n": int(table[:, 0].sum()), "missing_n": int(table[:, 1].sum()), "chi_square": chi, "permutation_p": p_value})
     BASE.attach_bh(missingness, "permutation_p", "bh_q")
     write_csv(output_root / "reference_missingness_by_core.csv", missingness)
-    results = run_partition("5V-stable-cores", cores, output_root / "5view_7state", mrna, clearcode, permutations)
+    results = run_partition("5V-stable-cores", cores, output_root / "5view_4stable_cores", mrna, clearcode, permutations)
     summary_rows = []
     for core_id in cores:
         values = {reference: next(row for row in results[reference]["composition"] if row["core_id"] == core_id) for reference in results}

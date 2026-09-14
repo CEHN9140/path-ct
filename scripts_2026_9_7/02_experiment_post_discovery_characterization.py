@@ -224,7 +224,7 @@ def run(data_root=ROOT / "output_kirc", multi_k_root=ROOT / "output_kirc_v13/00_
     multi_k_root = Path(multi_k_root)
     input_hashes = validate_multi_k_binding(data_root, multi_k_root)
     cores, _ = base.load_cores(multi_k_root)
-    groups_by_label = {"5view_7state": {key: sorted(value) for key, value in cores.items()}}
+    groups_by_label = {"5view_4stable_cores": {key: sorted(value) for key, value in cores.items()}}
     states, _ = base.load_states(data_root)
     patient_ids, _ = load_saved_affinities(data_root, config_dir)
     rebase_ct_paths(states, patient_ids, data_root)

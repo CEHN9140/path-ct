@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -186,6 +187,31 @@ def analyze_stable_cores(
     )
 
 
+def leave_one_k_out(output_root: Path, patient_ids: list[str], repeats: tuple[int, ...]):
+    rows = []
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for excluded_k in INITIAL_KS:
+            kept_ks = tuple(k for k in INITIAL_KS if k != excluded_k)
+            reduced_root = root / f"exclude{excluded_k}"
+            for repeat in repeats:
+                for initial_k in kept_ks:
+                    source = output_root / f"run{repeat}" / f"K{initial_k}"
+                    target = reduced_root / f"run{repeat}" / f"K{initial_k}"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.symlink_to(source, target_is_directory=True)
+            summary = stability.analyze(reduced_root, patient_ids, kept_ks, repeats, min_core_size=5)
+            rows.append({
+                "excluded_k": excluded_k,
+                "valid_run_count": summary.get("valid_run_count"),
+                "primary_core_count": summary.get("primary_core_count"),
+                "primary_core_patient_count": summary.get("primary_core_patient_count"),
+                "primary_cores": summary.get("primary_cores", []),
+            })
+    write_json(output_root / "leave_one_k_out_summary.json", {"results": rows})
+    return rows
+
+
 def run(
     data_root: Path,
     config_dir: Path,
@@ -317,6 +343,8 @@ def run(
         stable_core_analysis = analyze_stable_cores(
             output_root, patient_ids, len(rows), initial_ks, repeats
         )
+        if stable_core_analysis["analysis_status"] == "complete":
+            leave_one_k_out(output_root, patient_ids, repeats)
     else:
         stable_core_analysis = {
             "analysis_status": "pending",

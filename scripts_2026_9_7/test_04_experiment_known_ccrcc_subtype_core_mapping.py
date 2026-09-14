@@ -64,7 +64,7 @@ def test_status_low_information_and_unresolved_require_at_least_five_labels():
 
 def test_core_enrichment_preserves_total_and_label_counts(tmp_path):
     results = MAPPING.analyze_reference(
-        "5V-7state",
+        "5V-stable-cores",
         {"CORE01": ["p1", "p2", "p3"], "CORE02": ["p4", "p5"]},
         {"p1": {"reference_subtype": "m1", "reference_status": "matched"}, "p2": {"reference_subtype": "m1", "reference_status": "matched"}, "p3": {"reference_subtype": None, "reference_status": "missing"}, "p4": {"reference_subtype": "m2", "reference_status": "matched"}, "p5": {"reference_subtype": "m2", "reference_status": "matched"}},
         "mRNA",
@@ -80,7 +80,7 @@ def test_core_enrichment_preserves_total_and_label_counts(tmp_path):
 
 def test_run_partition_returns_current_reference_results(tmp_path):
     results = MAPPING.run_partition(
-        "5V-7state",
+        "5V-stable-cores",
         {"CORE01": ["p1", "p2"], "CORE03": ["p3", "p4"]},
         tmp_path,
         {"p1": {"reference_subtype": "m1", "reference_status": "matched"}, "p2": {"reference_subtype": "m1", "reference_status": "matched"}, "p3": {"reference_subtype": "m2", "reference_status": "matched"}, "p4": {"reference_subtype": "m2", "reference_status": "matched"}},

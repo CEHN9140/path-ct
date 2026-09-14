@@ -205,3 +205,21 @@ def test_stable_core_analysis_honors_supplied_universe(monkeypatch, tmp_path):
     monkeypatch.setattr(MODULE.stability, "analyze", analyze)
     MODULE.analyze_stable_cores(tmp_path, ["P1"], 1, (2,), (1,))
     assert captured == {"initial_ks": (2,), "repeats": (1,)}
+
+
+def test_leave_one_k_out_uses_each_reduced_k_universe(monkeypatch, tmp_path):
+    for repeat in MODULE.REPEATS:
+        for initial_k in MODULE.INITIAL_KS:
+            path = tmp_path / f"run{repeat}" / f"K{initial_k}"
+            path.mkdir(parents=True)
+    calls = []
+
+    def analyze(root, patient_ids, initial_ks, repeats, min_core_size):
+        calls.append(tuple(initial_ks))
+        return {"analysis_status": "complete", "valid_run_count": 18,
+                "primary_core_count": 1, "primary_core_patient_count": 5,
+                "primary_cores": []}
+
+    monkeypatch.setattr(MODULE.stability, "analyze", analyze)
+    MODULE.leave_one_k_out(tmp_path, ["P1"], MODULE.REPEATS)
+    assert calls == [tuple(k for k in MODULE.INITIAL_KS if k != excluded) for excluded in MODULE.INITIAL_KS]
