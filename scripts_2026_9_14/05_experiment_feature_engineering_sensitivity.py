@@ -79,7 +79,13 @@ def fuse(views, snf_config):
 
 
 def core_jaccard(reference, candidate):
-    left = [set(values) for values in reference.values()]
+    details = core_jaccard_details(reference, candidate)
+    return details["mean"], details["minimum"]
+
+
+def core_jaccard_details(reference, candidate):
+    names = list(reference)
+    left = [set(reference[name]) for name in names]
     right = [set(values) for values in candidate.values()]
     scores = np.asarray([[len(a & b) / len(a | b) for b in right] for a in left], dtype=float)
     size = max(len(left), len(right))
@@ -87,7 +93,11 @@ def core_jaccard(reference, candidate):
     padded[:len(left), :len(right)] = scores
     rows, columns = linear_sum_assignment(1.0 - padded)
     matched = padded[rows, columns]
-    return float(matched.mean()), float(matched.min())
+    by_core = {name: 0.0 for name in names}
+    for row, score in zip(rows, matched):
+        if row < len(left):
+            by_core[names[row]] = float(score)
+    return {"mean": float(matched.mean()), "minimum": float(matched.min()), "by_core": by_core}
 
 
 def recovery_metrics(fused, patient_ids, cores):
@@ -98,10 +108,11 @@ def recovery_metrics(fused, patient_ids, cores):
     distance = np.maximum(0.0, 1.0 - matrix)
     predicted = AgglomerativeClustering(n_clusters=4, metric="precomputed", linkage="average").fit_predict(distance)
     candidate = {str(label): [case for case, value in zip(core_ids, predicted) if value == label] for label in sorted(set(predicted))}
-    mean_jaccard, min_jaccard = core_jaccard(cores, candidate)
+    jaccard = core_jaccard_details(cores, candidate)
     return {
-        "fixed_core_mean_jaccard": mean_jaccard,
-        "fixed_core_min_jaccard": min_jaccard,
+        "fixed_core_mean_jaccard": jaccard["mean"],
+        "fixed_core_min_jaccard": jaccard["minimum"],
+        **{f"fixed_core_jaccard_{name}": value for name, value in jaccard["by_core"].items()},
         "fixed_core_ari": float(adjusted_rand_score(labels, predicted)),
         "fixed_core_nmi": float(normalized_mutual_info_score(labels, predicted)),
         "fixed_core_mean_silhouette": float(silhouette_score(distance, labels, metric="precomputed")),
@@ -124,7 +135,7 @@ def load_variants(data_root, patient_ids, canonical, snf_config):
     cnv = pd.read_csv(data_root / "cnv/case_features.csv").set_index("case_id").reindex(patient_ids).fillna(0.0)
     for name, columns in (("cnv_arm_only", [x for x in cnv if x.startswith("chr")]), ("cnv_arm_locus", [x for x in cnv if x.startswith("chr") or x.startswith("locus::")])):
         views = dict(canonical); views["cnv"] = affinity(robust_scale_cnv(cnv[columns].to_numpy()), "euclidean", snf_config)
-        variants[name] = (fuse(views, snf_config), {"feature_count": len(columns), "view": "cnv"})
+        variants[name] = (fuse(views, snf_config), {"feature_count": len(columns), "view": "cnv", "normalization": "median_iqr"})
     return variants
 
 

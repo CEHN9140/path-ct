@@ -21,6 +21,16 @@ def test_core_jaccard_uses_patient_membership():
     assert minimum == pytest.approx(1 / 3)
 
 
+def test_core_jaccard_is_one_to_one_and_reports_each_core():
+    details = module.core_jaccard_details(
+        {"CORE01": ["P1", "P2"], "CORE02": ["P3", "P4"]},
+        {"C1": ["P1", "P2"], "C2": ["P1", "P2"]},
+    )
+    assert details["by_core"]["CORE01"] == pytest.approx(1.0)
+    assert details["by_core"]["CORE02"] == pytest.approx(0.0)
+    assert details["mean"] == pytest.approx(0.5)
+
+
 def test_rna_reconstruction_matches_canonical_affinity():
     root = Path(__file__).resolve().parents[1]
     candidate = root / "output_kirc/candidate_subtype"
