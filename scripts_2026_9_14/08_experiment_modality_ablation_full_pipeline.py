@@ -44,22 +44,23 @@ def load_canonical_inputs(data_root):
     return patient_ids, views
 
 
-def fuse_active_views(views, snf_config):
-    return fuse_affinities({name: views[name] for name in ACTIVE_MODALITIES}, snf_config)
+def fuse_active_views(views, snf_config, active_modalities=ACTIVE_MODALITIES):
+    return fuse_affinities({name: views[name] for name in active_modalities}, snf_config)
 
 
-def variant_manifest(patient_ids, fused_sha256, patient_order_sha256):
+def variant_manifest(patient_ids, fused_sha256, patient_order_sha256, active_modalities=ACTIVE_MODALITIES):
+    disabled_modalities = [name for name in ALL_MODALITIES if name not in active_modalities]
     return {
-        "variant": "leave_ct_out",
-        "active_modalities": list(ACTIVE_MODALITIES),
-        "disabled_modalities": ["ct"],
+        "variant": f"leave_{disabled_modalities[0]}_out" if len(disabled_modalities) == 1 else "modality_ablation",
+        "active_modalities": list(active_modalities),
+        "disabled_modalities": disabled_modalities,
         "cohort_n": len(patient_ids),
         "fused_sha256": fused_sha256,
         "patient_order_sha256": patient_order_sha256,
     }
 
 
-def write_consensus_partitions(candidate_dir, fused, patient_ids, clustering_config):
+def write_consensus_partitions(candidate_dir, fused, patient_ids, clustering_config, active_modalities=ACTIVE_MODALITIES):
     records, _ = consensus_records_from_similarity(fused, clustering_config)
     consensus_dir = candidate_dir / "consensus_cluster"
     consensus_dir.mkdir(parents=True, exist_ok=True)
@@ -70,7 +71,7 @@ def write_consensus_partitions(candidate_dir, fused, patient_ids, clustering_con
             "n_clusters": k,
             "labels": dict(zip(patient_ids, labels)),
             "partition_source": "production_consensus_records_from_similarity",
-            "active_modalities": list(ACTIVE_MODALITIES),
+            "active_modalities": list(active_modalities),
         })
 
 
@@ -83,8 +84,8 @@ def link_directory(source, target):
     target.symlink_to(source.resolve(), target_is_directory=True)
 
 
-def prepare_variant(data_root, output_root, patient_ids, views, fused, config, force):
-    input_root = output_root / "inputs" / "leave_ct_out"
+def prepare_variant(data_root, output_root, patient_ids, views, fused, config, force, active_modalities=ACTIVE_MODALITIES, variant_name="leave_ct_out"):
+    input_root = output_root / "inputs" / variant_name
     candidate_source = data_root / "candidate_subtype"
     candidate_dir = input_root / "candidate_subtype"
     manifest_path = candidate_dir / "modality_ablation_manifest.json"
@@ -92,6 +93,7 @@ def prepare_variant(data_root, output_root, patient_ids, views, fused, config, f
         patient_ids,
         hashlib.sha256(np.asarray(fused).tobytes()).hexdigest(),
         file_sha256(data_root / "candidate_subtype" / "affinity_patient_order.json"),
+        active_modalities,
     )
     if manifest_path.is_file() and json.loads(manifest_path.read_text()) == expected:
         return input_root, False
@@ -108,31 +110,31 @@ def prepare_variant(data_root, output_root, patient_ids, views, fused, config, f
         target = candidate_dir / f"{name}_affinity.npy" if name in {"ct", "wsi", "rna"} else input_root / "wxs" / f"{name}_affinity.npy"
         np.save(target, source)
     np.save(candidate_dir / "fused_similarity.npy", fused)
-    write_consensus_partitions(candidate_dir, fused, patient_ids, config["clustering"])
+    write_consensus_partitions(candidate_dir, fused, patient_ids, config["clustering"], active_modalities)
     write_json(manifest_path, expected)
     return input_root, True
 
 
-def validate_preflight(input_root, patient_ids, views, fused, initial_ks):
+def validate_preflight(input_root, patient_ids, views, fused, initial_ks, active_modalities=ACTIVE_MODALITIES, variant_name="leave_ct_out"):
     runner = load_runner()
     loaded_ids, loaded_views, loaded_fused = runner.load_main_inputs(input_root)
     if loaded_ids != patient_ids:
-        raise ValueError("Leave-CT-out patient order differs from canonical cohort")
+        raise ValueError(f"{variant_name} patient order differs from canonical cohort")
     for name in ALL_MODALITIES:
         if not np.allclose(loaded_views[name], views[name], atol=1e-10):
-            raise ValueError(f"Variant {name} affinity differs from canonical input")
+            raise ValueError(f"{variant_name} {name} affinity differs from canonical input")
     if not np.allclose(loaded_fused, fused, atol=1e-10):
-        raise ValueError("Leave-CT-out fused matrix differs from four-view fusion")
+        raise ValueError(f"{variant_name} fused matrix differs from expected fusion")
     if not np.isfinite(fused).all() or not np.allclose(fused, fused.T, atol=1e-8):
-        raise ValueError("Leave-CT-out fused matrix is not finite and symmetric")
+        raise ValueError(f"{variant_name} fused matrix is not finite and symmetric")
     if not np.allclose(fused.diagonal(), 1.0, atol=1e-8):
-        raise ValueError("Leave-CT-out fused diagonal is invalid")
+        raise ValueError(f"{variant_name} fused diagonal is invalid")
     expected = set(patient_ids)
     for initial_k in initial_ks:
-        groups = runner.load_initial_partition(input_root, initial_k, patient_ids)
+        groups = runner.load_initial_partition(input_root, initial_k, patient_ids, active_modalities)
         members = [case for group in groups for case in group["member_ids"]]
         if len(groups) != initial_k or len(members) != len(set(members)) or set(members) != expected:
-            raise ValueError(f"Leave-CT-out K={initial_k} partition is invalid")
+            raise ValueError(f"{variant_name} K={initial_k} partition is invalid")
 
 
 def compare_cores(canonical, variant):
@@ -235,7 +237,7 @@ def fragmentation_rows(canonical, variant, comparison):
     return rows
 
 
-def write_core_comparison(output_root, canonical_root, review_root, runner):
+def write_core_comparison(output_root, canonical_root, review_root, runner, variant_name="leave_ct_out"):
     variant_summary = review_root / "stable_core_summary.csv"
     if not variant_summary.is_file():
         return False
@@ -245,10 +247,10 @@ def write_core_comparison(output_root, canonical_root, review_root, runner):
     fragmentation = fragmentation_rows(canonical, variant, comparison)
     canonical_n = sum(map(len, canonical.values()))
     runner.core_analysis.write_csv(
-        output_root / "canonical_vs_leave_ct_out_cores.csv", comparison
+        output_root / f"canonical_vs_{variant_name}_cores.csv", comparison
     )
     write_json(
-        output_root / "canonical_vs_leave_ct_out_summary.json",
+            output_root / f"canonical_vs_{variant_name}_summary.json",
         {
             **summarize_core_comparison(canonical, variant, comparison),
             "any_variant_stable_core_coverage": (
@@ -262,30 +264,35 @@ def write_core_comparison(output_root, canonical_root, review_root, runner):
         },
     )
     runner.core_analysis.write_csv(
-        output_root / "canonical_core_leave_ct_out_fragmentation.csv",
+        output_root / f"canonical_core_{variant_name}_fragmentation.csv",
         fragmentation,
     )
     return True
 
 
-def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, preflight=False, run_agent=False):
+def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, preflight=False, run_agent=False, active_modalities=ACTIVE_MODALITIES):
+    variant_name = f"leave_{[name for name in ALL_MODALITIES if name not in active_modalities][0]}_out"
     config = load_candidate_proposer_config(config_dir)
     patient_ids, views = load_canonical_inputs(data_root)
-    fused = fuse_active_views(views, config["snf"])
-    input_root, rebuilt = prepare_variant(data_root, output_root, patient_ids, views, fused, config, force)
-    validate_preflight(input_root, patient_ids, views, fused, initial_ks)
+    fused = fuse_active_views(views, config["snf"], active_modalities)
+    input_root, rebuilt = prepare_variant(
+        data_root, output_root, patient_ids, views, fused, config, force,
+        active_modalities, variant_name,
+    )
+    validate_preflight(input_root, patient_ids, views, fused, initial_ks, active_modalities, variant_name)
     manifest = variant_manifest(
         patient_ids,
         hashlib.sha256(np.asarray(fused).tobytes()).hexdigest(),
         file_sha256(data_root / "candidate_subtype" / "affinity_patient_order.json"),
+        active_modalities,
     )
     manifest.update({"input_root": str(input_root), "input_rebuilt": rebuilt, "initial_ks": list(initial_ks), "repeats": list(repeats)})
     write_json(output_root / "leave_ct_out_manifest.json", manifest)
     runner = load_runner()
-    review_root = output_root / "leave_ct_out" / "agent_review"
+    review_root = output_root / variant_name / "agent_review"
     canonical_root = ROOT / "output_kirc_v13" / "00_five_view_multi_k_agent_review"
     if preflight or not run_agent:
-        write_core_comparison(output_root, canonical_root, review_root, runner)
+        write_core_comparison(output_root, canonical_root, review_root, runner, variant_name)
         return {"preflight": "passed", **manifest}
     result = runner.run(
         data_root=input_root,
@@ -294,9 +301,9 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         initial_ks=initial_ks,
         repeats=repeats,
         force=force,
-        active_modalities=ACTIVE_MODALITIES,
+        active_modalities=active_modalities,
     )
-    write_core_comparison(output_root, canonical_root, review_root, runner)
+    write_core_comparison(output_root, canonical_root, review_root, runner, variant_name)
     return {"agent": result, **manifest}
 
 
