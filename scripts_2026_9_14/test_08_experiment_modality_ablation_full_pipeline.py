@@ -48,3 +48,38 @@ def test_cross_modal_metrics_only_report_active_views():
     assert set(result["modality_partition_support"]) == set(matrices)
     assert "ct" not in result["affinity_audit"]
     assert "ct" not in result["decision_metrics"]["cross_modal_consistency"]["partition"]["permanova_r2"]
+
+
+def test_compare_cores_accepts_load_cores_mapping():
+    canonical = {"CORE01": ["A", "B", "C"], "CORE02": ["D", "E"]}
+    variant = {"CORE01": ["A", "B"], "CORE02": ["D", "E", "F"]}
+    result = ablation.compare_cores(canonical, variant)
+    assert [row["canonical_core"] for row in result] == ["CORE01", "CORE02"]
+    assert [row["variant_core"] for row in result] == ["CORE01", "CORE02"]
+    assert result[0]["intersection"] == 2
+    assert result[0]["canonical_size"] == 3
+    assert result[0]["variant_size"] == 2
+    assert result[0]["jaccard"] == 2 / 3
+    assert result[1]["jaccard"] == 2 / 3
+
+
+def test_leave_ct_out_confound_evidence_keeps_only_tss(monkeypatch):
+    import tools.confound as confound
+
+    ids = ["TCGA-A-0001", "TCGA-B-0002", "TCGA-C-0003", "TCGA-D-0004"]
+    monkeypatch.setattr(
+        confound,
+        "confounder_values",
+        lambda *_: {case_id: {"tissue_source_site": "A"} for case_id in ids},
+    )
+    state = {"set_id": "C1", "member_ids": ids[:2], "active_modalities": ablation.ACTIVE_MODALITIES}
+    other = {"set_id": "C2", "member_ids": ids[2:], "active_modalities": ablation.ACTIVE_MODALITIES}
+    result = confound.confound_test(
+        state,
+        {case_id: {} for case_id in ids},
+        "unused",
+        all_cluster_states=[state, other],
+    )
+    metrics = result["results"]["metrics"]
+    assert set(metrics["confounder_global_association"]) == {"tissue_source_site"}
+    assert all(set(row) == {"tissue_source_site"} for row in metrics["confounder_set_association"].values())
