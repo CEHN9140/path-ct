@@ -31,6 +31,8 @@ def test_build_dependency_table_uses_fragmentation_metrics(tmp_path):
     assert row["any_stable_retention"] == 0.75
     assert row["lost_fraction"] == 0.25
     assert row["jaccard"] == 0.4
+    assert row["membership_dependency"] == 0.25
+    assert row["identity_disruption"] == 0.5
 
 
 def test_build_dependency_table_rejects_missing_core(tmp_path):

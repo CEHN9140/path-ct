@@ -37,6 +37,8 @@ def build_dependency_table(paths, cores=CORES):
                 "any_stable_retention": float(row["any_variant_stable_fraction"]),
                 "lost_fraction": float(row["no_variant_stable_fraction"]),
                 "jaccard": float(row["jaccard"]),
+                "membership_dependency": float(row["no_variant_stable_fraction"]),
+                "identity_disruption": 1.0 - float(row["retention"]),
             })
     return pd.DataFrame(rows)
 
@@ -52,28 +54,22 @@ def default_paths(output_root):
     }
 
 
-def write_heatmap(table, output_path):
+def write_heatmap(table, output_path, metrics, title):
     configure_matplotlib()
     import matplotlib.pyplot as plt
 
-    metrics = [
-        ("matched_retention", "Matched retention"),
-        ("any_stable_retention", "Any stable-core retention"),
-        ("lost_fraction", "Lost from stable cores"),
-        ("jaccard", "Matched Jaccard"),
-    ]
-    figure, axes = plt.subplots(2, 2, figsize=(10, 7), constrained_layout=True)
-    for axis, (metric, title) in zip(axes.flat, metrics):
+    figure, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 4), constrained_layout=True, squeeze=False)
+    for axis, (metric, panel_title) in zip(axes.flat, metrics):
         matrix = table.pivot(index="core", columns="modality", values=metric).loc[list(CORES), list(MODALITIES)]
         image = axis.imshow(matrix.to_numpy(), vmin=0, vmax=1, cmap="RdYlBu")
-        axis.set_title(title)
+        axis.set_title(panel_title)
         axis.set_xticks(range(len(MODALITIES)), [name.upper() for name in MODALITIES])
         axis.set_yticks(range(len(CORES)), CORES)
         for row in range(len(CORES)):
             for column in range(len(MODALITIES)):
                 axis.text(column, row, f"{matrix.iloc[row, column]:.2f}", ha="center", va="center")
         figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
-    figure.suptitle("Canonical-core modality dependency", fontsize=14)
+    figure.suptitle(title, fontsize=14)
     figure.savefig(output_path, dpi=220)
     plt.close(figure)
 
@@ -90,12 +86,34 @@ def run(output_root, force=False):
         table.pivot(index="core", columns="modality", values=metric).loc[list(CORES), list(MODALITIES)].to_csv(
             output_root / f"{metric}_matrix.csv"
         )
-    write_heatmap(table, output_root / "core_modality_dependency_heatmap.png")
+    raw_metrics = [
+        ("matched_retention", "Matched retention"),
+        ("any_stable_retention", "Any stable-core retention"),
+        ("lost_fraction", "Lost from stable cores"),
+        ("jaccard", "Matched Jaccard"),
+    ]
+    dependency_metrics = [
+        ("membership_dependency", "Membership dependency\n(lost fraction)"),
+        ("identity_disruption", "Identity disruption\n(1 - matched retention)"),
+    ]
+    write_heatmap(
+        table,
+        output_root / "core_modality_raw_metrics_heatmap.png",
+        raw_metrics,
+        "Canonical-core ablation metrics",
+    )
+    write_heatmap(
+        table,
+        output_root / "core_modality_dependency_heatmap.png",
+        dependency_metrics,
+        "Canonical-core modality dependency",
+    )
     write_json(output_root / "manifest.json", {
         "cores": list(CORES),
         "modalities": list(MODALITIES),
         "source_fragmentation": {name: str(path) for name, path in paths.items()},
-        "metrics": ["matched_retention", "any_stable_retention", "lost_fraction", "jaccard"],
+        "raw_metrics": ["matched_retention", "any_stable_retention", "lost_fraction", "jaccard"],
+        "dependency_metrics": ["membership_dependency", "identity_disruption"],
     })
     return {"output_root": str(output_root), "rows": len(table)}
 
