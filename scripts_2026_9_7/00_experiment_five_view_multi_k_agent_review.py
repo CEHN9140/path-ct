@@ -100,7 +100,7 @@ def cache_reusable(summary, metadata, identity):
     )
 
 
-def load_main_inputs(data_root: Path):
+def load_main_inputs(data_root: Path, views=VIEWS):
     candidate_dir = data_root / "candidate_subtype"
     order = [str(item) for item in json.loads(
         (candidate_dir / "affinity_patient_order.json").read_text(encoding="utf-8")
@@ -111,14 +111,14 @@ def load_main_inputs(data_root: Path):
     if [str(item) for item in cache.get("patient_ids", [])] != order:
         raise ValueError("Canonical affinity cache patient order mismatch.")
     paths = dict(cache.get("paths", {}) or {})
-    if any(name not in paths for name in VIEWS):
-        raise ValueError("Current main output does not contain all five view affinities.")
+    if any(name not in paths for name in views):
+        raise ValueError("Current input does not contain all requested view affinities.")
     matrices = {
         name: np.asarray(np.load(
             (candidate_dir if name in {"ct", "wsi", "rna"} else data_root / "wxs")
             / Path(paths[name]).name
         ), dtype=float)
-        for name in VIEWS
+        for name in views
     }
     fused = np.asarray(np.load(candidate_dir / "fused_similarity.npy"), dtype=float)
     expected_shape = (len(order), len(order))
@@ -270,7 +270,7 @@ def run(
     analysis_only: bool = False,
     active_modalities: tuple[str, ...] = VIEWS,
 ):
-    patient_ids, _, fused = load_main_inputs(data_root)
+    patient_ids, _, fused = load_main_inputs(data_root, active_modalities)
     patient_states = load_patient_states(data_root)
     if not set(patient_ids).issubset(patient_states):
         raise ValueError("Main patient-state records do not cover affinity patient order.")
@@ -290,7 +290,7 @@ def run(
         "review_signature": review_signature["review_signature"],
         "fused_similarity_sha256": file_sha256(candidate_dir / "fused_similarity.npy"),
         "patient_order_sha256": file_sha256(candidate_dir / "affinity_patient_order.json"),
-        **core_analysis.scientific_input_identity(data_root),
+        **core_analysis.scientific_input_identity(data_root, active_modalities),
         **source_identity(ROOT),
     }
     write_json(output_root / "experiment_manifest.json", {

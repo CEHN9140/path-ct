@@ -77,13 +77,17 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def scientific_input_identity(data_root: Path) -> dict[str, int | str]:
+def scientific_input_identity(
+    data_root: Path,
+    active_modalities: tuple[str, ...] = ("ct", "wsi", "rna", "wxs", "cnv"),
+) -> dict[str, int | str]:
     required = [
         data_root / "candidate_subtype" / f"{view}_affinity.npy"
-        for view in ("ct", "wsi", "rna")
+        for view in active_modalities if view in {"ct", "wsi", "rna"}
     ] + [
-        data_root / "wxs" / "wxs_affinity.npy",
-        data_root / "wxs" / "cnv_affinity.npy",
+        data_root / "wxs" / f"{view}_affinity.npy"
+        for view in active_modalities if view in {"wxs", "cnv"}
+    ] + [
         data_root / "storage" / "patient_states" / "patient_states.jsonl",
     ]
     missing = [str(path) for path in required if not path.is_file()]
@@ -93,10 +97,12 @@ def scientific_input_identity(data_root: Path) -> dict[str, int | str]:
     for directory in (
         data_root / "candidate_subtype", data_root / "wxs",
         data_root / "storage" / "patient_states", data_root / "ct_radiomics",
-        data_root / "rna", data_root / "cnv",
+        data_root / "rna",
     ):
         if directory.is_dir():
             paths.extend(path for path in directory.rglob("*") if path.is_file())
+    if "cnv" in active_modalities and (data_root / "cnv").is_dir():
+        paths.extend(path for path in (data_root / "cnv").rglob("*") if path.is_file())
     ct_qc = data_root / "ct_qc"
     if ct_qc.is_dir():
         paths.extend(path for path in ct_qc.rglob("*") if path.is_file() and path.suffix == ".json")
