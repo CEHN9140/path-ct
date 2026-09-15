@@ -884,6 +884,9 @@ def confound_test(
     values = confounder_values(patient_states_by_id, output_root)
     parameters = tool_parameters(config_dir, "confounder") if config_dir else {}
     policy = subtype_review_config(config_dir).get("confounder", {}) if config_dir else {}
+    active_modalities = tuple(cluster_state.get("active_modalities") or ("ct", "wsi", "rna", "wxs", "cnv"))
+    categorical_fields = CATEGORICAL_FIELDS if "ct" in active_modalities else ("tissue_source_site",)
+    numeric_fields = ALL_NUMERIC_FIELDS if "ct" in active_modalities else ()
     global_metrics = {
         field: global_categorical(
             field,
@@ -891,20 +894,20 @@ def confound_test(
             values,
             int(parameters.get("sparse_permutations", 999) or 999),
         )
-        for field in CATEGORICAL_FIELDS
+        for field in categorical_fields
     }
     global_metrics.update(
-        {field: global_numeric(field, memberships, values) for field in ALL_NUMERIC_FIELDS}
+        {field: global_numeric(field, memberships, values) for field in numeric_fields}
     )
     set_metrics = {
         set_id: {
             **{
                 field: set_categorical(set_id, field, memberships, values)
-                for field in CATEGORICAL_FIELDS
+                for field in categorical_fields
             },
             **{
                 field: set_numeric(set_id, field, memberships, values)
-                for field in NUMERIC_FIELDS
+                for field in NUMERIC_FIELDS if "ct" in active_modalities
             },
         }
         for set_id in memberships

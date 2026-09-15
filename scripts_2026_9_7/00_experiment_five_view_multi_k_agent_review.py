@@ -129,7 +129,7 @@ def load_main_inputs(data_root: Path):
     return order, matrices, fused
 
 
-def load_initial_partition(data_root: Path, initial_k: int, patient_ids: list[str]):
+def load_initial_partition(data_root: Path, initial_k: int, patient_ids: list[str], active_modalities=VIEWS):
     path = (
         data_root
         / "candidate_subtype"
@@ -146,7 +146,7 @@ def load_initial_partition(data_root: Path, initial_k: int, patient_ids: list[st
         groups.append({
             "cluster_id": f"C{index:04d}",
             "member_ids": members,
-            "source_views": list(VIEWS),
+            "source_views": list(active_modalities),
             "status": "under_review",
             "generator": {
                 "algorithm": "consensus_hierarchical",
@@ -268,6 +268,7 @@ def run(
     repeats: tuple[int, ...],
     force: bool = False,
     analysis_only: bool = False,
+    active_modalities: tuple[str, ...] = VIEWS,
 ):
     patient_ids, _, fused = load_main_inputs(data_root)
     patient_states = load_patient_states(data_root)
@@ -295,7 +296,7 @@ def run(
     write_json(output_root / "experiment_manifest.json", {
         "experiment": "five_view_multi_k_agent_review",
         "input": str((data_root / "candidate_subtype").resolve()),
-        "views": list(VIEWS),
+        "views": list(active_modalities),
         "patient_count": len(patient_ids),
         "fused_shape": list(fused.shape),
         "initial_k": list(initial_ks),
@@ -309,11 +310,11 @@ def run(
             run_root = output_root / f"run{repeat}" / f"K{initial_k}"
             summary_path = run_root / "final_review_summary.json"
             metadata_path = run_root / "run_metadata.json"
-            initial_sets = load_initial_partition(data_root, initial_k, patient_ids)
+            initial_sets = load_initial_partition(data_root, initial_k, patient_ids, active_modalities)
             initial_partition = {
                 "initial_k": initial_k,
                 "repeat": repeat,
-                "views": list(VIEWS),
+                "views": list(active_modalities),
                 "candidate_sets": initial_sets,
             }
             identity = {
@@ -344,6 +345,7 @@ def run(
                 str(data_root),
                 str(config_dir),
                 artifact_root=str(run_root),
+                active_modalities=active_modalities,
             )
             summary = save_review_outputs(state, str(run_root), direct=True)
             metadata = {
@@ -375,8 +377,8 @@ def run(
         initial_partition = {
             "initial_k": initial_k,
             "repeat": repeat,
-            "views": list(VIEWS),
-            "candidate_sets": load_initial_partition(data_root, initial_k, patient_ids),
+            "views": list(active_modalities),
+            "candidate_sets": load_initial_partition(data_root, initial_k, patient_ids, active_modalities),
         }
         identity = {
             **input_identity,
@@ -393,7 +395,7 @@ def run(
     rows = [completed[key] for key in sorted(completed)]
     write_json(output_root / "agent_discovery_summary.json", {
         "experiment": "five_view_multi_k_agent_review",
-        "views": list(VIEWS),
+        "views": list(active_modalities),
         "runs": rows,
     })
     if tuple(initial_ks) == INITIAL_KS and tuple(repeats) == REPEATS:

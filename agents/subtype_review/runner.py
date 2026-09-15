@@ -21,6 +21,7 @@ def run_subtype_review(
     config_dir: str,
     *,
     artifact_root: str | None = None,
+    active_modalities: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = dict(review_config.get("budget", {}) or {})
@@ -33,6 +34,7 @@ def run_subtype_review(
         "artifact_root": str(artifact_root or data_root),
         "config_dir": str(config_dir),
         "tool_registry": TOOL_REGISTRY,
+        "active_modalities": tuple(active_modalities or ("ct", "wsi", "rna", "wxs", "cnv")),
     }
     verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker)
     reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker)

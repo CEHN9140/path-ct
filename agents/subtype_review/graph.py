@@ -367,6 +367,7 @@ def execute_tool_calls(
     cluster_state = {
         "cluster_id": partition_artifact_id(signature),
         "member_ids": sorted(member for item in sets for member in item["member_ids"]),
+        "active_modalities": tuple(runtime.get("active_modalities") or ("ct", "wsi", "rna", "wxs", "cnv")),
     }
     results = []
     messages = [*state.get("messages", []), message]

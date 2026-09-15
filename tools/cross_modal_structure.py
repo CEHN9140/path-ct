@@ -166,6 +166,7 @@ def characterize_internal_structure(
     pac_lower: float = 0.1,
     pac_upper: float = 0.9,
     random_seed: int = 0,
+    modalities: tuple[str, ...] = MODALITIES,
 ) -> dict[str, Any]:
     member_positions = [case_ids.index(case_id) for case_id in members]
     supports: dict[str, Any] = {}
@@ -176,7 +177,7 @@ def characterize_internal_structure(
             "not_estimable_reason": "missing_fused_affinity_matrix",
             "probe_support_by_modality": {
                 modality: {"comparison_status": "scientific_unavailable", "not_estimable_reason": "missing_fused_affinity_matrix"}
-                for modality in MODALITIES
+                for modality in modalities
             },
             "limitations": ["The actual SNF fused similarity is unavailable."],
         }
@@ -221,7 +222,7 @@ def characterize_internal_structure(
         "probe_labels_by_case": {case_id: int(label) for case_id, label in zip(members, labels)},
         "resampling": resampling,
     })
-    for modality in MODALITIES:
+    for modality in modalities:
         matrix = modality_affinities.get(modality)
         local = None if matrix is None else matrix[np.ix_(member_positions, member_positions)]
         supports[modality] = fixed_probe_support(local, labels, members)
@@ -313,6 +314,7 @@ def compute_structural_characterization(
     pac_lower: float = 0.1,
     pac_upper: float = 0.9,
     random_seed: int = 0,
+    modalities: tuple[str, ...] = MODALITIES,
 ) -> dict[str, Any]:
     internal = {
         set_id: characterize_internal_structure(
@@ -325,6 +327,7 @@ def compute_structural_characterization(
             pac_lower=pac_lower,
             pac_upper=pac_upper,
             random_seed=random_seed,
+            modalities=modalities,
         )
         for set_id, members in memberships.items()
     }
@@ -335,7 +338,7 @@ def compute_structural_characterization(
             modality: pair_boundary_metrics(
                 modality_affinities.get(modality), case_ids, memberships[left], memberships[right]
             )
-            for modality in MODALITIES
+            for modality in modalities
         }
         boundaries[f"{left}+{right}"] = pair
     return {

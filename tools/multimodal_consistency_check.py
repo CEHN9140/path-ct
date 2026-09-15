@@ -347,6 +347,7 @@ def compute_cross_modal_consistency(
     permanova_permutations: int = 999,
     permdisp_permutations: int = 999,
     lowest_support_patients_to_report: int = 5,
+    modalities: tuple[str, ...] = MODALITIES,
 ) -> dict[str, Any]:
     if len(case_ids) != len(set(case_ids)):
         raise ValueError("Affinity patient order contains duplicates")
@@ -369,7 +370,7 @@ def compute_cross_modal_consistency(
         }
         for case_id in case_ids
     }
-    for modality in MODALITIES:
+    for modality in modalities:
         if affinities.get(modality) is None:
             rows[modality] = {
                 "comparison_status": "scientific_unavailable",
@@ -400,10 +401,10 @@ def compute_cross_modal_consistency(
         for set_id, values in silhouette_sets.items():
             per_set[set_id].update(values)
         permanova = permanova_metrics(
-            similarity, labels, permanova_permutations, MODALITIES.index(modality)
+            similarity, labels, permanova_permutations, modalities.index(modality)
         )
         permdisp = permdisp_metrics(
-            similarity, labels, permdisp_permutations, 100 + MODALITIES.index(modality)
+            similarity, labels, permdisp_permutations, 100 + modalities.index(modality)
         )
         limitations = []
         if any(values["comparison_status"] != "estimable" for values in silhouette_sets.values()):
@@ -476,10 +477,10 @@ def compute_cross_modal_consistency(
         )
 
     for field, key in (("permanova_p_value", "permanova_q_value"), ("permdisp_p_value", "permdisp_q_value")):
-        available = [rows[modality][field] for modality in MODALITIES if rows[modality][field] is not None]
+        available = [rows[modality][field] for modality in modalities if rows[modality][field] is not None]
         q_values = bh_fdr(available)
         position = 0
-        for modality in MODALITIES:
+        for modality in modalities:
             if rows[modality][field] is not None:
                 rows[modality][key] = round_value(q_values[position])
                 nested = "permanova" if field == "permanova_p_value" else "permdisp"
@@ -504,12 +505,12 @@ def compute_cross_modal_consistency(
         decision_sets[set_id] = {
             "modality_support": {
                 modality: {"median_silhouette": rows[modality]["per_set"][set_id].get("median_silhouette")}
-                for modality in MODALITIES
+                for modality in modalities
             },
             "patient_membership_support": {
                 "support_count_distribution": {
                     str(count): estimable_support.count(count)
-                    for count in range(len(MODALITIES) + 1)
+                    for count in range(len(modalities) + 1)
                 },
                 "median_support_count": (
                     round_value(np.median(estimable_support))
@@ -563,7 +564,7 @@ def compute_cross_modal_consistency(
             "per_set": decision_sets,
             "partition": {
                 "permanova_r2": {
-                    modality: rows[modality]["permanova_r2"] for modality in MODALITIES
+                    modality: rows[modality]["permanova_r2"] for modality in modalities
                 },
                 "permdisp": {
                     modality: {
@@ -571,7 +572,7 @@ def compute_cross_modal_consistency(
                         "p_value": rows[modality]["permdisp_p_value"],
                         "q_value": rows[modality]["permdisp_q_value"],
                     }
-                    for modality in MODALITIES
+                    for modality in modalities
                 },
             },
             "limitations": limitations,
@@ -581,12 +582,12 @@ def compute_cross_modal_consistency(
         "modality_partition_support": rows,
         "patient_membership_profile": patient_profile,
         "affinity_audit": {
-            modality: rows[modality].get("affinity_audit") for modality in MODALITIES
+            modality: rows[modality].get("affinity_audit") for modality in modalities
         },
         "decision_metrics": decision,
         "analysis_scope": (
-            "Fixed candidate memberships were evaluated independently in CT, WSI, "
-            "RNA, WXS, and CNV affinity spaces; no independent modality was reclustered. "
+            f"Fixed candidate memberships were evaluated independently in {', '.join(modalities)} "
+            "affinity spaces; no independent modality was reclustered. "
             "Structural characterization uses the actual SNF fused network for a binary probe."
         ),
     }
@@ -615,8 +616,9 @@ def multimodal_consistency_check(
     active = {case_id for members in memberships.values() for case_id in members}
     positions = [index for index, case_id in enumerate(patient_order) if case_id in active]
     case_ids = [patient_order[index] for index in positions]
+    active_modalities = tuple(cluster_state.get("active_modalities") or MODALITIES)
     affinities = {}
-    for modality in MODALITIES:
+    for modality in active_modalities:
         path = modality_affinity_path(output_root, modality)
         affinities[modality] = np.load(path)[np.ix_(positions, positions)] if path.exists() else None
     fused_path = candidate_dir / "fused_similarity.npy"
@@ -634,6 +636,7 @@ def multimodal_consistency_check(
         lowest_support_patients_to_report=int(
             parameters.get("lowest_support_patients_to_report", 5)
         ),
+        modalities=active_modalities,
     )
     from tools.cross_modal_structure import compute_structural_characterization
     structure_parameters = dict(parameters.get("structure", {}) or {})
@@ -647,6 +650,7 @@ def multimodal_consistency_check(
         pac_lower=float(structure_parameters.get("pac_lower", 0.1)),
         pac_upper=float(structure_parameters.get("pac_upper", 0.9)),
         random_seed=int(structure_parameters.get("random_seed", 0)),
+        modalities=active_modalities,
     )
     decision = metrics["decision_metrics"]["cross_modal_consistency"]
     for set_id in memberships:
@@ -701,7 +705,7 @@ def multimodal_consistency_check(
         status="success",
         cluster_id=cluster_id,
         output_root=artifact_root,
-        summary="Fixed candidate memberships were evaluated in five independent modality affinity networks.",
+        summary=f"Fixed candidate memberships were evaluated in {len(active_modalities)} active modality affinity networks.",
         metrics=metrics,
         decision_metrics=metrics["decision_metrics"],
         support_level="informational",
