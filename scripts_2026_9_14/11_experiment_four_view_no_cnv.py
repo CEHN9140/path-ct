@@ -100,7 +100,7 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
     output_root.mkdir(parents=True, exist_ok=True)
     runner = load_runner()
-    patient_ids, views, _ = runner.load_main_inputs(Path(data_root))
+    patient_ids, views, _ = runner.load_main_inputs(Path(data_root), ACTIVE_MODALITIES)
     config = load_candidate_proposer_config(Path(config_dir))
     fused = fuse_affinities(
         {name: views[name] for name in ACTIVE_MODALITIES}, config["snf"]

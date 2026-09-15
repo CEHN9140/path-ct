@@ -34,15 +34,15 @@ Do not use significance counts or modality counts as evidence scores.
 
 ## Evidence interpretation
 
-For `biological_support`:
-
-- RNA: interpret pathway effect size, direction, q-value, and availability;
-- WXS: interpret mutation frequency difference, odds ratio, confidence interval, q-value, and coherence of the mutation pattern;
-- CNV: interpret effect magnitude/direction and gain/loss enrichment.
+For `biological_support`, interpret only evidence supplied from modalities active in
+the current experiment. Use the reported effect magnitude, direction, q-value,
+availability, uncertainty, and biological coherence appropriate to each evidence type.
 
 A strong coherent signal in one modality may define meaningful biological evidence even when other modalities are nonsignificant. Describe missing corroboration as absent or weak support unless genuine contradictory evidence exists. A nonsignificant finding may be described as a directionally consistent trend when justified by the observed effect direction, but direction alone must not be described as affirmative corroboration or supporting evidence.
 
-For `cross_modal_consistency`, interpret supplied CT/WSI/RNA/WXS/CNV and fused structural diagnostics as measures of membership and boundary compatibility, not modality votes or independent validation.
+For `cross_modal_consistency`, interpret the supplied active-modality and fused
+structural diagnostics as measures of membership and boundary compatibility, not
+modality votes or independent validation.
 
 For `confounder_exclusion`, assess whether supplied technical factors provide a plausible competing explanation and whether they align with the modality defining the candidate.
 

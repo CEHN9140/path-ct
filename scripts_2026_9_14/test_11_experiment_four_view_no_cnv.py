@@ -19,3 +19,9 @@ def test_manifest_declares_no_cnv_input(tmp_path):
     }
     assert "cnv" not in manifest["active_modalities"]
     assert manifest["disabled_modalities"] == ["cnv"]
+
+
+def test_verifier_prompt_is_active_modality_agnostic():
+    prompt = (Path(__file__).parent.parent / "agents/subtype_review/prompts/verifier.md").read_text()
+    assert "CT/WSI/RNA/WXS/CNV" not in prompt
+    assert "- CNV:" not in prompt

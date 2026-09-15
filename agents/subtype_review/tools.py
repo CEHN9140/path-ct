@@ -84,7 +84,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "verifier_selectable": True,
         "scope": "set_identity",
         "targeting": "all_sets",
-        "description": "CT, WSI, RNA, WXS and CNV affinity diagnostics for the current partition.",
+        "description": "Active-modality affinity diagnostics for the current partition.",
         "function": multimodal_consistency_check,
     },
     "confound_test": {
