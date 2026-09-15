@@ -63,7 +63,33 @@ def test_compare_cores_accepts_load_cores_mapping():
     assert result[1]["jaccard"] == 2 / 3
 
 
-def test_leave_ct_out_confound_evidence_keeps_only_tss(monkeypatch):
+def test_compare_cores_handles_empty_variant():
+    result = ablation.compare_cores({"CORE01": ["A", "B"]}, {})
+    assert result == []
+    summary = ablation.summarize_core_comparison(
+        {"CORE01": ["A", "B"]}, {}, result
+    )
+    assert summary["canonical_core_coverage"] == 0.0
+    assert summary["variant_core_coverage"] is None
+    assert summary["matched_core_mean_jaccard"] is None
+    assert summary["penalized_core_mean_jaccard"] is None
+    assert summary["unmatched_canonical_cores"] == []
+
+
+def test_compare_cores_handles_empty_canonical():
+    summary = ablation.summarize_core_comparison({}, {"CORE01": ["A"]}, [])
+    assert summary["canonical_core_coverage"] is None
+    assert summary["variant_core_coverage"] == 0.0
+    assert summary["extra_variant_cores"] == ["CORE01"]
+
+
+def test_compare_cores_handles_both_empty():
+    summary = ablation.summarize_core_comparison({}, {}, [])
+    assert summary["canonical_core_coverage"] is None
+    assert summary["variant_core_coverage"] is None
+
+
+def test_leave_ct_out_confound_evidence_keeps_only_tss(monkeypatch, tmp_path):
     import tools.confound as confound
 
     ids = ["TCGA-A-0001", "TCGA-B-0002", "TCGA-C-0003", "TCGA-D-0004"]
@@ -77,7 +103,7 @@ def test_leave_ct_out_confound_evidence_keeps_only_tss(monkeypatch):
     result = confound.confound_test(
         state,
         {case_id: {} for case_id in ids},
-        "unused",
+        str(tmp_path),
         all_cluster_states=[state, other],
     )
     metrics = result["results"]["metrics"]

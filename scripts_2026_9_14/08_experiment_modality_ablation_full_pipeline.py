@@ -162,6 +162,32 @@ def compare_cores(canonical, variant):
     return result
 
 
+def summarize_core_comparison(canonical, variant, comparison):
+    canonical_n = sum(map(len, canonical.values()))
+    variant_n = sum(map(len, variant.values()))
+    matched_rows = [row for row in comparison if row["variant_core"] is not None]
+    intersections = sum(row["intersection"] for row in comparison)
+    matched_variant_ids = {row["variant_core"] for row in matched_rows}
+    return {
+        "canonical_core_count": len(canonical),
+        "variant_core_count": len(variant),
+        "canonical_core_coverage": intersections / canonical_n if canonical_n else None,
+        "variant_core_coverage": intersections / variant_n if variant_n else None,
+        "matched_core_mean_jaccard": (
+            float(np.mean([row["jaccard"] for row in matched_rows]))
+            if matched_rows else None
+        ),
+        "penalized_core_mean_jaccard": (
+            float(np.mean([row["jaccard"] for row in comparison]))
+            if comparison else None
+        ),
+        "unmatched_canonical_cores": [
+            row["canonical_core"] for row in comparison if row["variant_core"] is None
+        ],
+        "extra_variant_cores": sorted(set(variant) - matched_variant_ids),
+    }
+
+
 def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, preflight=False, run_agent=False):
     config = load_candidate_proposer_config(config_dir)
     patient_ids, views = load_canonical_inputs(data_root)
@@ -197,23 +223,10 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         runner.core_analysis.write_csv(
             output_root / "canonical_vs_leave_ct_out_cores.csv", comparison
         )
-        matched_variant_ids = {
-            row["variant_core"] for row in comparison if row["variant_core"]
-        }
-        write_json(output_root / "canonical_vs_leave_ct_out_summary.json", {
-            "canonical_core_count": len(canonical_cores),
-            "variant_core_count": len(variant_cores),
-            "canonical_core_coverage": sum(row["intersection"] for row in comparison)
-            / sum(map(len, canonical_cores.values())),
-            "variant_core_coverage": sum(row["intersection"] for row in comparison)
-            / sum(map(len, variant_cores.values())),
-            "mean_matched_jaccard": float(np.mean([row["jaccard"] for row in comparison]))
-            if comparison else None,
-            "unmatched_canonical_cores": [
-                row["canonical_core"] for row in comparison if row["variant_core"] is None
-            ],
-            "extra_variant_cores": sorted(set(variant_cores) - matched_variant_ids),
-        })
+        write_json(
+            output_root / "canonical_vs_leave_ct_out_summary.json",
+            summarize_core_comparison(canonical_cores, variant_cores, comparison),
+        )
     return {"agent": result, **manifest}
 
 
