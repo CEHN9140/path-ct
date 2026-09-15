@@ -97,7 +97,7 @@ def coassignment_from_runs(review_root, patient_ids, excluded_k=None):
         for initial_k in INITIAL_KS:
             if initial_k == excluded_k:
                 continue
-            path = review_root / f"run{repeat}" / f"K{initial_k}" / "final_partition_sets.json"
+            path = review_root / f"run{repeat}" / f"K{initial_k}" / "final_subtype_sets.json"
             sets = json.loads(path.read_text(encoding="utf-8"))
             run_count += 1
             for item in sets:
@@ -180,6 +180,7 @@ def run(input_root, data_root, config_dir, output_root, force=False):
         "heldout_characterization": ["cnv"],
         "macro_ks": list(MACRO_KS),
         "linkages": list(LINKAGES),
+        "coassignment_source": "final_subtype_sets.json only",
         "core_to_state_candidate": CORE_TO_STATE,
         "input_root": str(input_root),
     })
