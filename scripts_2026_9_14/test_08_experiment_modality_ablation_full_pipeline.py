@@ -26,6 +26,7 @@ def test_variant_manifest_records_disabled_ct():
     manifest = ablation.variant_manifest(["p1", "p2"], "abc", "def")
     assert manifest["active_modalities"] == ["wsi", "rna", "wxs", "cnv"]
     assert manifest["disabled_modalities"] == ["ct"]
+    assert manifest["artifact_schema"] == "minimal_active_modalities_v3"
 
 
 def test_cross_modal_metrics_only_report_active_views():

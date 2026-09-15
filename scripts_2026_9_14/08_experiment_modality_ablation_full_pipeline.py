@@ -52,6 +52,7 @@ def variant_manifest(patient_ids, fused_sha256, patient_order_sha256, active_mod
     disabled_modalities = [name for name in ALL_MODALITIES if name not in active_modalities]
     return {
         "variant": f"leave_{disabled_modalities[0]}_out" if len(disabled_modalities) == 1 else "modality_ablation",
+        "artifact_schema": "minimal_active_modalities_v3",
         "active_modalities": list(active_modalities),
         "disabled_modalities": disabled_modalities,
         "cohort_n": len(patient_ids),
@@ -86,7 +87,6 @@ def link_directory(source, target):
 
 def prepare_variant(data_root, output_root, patient_ids, views, fused, config, force, active_modalities=ACTIVE_MODALITIES, variant_name="leave_ct_out"):
     input_root = output_root / "inputs" / variant_name
-    candidate_source = data_root / "candidate_subtype"
     candidate_dir = input_root / "candidate_subtype"
     manifest_path = candidate_dir / "modality_ablation_manifest.json"
     expected = variant_manifest(
@@ -101,7 +101,13 @@ def prepare_variant(data_root, output_root, patient_ids, views, fused, config, f
         raise FileExistsError(f"Variant input exists with a different identity: {input_root}")
     shutil.rmtree(input_root, ignore_errors=True)
     input_root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(candidate_source, candidate_dir)
+    if candidate_dir.exists() or candidate_dir.is_symlink():
+        if candidate_dir.is_symlink():
+            candidate_dir.unlink()
+        else:
+            shutil.rmtree(candidate_dir)
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    write_json(candidate_dir / "affinity_patient_order.json", patient_ids)
     for name in ("storage", "ct_radiomics", "ct_qc", "rna", "cnv", "wsi_tumor_seg"):
         link_directory(data_root / name, input_root / name)
     shutil.copytree(data_root / "wxs", input_root / "wxs")
@@ -109,6 +115,20 @@ def prepare_variant(data_root, output_root, patient_ids, views, fused, config, f
         source = views[name]
         target = candidate_dir / f"{name}_affinity.npy" if name in {"ct", "wsi", "rna"} else input_root / "wxs" / f"{name}_affinity.npy"
         np.save(target, source)
+    write_json(candidate_dir / "affinity_cache.json", {
+        "cache_version": 1,
+        "variant": expected["variant"],
+        "active_modalities": list(active_modalities),
+        "disabled_modalities": expected["disabled_modalities"],
+        "patient_ids": patient_ids,
+        "paths": {
+            "ct": "ct_affinity.npy",
+            "wsi": "wsi_affinity.npy",
+            "rna": "rna_affinity.npy",
+            "wxs": "wxs_affinity.npy",
+            "cnv": "cnv_affinity.npy",
+        },
+    })
     np.save(candidate_dir / "fused_similarity.npy", fused)
     write_consensus_partitions(candidate_dir, fused, patient_ids, config["clustering"], active_modalities)
     write_json(manifest_path, expected)
