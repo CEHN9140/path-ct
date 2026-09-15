@@ -65,15 +65,18 @@ def test_compare_cores_accepts_load_cores_mapping():
 
 def test_compare_cores_handles_empty_variant():
     result = ablation.compare_cores({"CORE01": ["A", "B"]}, {})
-    assert result == []
+    assert len(result) == 1
+    assert result[0]["canonical_core"] == "CORE01"
+    assert result[0]["variant_core"] is None
+    assert result[0]["jaccard"] == 0.0
     summary = ablation.summarize_core_comparison(
         {"CORE01": ["A", "B"]}, {}, result
     )
     assert summary["canonical_core_coverage"] == 0.0
     assert summary["variant_core_coverage"] is None
     assert summary["matched_core_mean_jaccard"] is None
-    assert summary["penalized_core_mean_jaccard"] is None
-    assert summary["unmatched_canonical_cores"] == []
+    assert summary["penalized_core_mean_jaccard"] == 0.0
+    assert summary["unmatched_canonical_cores"] == ["CORE01"]
 
 
 def test_compare_cores_handles_empty_canonical():

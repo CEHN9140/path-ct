@@ -140,8 +140,22 @@ def compare_cores(canonical, variant):
     variant_ids = sorted(variant)
     reference = [set(canonical[core_id]) for core_id in canonical_ids]
     candidate = [set(variant[core_id]) for core_id in variant_ids]
-    if not reference or not candidate:
+    if not reference:
         return []
+    if not candidate:
+        return [
+            {
+                "canonical_core": core_id,
+                "variant_core": None,
+                "canonical_size": len(members),
+                "variant_size": 0,
+                "intersection": 0,
+                "canonical_retention": 0.0,
+                "variant_purity": 0.0,
+                "jaccard": 0.0,
+            }
+            for core_id, members in zip(canonical_ids, reference)
+        ]
     scores = np.asarray([[len(left & right) / len(left | right) for right in candidate] for left in reference])
     rows, columns = linear_sum_assignment(1.0 - scores)
     matched = {row: (columns[index], scores[row, columns[index]]) for index, row in enumerate(rows)}
