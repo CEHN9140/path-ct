@@ -213,15 +213,21 @@ def fragmentation_rows(canonical, variant, comparison):
             for variant_id in variant_ids
             if members & set(variant[variant_id])
         }
+        any_variant_stable_n = sum(distribution.values())
+        canonical_size = len(members)
         rows.append({
             "canonical_core": canonical_id,
-            "canonical_size": len(members),
+            "canonical_size": canonical_size,
             "matched_variant_core": comparison_row["variant_core"],
             "matched_variant_size": comparison_row["variant_size"],
             "retained_n": comparison_row["intersection"],
             "retention": comparison_row["canonical_retention"],
             "jaccard": comparison_row["jaccard"],
             "variant_core_count_with_members": len(distribution),
+            "any_variant_stable_n": any_variant_stable_n,
+            "any_variant_stable_fraction": any_variant_stable_n / canonical_size,
+            "no_variant_stable_n": canonical_size - any_variant_stable_n,
+            "no_variant_stable_fraction": (canonical_size - any_variant_stable_n) / canonical_size,
             "variant_membership_distribution": json.dumps(
                 distribution, ensure_ascii=False, sort_keys=True
             ),
@@ -236,16 +242,28 @@ def write_core_comparison(output_root, canonical_root, review_root, runner):
     canonical, _ = runner.core_analysis.load_cores(canonical_root)
     variant, _ = runner.core_analysis.load_cores(review_root)
     comparison = compare_cores(canonical, variant)
+    fragmentation = fragmentation_rows(canonical, variant, comparison)
+    canonical_n = sum(map(len, canonical.values()))
     runner.core_analysis.write_csv(
         output_root / "canonical_vs_leave_ct_out_cores.csv", comparison
     )
     write_json(
         output_root / "canonical_vs_leave_ct_out_summary.json",
-        summarize_core_comparison(canonical, variant, comparison),
+        {
+            **summarize_core_comparison(canonical, variant, comparison),
+            "any_variant_stable_core_coverage": (
+                sum(row["any_variant_stable_n"] for row in fragmentation) / canonical_n
+                if canonical_n else None
+            ),
+            "no_variant_stable_core_fraction": (
+                sum(row["no_variant_stable_n"] for row in fragmentation) / canonical_n
+                if canonical_n else None
+            ),
+        },
     )
     runner.core_analysis.write_csv(
         output_root / "canonical_core_leave_ct_out_fragmentation.csv",
-        fragmentation_rows(canonical, variant, comparison),
+        fragmentation,
     )
     return True
 

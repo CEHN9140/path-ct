@@ -100,6 +100,10 @@ def test_fragmentation_rows_report_full_variant_distribution():
     assert row["matched_variant_core"] == "CORE01"
     assert row["retained_n"] == 2
     assert row["variant_core_count_with_members"] == 2
+    assert row["any_variant_stable_n"] == 3
+    assert row["any_variant_stable_fraction"] == 0.75
+    assert row["no_variant_stable_n"] == 1
+    assert row["no_variant_stable_fraction"] == 0.25
     assert row["variant_membership_distribution"] == '{"CORE01": 2, "CORE05": 1}'
 
 
