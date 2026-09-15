@@ -37,6 +37,10 @@ TECHNICAL_VARIABLES = (
     "cnv_missing_feature_count", "cnv_feature_completeness_proxy", "cnv_gain_burden", "cnv_loss_burden",
     "cnv_platform", "cnv_center", "cnv_purity", "cnv_ploidy", "cnv_segment_quality",
 )
+PRIMARY_QC_PROXY_FIELDS = (
+    "wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction",
+    "wxs_discovery_all_zero_proxy", "cnv_missing_feature_count", "cnv_feature_completeness_proxy",
+)
 
 AVAILABLE_SOURCES = {
     "ct": "tools.confound + ct_qc metadata",
@@ -57,7 +61,7 @@ def finite(value):
 
 def build_availability_rows():
     available = {
-        "tissue_source_site": ("available", "ct", "TCGA site identifier; technical/site proxy"),
+        "tissue_source_site": ("available", "cross_modal", "TCGA site identifier; technical/site proxy"),
         "ct_phase": ("available", "ct", "categorical CT acquisition metadata"),
         "ct_manufacturer": ("available", "ct", "categorical CT acquisition metadata"),
         "ct_scanner_model": ("available", "ct", "categorical CT acquisition metadata"),
@@ -92,7 +96,7 @@ def build_availability_rows():
             "variable": variable,
             "modality": modality,
             "status": status,
-            "source": AVAILABLE_SOURCES.get(modality, "not available"),
+            "source": AVAILABLE_SOURCES.get(modality, "TCGA case identifier"),
             "role": "biological_representation" if variable in biological else "qc_proxy" if variable in qc_proxy else "technical_metadata",
             "interpretation": interpretation,
         })
@@ -200,6 +204,12 @@ def primary_numeric_rows(records, groups, fields):
     return rows
 
 
+def apply_primary_fdr(categorical_rows, numeric_rows):
+    rows = categorical_rows + numeric_rows
+    for row, q_value in zip(rows, bh([row["p_value"] for row in rows])):
+        row["q_value"] = q_value
+
+
 def compare_proxies(records, core_ids):
     rows = []
     fields = (
@@ -225,6 +235,27 @@ def compare_proxies(records, core_ids):
         })
     for row, q_value in zip(rows, bh([row["p_value"] for row in rows])):
         row["q_value"] = q_value
+    return rows
+
+
+def primary_qc_proxy_rows(records, groups):
+    rows = []
+    for field in PRIMARY_QC_PROXY_FIELDS:
+        values = [[records[case].get(field) for case in cases] for cases in groups.values()]
+        values = [[value for value in group if value is not None] for group in values]
+        if field == "wxs_discovery_all_zero_proxy":
+            levels = [False, True]
+            table = np.asarray([[sum(value == level for value in group) for level in levels] for group in values])
+            p_value = float(chi2_contingency(table, correction=False)[1]) if table.sum() and table.shape[1] > 1 else None
+            test, effect = "pearson_chi2", confound.cramers_v(table) if p_value is not None else None
+            details = {"group_n": json.dumps([len(group) for group in values]), "group_counts": json.dumps(table.tolist())}
+        else:
+            numeric = [[float(value) for value in group if isinstance(value, (int, float, bool)) and math.isfinite(float(value))] for group in values]
+            nonempty = [group for group in numeric if group]
+            p_value = float(kruskal(*nonempty).pvalue) if len(nonempty) >= 2 and len({value for group in nonempty for value in group}) > 1 else None
+            test, effect = "kruskal_wallis" if p_value is not None else "invariant_or_not_testable", confound.epsilon_squared(nonempty) if p_value is not None else None
+            details = {"group_n": json.dumps([len(group) for group in numeric]), "group_medians": json.dumps([float(np.median(group)) if group else None for group in numeric])}
+        rows.append({"variable": field, "grouping": "four_stable_cores", **details, "test": test, "effect_size": effect, "p_value": p_value})
     return rows
 
 
@@ -273,8 +304,12 @@ def run(data_root, multi_k_root, output_root, force=False):
     primary_groups = primary_core_groups(cores)
     primary_categorical_fields = ("tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel")
     primary_numeric_fields = ("ct_slice_thickness", "ct_z_spacing", "ct_pixel_spacing", "ct_n_images", "ct_study_year")
-    base.write_csv(output_root / "technical_primary_core_categorical.csv", primary_categorical_rows(records, primary_groups, primary_categorical_fields))
-    base.write_csv(output_root / "technical_primary_core_numeric.csv", primary_numeric_rows(records, primary_groups, primary_numeric_fields))
+    primary_categorical = primary_categorical_rows(records, primary_groups, primary_categorical_fields)
+    primary_numeric = primary_numeric_rows(records, primary_groups, primary_numeric_fields)
+    apply_primary_fdr(primary_categorical, primary_numeric)
+    base.write_csv(output_root / "technical_primary_core_categorical.csv", primary_categorical)
+    base.write_csv(output_root / "technical_primary_core_numeric.csv", primary_numeric)
+    base.write_csv(output_root / "technical_primary_core_qc_proxy.csv", primary_qc_proxy_rows(records, primary_groups))
     unavailable = [row for row in build_availability_rows() if row["status"] == "unavailable"]
     summary = {
         "experiment": "five_view_technical_confounder_audit",

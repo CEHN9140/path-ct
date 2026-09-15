@@ -64,3 +64,23 @@ def test_primary_groups_are_four_stable_cores_only():
     assert list(groups) == ["CORE01", "CORE02", "CORE03", "CORE04"]
     assert groups["CORE01"] == ["a"]
     assert "non_core" not in groups
+
+
+def test_tss_is_cross_modal_site_metadata():
+    row = {item["variable"]: item for item in build_availability_rows()}["tissue_source_site"]
+    assert row["modality"] == "cross_modal"
+    assert row["role"] == "technical_metadata"
+
+
+def test_primary_fdr_uses_one_family():
+    categorical = [{"p_value": 0.01}, {"p_value": 0.04}]
+    numeric = [{"p_value": 0.03}, {"p_value": 1.0}]
+    audit.apply_primary_fdr(categorical, numeric)
+    assert [row["q_value"] for row in categorical + numeric] == [0.04, 0.05333333333333334, 0.05333333333333334, 1.0]
+
+
+def test_primary_qc_proxy_excludes_biological_burdens():
+    assert audit.PRIMARY_QC_PROXY_FIELDS == (
+        "wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction",
+        "wxs_discovery_all_zero_proxy", "cnv_missing_feature_count", "cnv_feature_completeness_proxy",
+    )
