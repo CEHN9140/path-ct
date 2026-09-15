@@ -202,6 +202,54 @@ def summarize_core_comparison(canonical, variant, comparison):
     }
 
 
+def fragmentation_rows(canonical, variant, comparison):
+    variant_ids = sorted(variant)
+    rows = []
+    for comparison_row in comparison:
+        canonical_id = comparison_row["canonical_core"]
+        members = set(canonical[canonical_id])
+        distribution = {
+            variant_id: len(members & set(variant[variant_id]))
+            for variant_id in variant_ids
+            if members & set(variant[variant_id])
+        }
+        rows.append({
+            "canonical_core": canonical_id,
+            "canonical_size": len(members),
+            "matched_variant_core": comparison_row["variant_core"],
+            "matched_variant_size": comparison_row["variant_size"],
+            "retained_n": comparison_row["intersection"],
+            "retention": comparison_row["canonical_retention"],
+            "jaccard": comparison_row["jaccard"],
+            "variant_core_count_with_members": len(distribution),
+            "variant_membership_distribution": json.dumps(
+                distribution, ensure_ascii=False, sort_keys=True
+            ),
+        })
+    return rows
+
+
+def write_core_comparison(output_root, canonical_root, review_root, runner):
+    variant_summary = review_root / "stable_core_summary.csv"
+    if not variant_summary.is_file():
+        return False
+    canonical, _ = runner.core_analysis.load_cores(canonical_root)
+    variant, _ = runner.core_analysis.load_cores(review_root)
+    comparison = compare_cores(canonical, variant)
+    runner.core_analysis.write_csv(
+        output_root / "canonical_vs_leave_ct_out_cores.csv", comparison
+    )
+    write_json(
+        output_root / "canonical_vs_leave_ct_out_summary.json",
+        summarize_core_comparison(canonical, variant, comparison),
+    )
+    runner.core_analysis.write_csv(
+        output_root / "canonical_core_leave_ct_out_fragmentation.csv",
+        fragmentation_rows(canonical, variant, comparison),
+    )
+    return True
+
+
 def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, preflight=False, run_agent=False):
     config = load_candidate_proposer_config(config_dir)
     patient_ids, views = load_canonical_inputs(data_root)
@@ -215,10 +263,12 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
     )
     manifest.update({"input_root": str(input_root), "input_rebuilt": rebuilt, "initial_ks": list(initial_ks), "repeats": list(repeats)})
     write_json(output_root / "leave_ct_out_manifest.json", manifest)
-    if preflight or not run_agent:
-        return {"preflight": "passed", **manifest}
     runner = load_runner()
     review_root = output_root / "leave_ct_out" / "agent_review"
+    canonical_root = ROOT / "output_kirc_v13" / "00_five_view_multi_k_agent_review"
+    if preflight or not run_agent:
+        write_core_comparison(output_root, canonical_root, review_root, runner)
+        return {"preflight": "passed", **manifest}
     result = runner.run(
         data_root=input_root,
         config_dir=config_dir,
@@ -228,19 +278,7 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         force=force,
         active_modalities=ACTIVE_MODALITIES,
     )
-    canonical_root = ROOT / "output_kirc_v13" / "00_five_view_multi_k_agent_review"
-    variant_summary = review_root / "stable_core_summary.csv"
-    if variant_summary.is_file():
-        canonical_cores, _ = runner.core_analysis.load_cores(canonical_root)
-        variant_cores, _ = runner.core_analysis.load_cores(review_root)
-        comparison = compare_cores(canonical_cores, variant_cores)
-        runner.core_analysis.write_csv(
-            output_root / "canonical_vs_leave_ct_out_cores.csv", comparison
-        )
-        write_json(
-            output_root / "canonical_vs_leave_ct_out_summary.json",
-            summarize_core_comparison(canonical_cores, variant_cores, comparison),
-        )
+    write_core_comparison(output_root, canonical_root, review_root, runner)
     return {"agent": result, **manifest}
 
 

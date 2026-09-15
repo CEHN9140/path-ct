@@ -92,6 +92,17 @@ def test_compare_cores_handles_both_empty():
     assert summary["variant_core_coverage"] is None
 
 
+def test_fragmentation_rows_report_full_variant_distribution():
+    canonical = {"CORE01": ["A", "B", "C", "D"]}
+    variant = {"CORE01": ["A", "B"], "CORE05": ["C"], "CORE06": ["X"]}
+    comparison = ablation.compare_cores(canonical, variant)
+    row = ablation.fragmentation_rows(canonical, variant, comparison)[0]
+    assert row["matched_variant_core"] == "CORE01"
+    assert row["retained_n"] == 2
+    assert row["variant_core_count_with_members"] == 2
+    assert row["variant_membership_distribution"] == '{"CORE01": 2, "CORE05": 1}'
+
+
 def test_leave_ct_out_confound_evidence_keeps_only_tss(monkeypatch, tmp_path):
     import tools.confound as confound
 
