@@ -84,3 +84,16 @@ def test_primary_qc_proxy_excludes_biological_burdens():
         "wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction",
         "wxs_discovery_all_zero_proxy", "cnv_missing_feature_count", "cnv_feature_completeness_proxy",
     )
+
+
+def test_wxs_all_zero_uses_permutation_chi2():
+    groups = {"CORE01": ["a"], "CORE02": ["b"], "CORE03": ["c"], "CORE04": ["d"]}
+    records = {case: {"wxs_discovery_all_zero_proxy": case == "d"} for case in "abcd"}
+    row = audit.primary_qc_proxy_rows(records, groups)[3]
+    assert row["test"] == "monte_carlo_chi2"
+    assert row["p_value"] > 0
+
+
+def test_wxs_all_zero_is_representation_proxy():
+    row = {item["variable"]: item for item in build_availability_rows()}["wxs_discovery_all_zero_proxy"]
+    assert row["role"] == "representation_proxy"

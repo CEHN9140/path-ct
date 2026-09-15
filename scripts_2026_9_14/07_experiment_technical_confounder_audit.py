@@ -86,7 +86,8 @@ def build_availability_rows():
         "cnv_loss_burden": ("available", "cnv", "derived CNV representation feature"),
     }
     biological = {"wxs_discovery_mutation_count", "cnv_gain_burden", "cnv_loss_burden"}
-    qc_proxy = {"wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction", "wsi_model_mpp", "wsi_model_tile_size", "rna_file_presence", "wxs_file_presence", "wxs_discovery_all_zero_proxy", "cnv_missing_feature_count", "cnv_feature_completeness_proxy"}
+    qc_proxy = {"wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction", "wsi_model_mpp", "wsi_model_tile_size", "rna_file_presence", "wxs_file_presence", "cnv_missing_feature_count", "cnv_feature_completeness_proxy"}
+    representation_proxy = {"wxs_discovery_all_zero_proxy"}
     rows = []
     for variable in TECHNICAL_VARIABLES:
         status, modality, interpretation = available.get(
@@ -97,7 +98,7 @@ def build_availability_rows():
             "modality": modality,
             "status": status,
             "source": AVAILABLE_SOURCES.get(modality, "TCGA case identifier"),
-            "role": "biological_representation" if variable in biological else "qc_proxy" if variable in qc_proxy else "technical_metadata",
+            "role": "biological_representation" if variable in biological else "representation_proxy" if variable in representation_proxy else "qc_proxy" if variable in qc_proxy else "technical_metadata",
             "interpretation": interpretation,
         })
     return rows
@@ -246,8 +247,17 @@ def primary_qc_proxy_rows(records, groups):
         if field == "wxs_discovery_all_zero_proxy":
             levels = [False, True]
             table = np.asarray([[sum(value == level for value in group) for level in levels] for group in values])
-            p_value = float(chi2_contingency(table, correction=False)[1]) if table.sum() and table.shape[1] > 1 else None
-            test, effect = "pearson_chi2", confound.cramers_v(table) if p_value is not None else None
+            observed = float(chi2_contingency(table, correction=False)[0]) if table.sum() and table.shape[1] > 1 else None
+            labels = np.concatenate([np.full(len(group), index) for index, group in enumerate(values)])
+            observations = np.asarray([value for group in values for value in group])
+            rng = np.random.default_rng(20260915)
+            exceed = 0
+            for _ in range(10000):
+                shuffled = rng.permutation(labels)
+                permuted = np.asarray([[np.sum((shuffled == index) & (observations == level)) for level in levels] for index in range(len(values))])
+                exceed += chi2_contingency(permuted, correction=False)[0] >= observed if observed is not None else 0
+            p_value = (exceed + 1) / 10001 if observed is not None else None
+            test, effect = "monte_carlo_chi2", confound.cramers_v(table) if p_value is not None else None
             details = {"group_n": json.dumps([len(group) for group in values]), "group_counts": json.dumps(table.tolist())}
         else:
             numeric = [[float(value) for value in group if isinstance(value, (int, float, bool)) and math.isfinite(float(value))] for group in values]
