@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu
+from scipy.stats import chi2_contingency, kruskal, mannwhitneyu
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -26,7 +26,7 @@ from tools import confound
 
 
 TECHNICAL_VARIABLES = (
-    "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel",
+    "tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel",
     "ct_slice_thickness", "ct_z_spacing", "ct_pixel_spacing", "ct_n_images", "ct_study_year",
     "wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction",
     "wsi_model_mpp", "wsi_model_tile_size",
@@ -57,6 +57,7 @@ def finite(value):
 
 def build_availability_rows():
     available = {
+        "tissue_source_site": ("available", "ct", "TCGA site identifier; technical/site proxy"),
         "ct_phase": ("available", "ct", "categorical CT acquisition metadata"),
         "ct_manufacturer": ("available", "ct", "categorical CT acquisition metadata"),
         "ct_scanner_model": ("available", "ct", "categorical CT acquisition metadata"),
@@ -80,6 +81,8 @@ def build_availability_rows():
         "cnv_gain_burden": ("available", "cnv", "derived CNV representation feature"),
         "cnv_loss_burden": ("available", "cnv", "derived CNV representation feature"),
     }
+    biological = {"wxs_discovery_mutation_count", "cnv_gain_burden", "cnv_loss_burden"}
+    qc_proxy = {"wsi_patch_count", "wsi_tumor_patch_count", "wsi_tumor_patch_fraction", "wsi_model_mpp", "wsi_model_tile_size", "rna_file_presence", "wxs_file_presence", "wxs_discovery_all_zero_proxy", "cnv_missing_feature_count", "cnv_feature_completeness_proxy"}
     rows = []
     for variable in TECHNICAL_VARIABLES:
         status, modality, interpretation = available.get(
@@ -90,6 +93,7 @@ def build_availability_rows():
             "modality": modality,
             "status": status,
             "source": AVAILABLE_SOURCES.get(modality, "not available"),
+            "role": "biological_representation" if variable in biological else "qc_proxy" if variable in qc_proxy else "technical_metadata",
             "interpretation": interpretation,
         })
     return rows
@@ -132,13 +136,68 @@ def build_cnv_proxy(case_id, row):
 
 
 def bh(values):
-    valid = sorted((i, value) for i, value in enumerate(values) if value is not None and math.isfinite(value))
+    valid = sorted(
+        ((i, float(value)) for i, value in enumerate(values) if value is not None and math.isfinite(float(value))),
+        key=lambda item: item[1],
+    )
     result = [None] * len(values)
     for rank, (index, value) in enumerate(valid, 1):
         result[index] = min(1.0, value * len(valid) / rank)
     for i in range(len(valid) - 2, -1, -1):
         result[valid[i][0]] = min(result[valid[i][0]], result[valid[i + 1][0]])
     return result
+
+
+def primary_core_groups(cores):
+    names = ("CORE01", "CORE02", "CORE03", "CORE04")
+    if set(cores) != set(names):
+        raise ValueError(f"Expected exactly four stable cores: {names}")
+    return {name: list(cores[name]) for name in names}
+
+
+def primary_categorical_rows(records, groups, fields):
+    rows = []
+    for field in fields:
+        levels = sorted({str(records[case].get(field, "")) for cases in groups.values() for case in cases if records[case].get(field) not in (None, "")})
+        table = np.asarray([[sum(str(records[case].get(field, "")) == level for case in cases) for level in levels] for cases in groups.values()], dtype=int)
+        p_value, test = None, "not_testable"
+        if len(levels) > 1 and table.sum() > 0:
+            expected = chi2_contingency(table, correction=False)[3]
+            observed = float(chi2_contingency(table, correction=False)[0])
+            if (expected < 1).any() or (expected < 5).mean() > 0.2:
+                values = np.asarray([str(records[case].get(field, "")) for cases in groups.values() for case in cases])
+                labels = np.concatenate([np.full(len(cases), index) for index, cases in enumerate(groups.values())])
+                rng = np.random.default_rng(20260915 + fields.index(field))
+                exceed = 0
+                for _ in range(10000):
+                    shuffled = rng.permutation(labels)
+                    permuted = np.asarray([[np.sum((shuffled == index) & (values == level)) for level in levels] for index in range(len(groups))])
+                    exceed += chi2_contingency(permuted, correction=False)[0] >= observed
+                p_value, test = (exceed + 1) / 10001, "monte_carlo_chi2"
+            else:
+                p_value, test = float(chi2_contingency(table, correction=False)[1]), "pearson_chi2"
+        rows.append({"variable": field, "grouping": "four_stable_cores", "levels": json.dumps(levels), "counts": json.dumps(table.tolist()), "test": test, "cramers_v": confound.cramers_v(table) if p_value is not None else None, "p_value": p_value})
+    for row, q_value in zip(rows, bh([row["p_value"] for row in rows])):
+        row["q_value"] = q_value
+    return rows
+
+
+def primary_numeric_rows(records, groups, fields):
+    rows = []
+    for field in fields:
+        values = [[finite(records[case].get(field)) for case in cases] for cases in groups.values()]
+        values = [[value for value in group if value is not None] for group in values]
+        nonempty = [group for group in values if group]
+        if len(nonempty) >= 2 and len({value for group in nonempty for value in group}) > 1:
+            p_value = float(kruskal(*nonempty).pvalue)
+            test = "kruskal_wallis"
+            effect = confound.epsilon_squared(nonempty)
+        else:
+            p_value, test, effect = None, "invariant_or_not_testable", None
+        rows.append({"variable": field, "grouping": "four_stable_cores", "group_n": json.dumps([len(group) for group in values]), "group_medians": json.dumps([float(np.median(group)) if group else None for group in values]), "test": test, "epsilon_squared": effect, "p_value": p_value})
+    for row, q_value in zip(rows, bh([row["p_value"] for row in rows])):
+        row["q_value"] = q_value
+    return rows
 
 
 def compare_proxies(records, core_ids):
@@ -211,6 +270,11 @@ def run(data_root, multi_k_root, output_root, force=False):
     base.write_csv(output_root / "technical_variable_availability.csv", build_availability_rows())
     base.write_csv(output_root / "technical_proxy_by_case.csv", list(records.values()))
     base.write_csv(output_root / "technical_proxy_core_non_core.csv", compare_proxies(records, core_ids))
+    primary_groups = primary_core_groups(cores)
+    primary_categorical_fields = ("tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel")
+    primary_numeric_fields = ("ct_slice_thickness", "ct_z_spacing", "ct_pixel_spacing", "ct_n_images", "ct_study_year")
+    base.write_csv(output_root / "technical_primary_core_categorical.csv", primary_categorical_rows(records, primary_groups, primary_categorical_fields))
+    base.write_csv(output_root / "technical_primary_core_numeric.csv", primary_numeric_rows(records, primary_groups, primary_numeric_fields))
     unavailable = [row for row in build_availability_rows() if row["status"] == "unavailable"]
     summary = {
         "experiment": "five_view_technical_confounder_audit",
@@ -218,6 +282,8 @@ def run(data_root, multi_k_root, output_root, force=False):
         "core_count": len(core_ids),
         "non_core_count": len(patient_ids) - len(core_ids),
         "technical_audit_is_correction": False,
+        "primary_comparison": "CORE01 vs CORE02 vs CORE03 vs CORE04",
+        "secondary_comparison": "all stable-core patients vs non-core patients",
         "available_variable_count": len(TECHNICAL_VARIABLES) - len(unavailable),
         "unavailable_variable_count": len(unavailable),
         "unavailable_variables": [row["variable"] for row in unavailable],
