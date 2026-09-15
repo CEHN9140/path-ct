@@ -33,3 +33,10 @@ def test_runner_only_reads_workflow_budget(monkeypatch):
     assert state["control"]["max_failures"] == 3
     assert {name for name, _ in calls} == {"verifier", "router", "reviser"}
     assert len({id(tracker) for _, tracker in calls}) == 1
+
+
+def test_active_tool_registry_hides_disabled_omics_tools():
+    assert "pathway_enrichment" not in runner.active_tool_registry(("ct", "wsi", "wxs", "cnv"))
+    assert "mutation_enrichment" not in runner.active_tool_registry(("ct", "wsi", "rna", "cnv"))
+    assert "cnv_characterization" not in runner.active_tool_registry(("ct", "wsi", "rna", "wxs"))
+    assert "multimodal_consistency_check" in runner.active_tool_registry(("ct", "wsi", "wxs", "cnv"))

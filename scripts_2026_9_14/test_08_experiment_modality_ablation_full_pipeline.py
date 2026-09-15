@@ -29,6 +29,16 @@ def test_variant_manifest_records_disabled_ct():
     assert manifest["artifact_schema"] == "minimal_active_modalities_v3"
 
 
+def test_variant_manifest_rejects_zero_or_multiple_disabled_modalities():
+    for active in (ablation.ALL_MODALITIES, ("wsi", "rna", "wxs")):
+        try:
+            ablation.variant_manifest(["p1"], "abc", "def", active)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("leave-one-modality-out requires exactly one disabled modality")
+
+
 def test_cross_modal_metrics_only_report_active_views():
     from tools.multimodal_consistency_check import compute_cross_modal_consistency
 
@@ -49,6 +59,26 @@ def test_cross_modal_metrics_only_report_active_views():
     assert set(result["modality_partition_support"]) == set(matrices)
     assert "ct" not in result["affinity_audit"]
     assert "ct" not in result["decision_metrics"]["cross_modal_consistency"]["partition"]["permanova_r2"]
+
+
+def test_cross_modal_metrics_follow_each_disabled_view():
+    from tools.multimodal_consistency_check import compute_cross_modal_consistency
+
+    case_ids = [f"p{i}" for i in range(6)]
+    memberships = {"C1": case_ids[:3], "C2": case_ids[3:]}
+    for disabled in ablation.ALL_MODALITIES:
+        active = tuple(name for name in ablation.ALL_MODALITIES if name != disabled)
+        matrices = {name: np.eye(6) + 0.1 for name in active}
+        result = compute_cross_modal_consistency(
+            matrices,
+            case_ids,
+            memberships,
+            permanova_permutations=5,
+            permdisp_permutations=5,
+            modalities=active,
+        )
+        assert set(result["modality_partition_support"]) == set(active)
+        assert disabled not in result["affinity_audit"]
 
 
 def test_compare_cores_accepts_load_cores_mapping():

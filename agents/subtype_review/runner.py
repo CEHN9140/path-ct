@@ -13,6 +13,22 @@ from agents.subtype_review.llm import (
 from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.llm_utils import load_yaml_file
 
+DEFAULT_ACTIVE_MODALITIES = ("ct", "wsi", "rna", "wxs", "cnv")
+MODALITY_TOOL_MAP = {
+    "pathway_enrichment": "rna",
+    "mutation_enrichment": "wxs",
+    "cnv_characterization": "cnv",
+}
+
+
+def active_tool_registry(active_modalities: tuple[str, ...] | None = None) -> dict[str, dict[str, Any]]:
+    active = set(active_modalities or DEFAULT_ACTIVE_MODALITIES)
+    return {
+        name: metadata
+        for name, metadata in TOOL_REGISTRY.items()
+        if MODALITY_TOOL_MAP.get(name) in active or name not in MODALITY_TOOL_MAP
+    }
+
 
 def run_subtype_review(
     candidate_clusters: list[dict[str, Any]],
@@ -26,6 +42,7 @@ def run_subtype_review(
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = dict(review_config.get("budget", {}) or {})
     usage_tracker = LLMUsageTracker()
+    active = tuple(active_modalities or DEFAULT_ACTIVE_MODALITIES)
     runtime = {
         "patient_states_by_id": {
             str(key): dict(value) for key, value in patient_states_by_id.items()
@@ -33,8 +50,8 @@ def run_subtype_review(
         "data_root": str(data_root),
         "artifact_root": str(artifact_root or data_root),
         "config_dir": str(config_dir),
-        "tool_registry": TOOL_REGISTRY,
-        "active_modalities": tuple(active_modalities or ("ct", "wsi", "rna", "wxs", "cnv")),
+        "tool_registry": active_tool_registry(active),
+        "active_modalities": active,
     }
     verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker)
     reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker)

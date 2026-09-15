@@ -50,6 +50,8 @@ def fuse_active_views(views, snf_config, active_modalities=ACTIVE_MODALITIES):
 
 def variant_manifest(patient_ids, fused_sha256, patient_order_sha256, active_modalities=ACTIVE_MODALITIES):
     disabled_modalities = [name for name in ALL_MODALITIES if name not in active_modalities]
+    if len(disabled_modalities) != 1 or len(active_modalities) != len(ALL_MODALITIES) - 1:
+        raise ValueError("Leave-one-modality-out requires exactly one disabled modality")
     return {
         "variant": f"leave_{disabled_modalities[0]}_out" if len(disabled_modalities) == 1 else "modality_ablation",
         "artifact_schema": "minimal_active_modalities_v3",
@@ -291,7 +293,10 @@ def write_core_comparison(output_root, canonical_root, review_root, runner, vari
 
 
 def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, preflight=False, run_agent=False, active_modalities=ACTIVE_MODALITIES):
-    variant_name = f"leave_{[name for name in ALL_MODALITIES if name not in active_modalities][0]}_out"
+    disabled_modalities = [name for name in ALL_MODALITIES if name not in active_modalities]
+    if len(disabled_modalities) != 1 or len(active_modalities) != len(ALL_MODALITIES) - 1:
+        raise ValueError("Leave-one-modality-out requires exactly one disabled modality")
+    variant_name = f"leave_{disabled_modalities[0]}_out"
     config = load_candidate_proposer_config(config_dir)
     patient_ids, views = load_canonical_inputs(data_root)
     fused = fuse_active_views(views, config["snf"], active_modalities)
@@ -307,7 +312,7 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         active_modalities,
     )
     manifest.update({"input_root": str(input_root), "input_rebuilt": rebuilt, "initial_ks": list(initial_ks), "repeats": list(repeats)})
-    write_json(output_root / "leave_ct_out_manifest.json", manifest)
+    write_json(output_root / f"{variant_name}_manifest.json", manifest)
     runner = load_runner()
     review_root = output_root / variant_name / "agent_review"
     canonical_root = ROOT / "output_kirc_v13" / "00_five_view_multi_k_agent_review"

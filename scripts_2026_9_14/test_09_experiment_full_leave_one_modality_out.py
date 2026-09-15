@@ -15,6 +15,12 @@ def test_variants_disable_exactly_one_view():
         assert set(active) | {disabled} == set(module.ALL_MODALITIES)
 
 
+def test_active_modality_sets_are_strict_leave_one_out():
+    for disabled, active in module.VARIANTS.items():
+        assert len(active) == len(module.ALL_MODALITIES) - 1
+        assert set(module.ALL_MODALITIES) - set(active) == {disabled}
+
+
 def test_canonical_row_is_complete_baseline():
     row = module.canonical_row({"CORE01": ["A"], "CORE02": ["B", "C"]})
     assert row["stable_core_count"] == 2
