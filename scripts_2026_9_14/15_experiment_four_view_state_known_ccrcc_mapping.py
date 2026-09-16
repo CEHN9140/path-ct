@@ -46,7 +46,8 @@ def run(membership=DEFAULT_MEMBERSHIP, output_root=ROOT/"output_kirc_v14/15_four
             rows.append({"reference":name,"analysis":"state_label_association","known_n":len(known),"chi_square":statistic,"p_value":p_value,"cramers_v":float(bias_corrected_cramers_v(table) or 0.0)})
             for state in sorted(gs):
                 state_known=known[known.state_id.eq(state)]; rest_known=known[~known.state_id.eq(state)]
-                for label in sorted(known.reference_subtype.unique()):
+                labels_for_test = ["ccB"] if name == "clearcode34" else sorted(known.reference_subtype.unique())
+                for label in labels_for_test:
                     a=int((state_known.reference_subtype==label).sum()); b=len(state_known)-a; c=int((rest_known.reference_subtype==label).sum()); d=len(rest_known)-c
                     odds,p=fisher_exact([[a,b],[c,d]])
                     rows.append({"reference":name,"analysis":"state_vs_rest_label","state_id":state,"label":label,"known_n":len(known),"odds_ratio":float(odds),"p_value":float(p)})
@@ -56,7 +57,11 @@ def run(membership=DEFAULT_MEMBERSHIP, output_root=ROOT/"output_kirc_v14/15_four
             statistic,p_value,_=permutation_chi2(merged.state_id, missing_labels, permutations, 20260916)
             rows.append({"reference":name,"analysis":"coverage_association","known_n":int((missing_labels=="known").sum()),"missing_n":int((missing_labels=="missing").sum()),"chi_square":statistic,"p_value":p_value})
     result=pd.DataFrame(rows)
-    if "p_value" in result: result["q_value"]=bh_adjust(result.p_value.tolist())
+    if "p_value" in result:
+        result["test_family"] = result.analysis.map({"state_label_association":"global_taxonomy","coverage_association":"coverage"}).fillna("state_enrichment")
+        result["q_value"] = None
+        for family, indexes in result.groupby("test_family").groups.items():
+            result.loc[indexes,"q_value"] = bh_adjust(result.loc[indexes,"p_value"].tolist())
     result.to_csv(output_root/"mapping_coverage.csv",index=False)
     write_manifest(output_root/"manifest.json",{"experiment":"four_view_state_known_ccrcc_mapping","membership_file":str(Path(membership).resolve()),"references":{k:str(v.resolve()) for k,v in refs.items()},"patient_count":len(ids),"state_sizes":{k:len(v) for k,v in gs.items()},"permutations":permutations})
     return {"output_root":str(output_root),"patient_count":len(ids),"state_sizes":{k:len(v) for k,v in gs.items()}}

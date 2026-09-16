@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -123,6 +124,8 @@ def run(input_root, data_root, config_dir, output_root, force=False):
     labels = list(cores)
     patient_ids = list(map(str, json.loads((input_root / "inputs/four_view_no_cnv/candidate_subtype/affinity_patient_order.json").read_text())))
     full_matrix = aggregate_core_matrix(coassignment_from_runs(review_root, patient_ids), patient_ids, cores)
+    if force and output_root.exists():
+        shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     full_rows = []
     full_assignments = {}
@@ -136,9 +139,18 @@ def run(input_root, data_root, config_dir, output_root, force=False):
             )
     pd.DataFrame(full_rows).to_csv(output_root / "macro_k_summary.csv", index=False)
     candidates = [row for row in full_rows if row["linkage"] == "average" and row["silhouette"] is not None]
-    selected = min(candidates, key=lambda row: (-row["silhouette"], row["macro_k"]))
+    valid = []
+    for row in candidates:
+        k, assignments = row["macro_k"], [full_assignments[(row["macro_k"], "complete")][core] for core in labels]
+        average = [full_assignments[(k, "average")][core] for core in labels]
+        sizes = pd.Series(average).value_counts()
+        if adjusted_rand_score(average, assignments) == 1.0 and sizes.min() > 1:
+            valid.append(row)
+    if not valid:
+        raise ValueError("No macro-state K satisfies linkage agreement and no-singleton constraints")
+    selected = min(valid, key=lambda row: (-row["silhouette"], row["macro_k"]))
     write_json(output_root / "selected_macro_state_model.json", {
-        "selection_rule": "maximum core-level silhouette; ties choose smaller K",
+        "selection_rule": "maximum average-linkage core-level silhouette subject to average/complete agreement and no singleton macro-state; ties choose smaller K",
         "selected_macro_k": int(selected["macro_k"]),
         "selected_linkage": selected["linkage"],
         "selected_silhouette": selected["silhouette"],
@@ -156,15 +168,15 @@ def run(input_root, data_root, config_dir, output_root, force=False):
                     **{key: value for key, value in result.items() if key not in {"assignments", "reference_ari"}},
                     "leave_one_k_ari": result["reference_ari"],
                 })
-    pd.DataFrame(loko_rows).to_csv(output_root / "macro_k_leave_one_k_out.csv", index=False)
+    pd.DataFrame(loko_rows).to_csv(output_root / "conditional_macro_state_leave_one_resolution_out.csv", index=False)
 
     write_json(output_root / "manifest.json", {
-        "experiment": "four_view_macro_state_robustness",
+        "experiment": "conditional_macro_state_leave_one_resolution_out",
         "discovery_modalities": ["ct", "wsi", "rna", "wxs"],
         "heldout_characterization": [],
         "macro_ks": list(MACRO_KS),
         "linkages": list(LINKAGES),
-        "coassignment_source": "final_subtype_sets.json only",
+        "coassignment_source": "final_subtype_sets.json only; fixed full-data micro-cores",
         "selected_macro_k": int(selected["macro_k"]),
         "selected_assignment_file": f"full_macro_k{int(selected['macro_k'])}_{selected['linkage']}_assignment.csv",
         "input_root": str(input_root),

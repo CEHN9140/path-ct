@@ -85,7 +85,7 @@ def _binary_value(table, case_id, feature):
 
 
 def _rounded(value):
-    return round(float(value), 8) if value is not None and np.isfinite(value) else None
+    return float(value) if value is not None and np.isfinite(value) else None
 
 
 def continuous_omnibus(table, features, groups):

@@ -22,6 +22,26 @@ from tools.multimodal_consistency_check import normalized_affinity_with_audit, p
 def continuous_table(frame, ids):
     return {case_id: frame.loc[case_id].to_dict() for case_id in ids if case_id in frame.index}
 
+def stage_binary_cox(records, groups):
+    from lifelines import CoxPHFitter
+    from lifelines.statistics import proportional_hazard_test
+    rows=[]; data=[]
+    stage={"I":0,"II":0,"III":1,"IV":1}
+    for state,members in groups.items():
+        for case_id in members:
+            record=records[case_id]
+            if record.get("os_time") is not None and record.get("stage_group") in stage:
+                data.append({"time":record["os_time"],"event":int(record.get("os_event") or 0),"state":state,"advanced_stage":stage[record["stage_group"]]})
+    frame=pd.DataFrame(data)
+    if frame.empty or frame.event.sum()<3 or frame.state.nunique()<2: return [{"model":"state_plus_binary_stage","status":"not_estimable"}]
+    frame=pd.get_dummies(frame,columns=["state"],dtype=float); state_cols=sorted(x for x in frame if x.startswith("state_")); frame=frame.drop(columns=state_cols[0])
+    model=CoxPHFitter(penalizer=.1).fit(frame,duration_col="time",event_col="event")
+    for covariate in ["advanced_stage",*state_cols[1:]]:
+        interval=model.confidence_intervals_.loc[covariate].to_numpy(); rows.append({"model":"state_plus_binary_stage","covariate":covariate,"status":"estimable","hazard_ratio":float(np.exp(model.params_[covariate])),"ci_low":float(np.exp(interval[0])),"ci_high":float(np.exp(interval[1])),"p_value":float(model.summary.loc[covariate,"p"]),"reference_state":state_cols[0].removeprefix("state_") if covariate.startswith("state_") else None,"adjustment":"stage I-II vs III-IV","available_n":len(frame),"events":int(frame.event.sum()),"analysis_role":"secondary_exploratory"})
+    ph=proportional_hazard_test(model,frame,time_transform="rank").summary
+    for covariate,row in ph.iterrows(): rows.append({"model":"cox_ph_assumption","covariate":covariate,"status":"diagnostic","p_value":float(row["p"]),"analysis_role":"diagnostic_not_hypothesis_test"})
+    return rows
+
 
 def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_root=ROOT / "output_kirc_v14/14_four_view_state_characterization", permutations=9999, bootstrap_iterations=2000, force=False):
     output_root = Path(output_root)
@@ -89,6 +109,7 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     pd.DataFrame([survival]).to_csv(output_root / "survival_global.csv", index=False)
     pd.DataFrame(survival_pairs).to_csv(output_root / "survival_posthoc.csv", index=False)
     pd.DataFrame(stats.stage_adjusted_survival(clinical, state_groups)).to_csv(output_root / "stage_adjusted_survival.csv", index=False)
+    pd.DataFrame(stage_binary_cox(clinical, state_groups)).to_csv(output_root / "stage_binary_adjusted_survival.csv", index=False)
 
     affinity_paths = {"ct": input_root / "candidate_subtype/ct_affinity.npy", "wsi": input_root / "candidate_subtype/wsi_affinity.npy", "rna": input_root / "candidate_subtype/rna_affinity.npy", "wxs": input_root / "wxs/wxs_affinity.npy"}
     affinity_rows, audit = [], {}
