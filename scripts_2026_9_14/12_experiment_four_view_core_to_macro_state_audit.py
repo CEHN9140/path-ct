@@ -205,6 +205,13 @@ def run(input_root, output_root, force=False):
     pd.DataFrame([{"core_id": core, "macro_state": CORE_TO_STATE[core], "core_size": len(members)} for core, members in cores.items()]).to_csv(
         output_root / "core_to_macro_state.csv", index=False
     )
+    pd.DataFrame([
+        {"case_id": patient_id, "core_id": core, "state_id": CORE_TO_STATE[core]}
+        for core, members in cores.items()
+        for patient_id in members
+    ]).sort_values(["state_id", "core_id", "case_id"]).to_csv(
+        output_root / "final_macro_state_membership.csv", index=False
+    )
     write_heatmap({"joint_coassignment": core_matrices["joint_coassignment"], "fused": core_matrices["fused"]}, labels, output_root / "core_to_macro_state_heatmap.png")
     write_json(output_root / "manifest.json", {
         "experiment": "four_view_core_to_macro_state_audit",
@@ -212,6 +219,7 @@ def run(input_root, output_root, force=False):
         "core_count": len(cores),
         "macro_state_count": len(STATE_ORDER),
         "core_to_macro_state": CORE_TO_STATE,
+        "membership_file": "final_macro_state_membership.csv",
         "source_input_root": str(input_root),
         "affinity_scaling": "each patient-level matrix min-max scaled on off-diagonal values, diagonal reset to 1",
     })
