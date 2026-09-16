@@ -154,7 +154,12 @@ def run(input_root, output_root, force=False):
     if set(assignment["core_id"]) != set(cores):
         raise ValueError("Macro-state assignment does not cover all stable cores")
     cluster_ids = sorted(assignment["cluster"].astype(int).unique())
-    state_names = {cluster: f"STATE_{chr(65 + i)}" for i, cluster in enumerate(cluster_ids)}
+    cluster_to_cores = {
+        cluster: sorted(assignment.loc[assignment.cluster.eq(cluster), "core_id"].astype(str))
+        for cluster in cluster_ids
+    }
+    ordered_clusters = sorted(cluster_ids, key=lambda cluster: int(cluster_to_cores[cluster][0].replace("CORE", "")))
+    state_names = {cluster: f"STATE_{chr(65 + i)}" for i, cluster in enumerate(ordered_clusters)}
     state_by_core = {str(row.core_id): state_names[int(row.cluster)] for row in assignment.itertuples()}
     patient_ids = list(map(str, json.loads(order_path.read_text(encoding="utf-8"))))
     input_dir = order_path.parent

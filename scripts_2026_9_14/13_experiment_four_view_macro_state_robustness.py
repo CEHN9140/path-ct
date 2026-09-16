@@ -80,9 +80,9 @@ def cluster_summary(matrix, labels, k, method, reference=None):
 
 
 def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_audit=False):
-    matrix = np.zeros((len(patient_ids), len(patient_ids)), float)
-    conditional = np.zeros_like(matrix)
-    conditional_denominator = np.zeros_like(matrix)
+    same_count = np.zeros((len(patient_ids), len(patient_ids)), float)
+    conditional = np.zeros_like(same_count)
+    conditional_denominator = np.zeros_like(same_count)
     positions = {patient_id: index for index, patient_id in enumerate(patient_ids)}
     run_count = 0
     audit = []
@@ -99,7 +99,7 @@ def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_aud
                 assigned.update(members)
                 indexes = [positions[member] for member in members]
                 for left in indexes:
-                    matrix[left, indexes] += 1.0
+                    same_count[left, indexes] += 1.0
             assigned_indexes = [positions[member] for member in assigned]
             conditional_denominator[np.ix_(assigned_indexes, assigned_indexes)] += 1.0
             audit.append({
@@ -111,8 +111,8 @@ def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_aud
             })
     if not run_count:
         raise ValueError("No runs available for coassignment recomputation")
-    matrix /= run_count
-    np.divide(matrix, conditional_denominator, out=conditional, where=conditional_denominator > 0)
+    matrix = same_count / run_count
+    np.divide(same_count, conditional_denominator, out=conditional, where=conditional_denominator > 0)
     np.fill_diagonal(matrix, 1.0)
     conditional[np.diag_indices_from(conditional)] = np.where(
         np.diag(conditional_denominator) > 0, 1.0, 0.0
