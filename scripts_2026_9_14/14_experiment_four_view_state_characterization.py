@@ -15,6 +15,7 @@ from four_view_state_common import DEFAULT_INPUT, DEFAULT_MEMBERSHIP, ROOT, grou
 from tools import post_discovery_characterization as stats
 from tools.subtype_review_common import clinical_table, read_gmt_gene_sets, tool_parameters
 from tools.pathway_enrichment import ssgsea_scores
+from tools.ct_radiomics import build_ct_discovery_feature_matrix
 from tools.multimodal_consistency_check import normalized_affinity_with_audit, permanova_metrics, permdisp_metrics
 
 
@@ -22,7 +23,7 @@ def continuous_table(frame, ids):
     return {case_id: frame.loc[case_id].to_dict() for case_id in ids if case_id in frame.index}
 
 
-def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_root=ROOT / "output_kirc_v14/14_four_view_state_characterization", permutations=999, bootstrap_iterations=1000, force=False):
+def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_root=ROOT / "output_kirc_v14/14_four_view_state_characterization", permutations=9999, bootstrap_iterations=2000, force=False):
     output_root = Path(output_root)
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
@@ -43,21 +44,20 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     wxs_features = [x for x in wxs.columns if x.startswith("mutation::")]
     clinical = clinical_table({case_id: states[case_id] for case_id in ids})
 
-    radiomics = {}
-    for case_id in ids:
-        path = input_root / "ct_radiomics" / case_id / "radiomics_features.json"
-        if path.is_file(): radiomics[case_id] = json.loads(path.read_text(encoding="utf-8"))
-    if radiomics:
-        ct = pd.DataFrame.from_dict(radiomics, orient="index").reindex(ids)
-        ct = ct.loc[:, ct.notna().all()]
-        ct_features = list(ct.columns)
-        ct_table = continuous_table(ct, ids)
-        ct_rows = stats.continuous_omnibus(ct_table, ct_features, state_groups)
-        ct_selected = [r["feature"] for r in ct_rows if r["q_value"] is not None and r["q_value"] < .05]
-        pd.DataFrame(ct_rows).to_csv(output_root / "ct_radiomics_omnibus.csv", index=False)
-        pd.DataFrame(stats.continuous_posthoc(ct_table, ct_selected, state_groups, bootstrap_iterations)).to_csv(output_root / "ct_radiomics_posthoc.csv", index=False)
-    else:
-        raise FileNotFoundError("No CT radiomics feature cache found for frozen state patients")
+    ct_payload = build_ct_discovery_feature_matrix(
+        [states[case_id] for case_id in sorted(states)],
+        config_dir=str(ROOT / "configs"), output_root=str(input_root)
+    )
+    if list(ct_payload["patient_ids"]) != sorted(states):
+        raise ValueError("CT production feature order does not match patient_states")
+    ct = pd.DataFrame(ct_payload["matrix"], index=ct_payload["patient_ids"], columns=ct_payload["feature_names"]).reindex(ids)
+    ct_features = list(ct.columns)
+    ct_table = continuous_table(ct, ids)
+    ct_rows = stats.continuous_omnibus(ct_table, ct_features, state_groups)
+    ct_selected = [r["feature"] for r in ct_rows if r["q_value"] is not None and r["q_value"] < .05]
+    pd.DataFrame(ct_rows).to_csv(output_root / "ct_radiomics_omnibus.csv", index=False)
+    pd.DataFrame(stats.continuous_posthoc(ct_table, ct_selected, state_groups, bootstrap_iterations)).to_csv(output_root / "ct_radiomics_posthoc.csv", index=False)
+    (output_root / "ct_radiomics_preprocessing_audit.json").write_text(json.dumps(ct_payload.get("audit", {}), indent=2), encoding="utf-8")
 
     for name, table, features in (("rna_hallmark", rna, list(rna.columns)), ("wxs_mutation", wxs, wxs_features)):
         if name.startswith("wxs"):
@@ -93,7 +93,7 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
         d = permdisp_metrics(normalized, labels, permutations=permutations, seed=20260915)
         affinity_rows.append({"modality": modality, **p, **{"permdisp_" + k: v for k, v in d.items()}})
     pd.DataFrame(affinity_rows).to_csv(output_root / "affinity_permanova_permdisp.csv", index=False)
-    write_manifest(output_root / "manifest.json", {"experiment": "four_view_state_characterization", "active_modalities": ["ct", "wsi", "rna", "wxs"], "membership_file": str(Path(membership_path).resolve()), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}, "cnv_included": False, "affinity_audit": audit})
+    write_manifest(output_root / "manifest.json", {"experiment": "four_view_state_characterization", "active_modalities": ["ct", "wsi", "rna", "wxs"], "membership_file": str(Path(membership_path).resolve()), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}, "cnv_included": False, "ct_feature_source": "production_consistent_103_patient_preprocessing_then_86_patient_subset", "ct_feature_count": len(ct_features), "rna_gene_count": int(rna_genes.shape[1]), "rna_pathway_count": len(rna.columns), "rna_min_pathway_overlap": 15, "affinity_audit": audit})
     return {"output_root": str(output_root), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}}
 
 

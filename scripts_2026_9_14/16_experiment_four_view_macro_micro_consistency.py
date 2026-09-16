@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from four_view_state_common import DEFAULT_INPUT, DEFAULT_MEMBERSHIP, ROOT, groups, load_membership, load_states, write_manifest
 from tools.subtype_review_common import clinical_table
+from tools.multimodal_consistency_check import normalized_affinity_with_audit
 
 def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/"output_kirc_v14/16_four_view_macro_micro_consistency",force=False):
     output_root=Path(output_root)
@@ -17,17 +18,17 @@ def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/
     for state,members in gs.items():
         sub=frame[frame.state_id.eq(state)]; rows.append({"state_id":state,"state_n":len(members),"micro_core_count":sub.core_id.nunique(),"micro_core_sizes":json.dumps({k:int(v) for k,v in sub.core_id.value_counts().sort_index().items()})})
     pd.DataFrame(rows).to_csv(output_root/"state_micro_core_composition.csv",index=False)
-    paths={"rna":Path(input_root)/"candidate_subtype/rna_affinity.npy","wxs":Path(input_root)/"wxs/wxs_affinity.npy"}
+    paths={"ct":Path(input_root)/"candidate_subtype/ct_affinity.npy","wsi":Path(input_root)/"candidate_subtype/wsi_affinity.npy","rna":Path(input_root)/"candidate_subtype/rna_affinity.npy","wxs":Path(input_root)/"wxs/wxs_affinity.npy"}
     order=json.loads((Path(input_root)/"candidate_subtype/affinity_patient_order.json").read_text())
     index={x:i for i,x in enumerate(order)}
     pair=[]
     for modality,path in paths.items():
-        matrix=np.load(path)
-        for state,members in gs.items():
-            cores=sorted(frame.loc[frame.state_id.eq(state),"core_id"].unique())
-            for a,b in combinations(cores,2):
-                left=[index[x] for x in frame.loc[frame.core_id.eq(a),"case_id"]]; right=[index[x] for x in frame.loc[frame.core_id.eq(b),"case_id"]]
-                pair.append({"modality":modality,"state_id":state,"core_a":a,"core_b":b,"n_a":len(left),"n_b":len(right),"mean_similarity":float(matrix[np.ix_(left,right)].mean())})
+        matrix,_=normalized_affinity_with_audit(np.load(path))
+        core_ids=sorted(frame.core_id.unique())
+        for a,b in combinations(core_ids,2):
+            left=[index[x] for x in frame.loc[frame.core_id.eq(a),"case_id"]]; right=[index[x] for x in frame.loc[frame.core_id.eq(b),"case_id"]]
+            state_a=frame.loc[frame.core_id.eq(a),"state_id"].iloc[0]; state_b=frame.loc[frame.core_id.eq(b),"state_id"].iloc[0]
+            pair.append({"modality":modality,"state_id":state_a if state_a==state_b else "between_states","state_a":state_a,"state_b":state_b,"core_a":a,"core_b":b,"n_a":len(left),"n_b":len(right),"mean_similarity":float(matrix[np.ix_(left,right)].mean())})
     pd.DataFrame(pair).to_csv(output_root/"within_state_micro_core_similarity.csv",index=False)
     records=clinical_table({x:states[x] for x in order if x in states}); clinical_rows=[]
     for state,members in gs.items():
