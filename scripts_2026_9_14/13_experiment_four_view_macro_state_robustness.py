@@ -17,15 +17,8 @@ from sklearn.metrics import adjusted_rand_score, silhouette_score
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scripts_2026_9_7 import analyze_multi_k_stable_cores as base
 from utils.io import write_json
 
-CORE_TO_STATE = {
-    "CORE01": "STATE_A", "CORE07": "STATE_A", "CORE09": "STATE_A",
-    "CORE02": "STATE_B", "CORE04": "STATE_B", "CORE10": "STATE_B",
-    "CORE03": "STATE_C", "CORE08": "STATE_C",
-    "CORE05": "STATE_D", "CORE06": "STATE_D",
-}
 LINKAGES = ("average", "complete")
 MACRO_KS = tuple(range(2, 7))
 INITIAL_KS = tuple(range(2, 9))
@@ -38,7 +31,7 @@ def load_cores(path):
     for row in table.to_dict("records"):
         members = json.loads(row["member_ids"]) if isinstance(row["member_ids"], str) else row["member_ids"]
         cores[str(row["core_id"])] = sorted(map(str, members))
-    if set(cores) != set(CORE_TO_STATE):
+    if len(cores) != 10:
         raise ValueError(f"Expected 10 four-view cores, got {sorted(cores)}")
     return dict(sorted(cores.items()))
 
@@ -78,10 +71,6 @@ def cluster_summary(matrix, labels, k, method, reference=None):
         "mean_between_similarity": float(np.mean(between)) if between else None,
         "within_minus_between": float(np.mean(within) - np.mean(between)) if within and between else None,
         "state_sizes_in_core_nodes": json.dumps(sorted(sizes)),
-        "candidate_state_ari": (
-            float(adjusted_rand_score([CORE_TO_STATE[label] for label in labels], assignments))
-            if k == 4 else None
-        ),
         "assignments": dict(zip(labels, map(int, assignments))),
         "reference_ari": (
             float(adjusted_rand_score(reference, assignments)) if reference is not None else None
@@ -133,12 +122,7 @@ def run(input_root, data_root, config_dir, output_root, force=False):
     cores = load_cores(review_root / "stable_core_summary.csv")
     labels = list(cores)
     patient_ids = list(map(str, json.loads((input_root / "inputs/four_view_no_cnv/candidate_subtype/affinity_patient_order.json").read_text())))
-    full_matrix = load_core_matrix(
-        output_root.parent / "12_four_view_core_to_macro_state_audit/core_joint_coassignment_similarity.csv",
-        labels,
-    ) if (output_root.parent / "12_four_view_core_to_macro_state_audit/core_joint_coassignment_similarity.csv").is_file() else aggregate_core_matrix(
-        coassignment_from_runs(review_root, patient_ids), patient_ids, cores
-    )
+    full_matrix = aggregate_core_matrix(coassignment_from_runs(review_root, patient_ids), patient_ids, cores)
     output_root.mkdir(parents=True, exist_ok=True)
     full_rows = []
     full_assignments = {}
@@ -151,6 +135,15 @@ def run(input_root, data_root, config_dir, output_root, force=False):
                 output_root / f"full_macro_k{k}_{method}_assignment.csv", index=False
             )
     pd.DataFrame(full_rows).to_csv(output_root / "macro_k_summary.csv", index=False)
+    candidates = [row for row in full_rows if row["linkage"] == "average" and row["silhouette"] is not None]
+    selected = min(candidates, key=lambda row: (-row["silhouette"], row["macro_k"]))
+    write_json(output_root / "selected_macro_state_model.json", {
+        "selection_rule": "maximum core-level silhouette; ties choose smaller K",
+        "selected_macro_k": int(selected["macro_k"]),
+        "selected_linkage": selected["linkage"],
+        "selected_silhouette": selected["silhouette"],
+        "assignment_file": f"full_macro_k{int(selected['macro_k'])}_{selected['linkage']}_assignment.csv",
+    })
 
     loko_rows = []
     for excluded_k in INITIAL_KS:
@@ -165,23 +158,15 @@ def run(input_root, data_root, config_dir, output_root, force=False):
                 })
     pd.DataFrame(loko_rows).to_csv(output_root / "macro_k_leave_one_k_out.csv", index=False)
 
-    states = {state: [patient for core, members in cores.items() if CORE_TO_STATE[core] == state for patient in members] for state in sorted(set(CORE_TO_STATE.values()))}
-    features, table = base.load_table(data_root / "cnv/case_features.csv")
-    cnv_cont, cnv_event, cnv_pair_cont, cnv_pair_event = base.cnv_analysis(
-        table, features, states, sorted(set().union(*map(set, states.values())))
-    )
-    base.write_csv(output_root / "heldout_cnv_macro_state_continuous.csv", cnv_cont)
-    base.write_csv(output_root / "heldout_cnv_macro_state_gain_loss.csv", cnv_event)
-    base.write_csv(output_root / "heldout_cnv_macro_state_pairwise_continuous.csv", cnv_pair_cont)
-    base.write_csv(output_root / "heldout_cnv_macro_state_pairwise_gain_loss.csv", cnv_pair_event)
     write_json(output_root / "manifest.json", {
         "experiment": "four_view_macro_state_robustness",
         "discovery_modalities": ["ct", "wsi", "rna", "wxs"],
-        "heldout_characterization": ["cnv"],
+        "heldout_characterization": [],
         "macro_ks": list(MACRO_KS),
         "linkages": list(LINKAGES),
         "coassignment_source": "final_subtype_sets.json only",
-        "core_to_state_candidate": CORE_TO_STATE,
+        "selected_macro_k": int(selected["macro_k"]),
+        "selected_assignment_file": f"full_macro_k{int(selected['macro_k'])}_{selected['linkage']}_assignment.csv",
         "input_root": str(input_root),
     })
     return {"output_root": str(output_root), "macro_ks": list(MACRO_KS), "loko_rows": len(loko_rows)}

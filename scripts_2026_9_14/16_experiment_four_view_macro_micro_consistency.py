@@ -9,10 +9,16 @@ import pandas as pd
 from four_view_state_common import DEFAULT_INPUT, DEFAULT_MEMBERSHIP, ROOT, groups, load_membership, load_states, write_manifest
 from tools.subtype_review_common import clinical_table
 from tools.multimodal_consistency_check import normalized_affinity_with_audit
+from tools.post_discovery_characterization import bh_adjust
 
 def state_pair_statistic(pair_values, state_by_core, target):
     within=[value for (a,b),value in pair_values.items() if state_by_core[a]==target and state_by_core[b]==target]
     outside=[value for (a,b),value in pair_values.items() if state_by_core[a]!=state_by_core[b] and target in (state_by_core[a],state_by_core[b])]
+    return float(np.mean(within)-np.mean(outside)) if within and outside else None
+
+def global_pair_statistic(pair_values, state_by_core):
+    within=[value for (a,b),value in pair_values.items() if state_by_core[a]==state_by_core[b]]
+    outside=[value for (a,b),value in pair_values.items() if state_by_core[a]!=state_by_core[b]]
     return float(np.mean(within)-np.mean(outside)) if within and outside else None
 
 def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/"output_kirc_v14/16_four_view_macro_micro_consistency",force=False):
@@ -46,6 +52,13 @@ def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/
                 if value is not None: null.append(value)
             p_value=(1+sum(abs(x)>=abs(observed) for x in null))/(len(null)+1) if observed is not None else None
             consistency.append({"modality":modality,"state_id":state,"within_minus_between":observed,"permutation_p_value":p_value,"within_pair_count":sum(state_by_core[a]==state and state_by_core[b]==state for a,b in pair_values),"between_pair_count":sum(state_by_core[a]!=state_by_core[b] and state in (state_by_core[a],state_by_core[b]) for a,b in pair_values)})
+        observed=global_pair_statistic(pair_values,state_by_core); null=[]
+        for _ in range(9999):
+            shuffled=dict(zip(core_ids,rng.permutation([state_by_core[x] for x in core_ids])))
+            value=global_pair_statistic(pair_values,shuffled)
+            if value is not None: null.append(value)
+        consistency.append({"modality":modality,"state_id":"ALL","within_minus_between":observed,"permutation_p_value":(1+sum(abs(x)>=abs(observed) for x in null))/(len(null)+1) if observed is not None else None,"within_pair_count":sum(state_by_core[a]==state_by_core[b] for a,b in pair_values),"between_pair_count":sum(state_by_core[a]!=state_by_core[b] for a,b in pair_values)})
+    for row,q in zip(consistency,bh_adjust([row["permutation_p_value"] for row in consistency])): row["q_value"]=q
     pd.DataFrame(pair).to_csv(output_root/"micro_core_pair_similarity.csv",index=False)
     pd.DataFrame(consistency).to_csv(output_root/"macro_micro_consistency_statistics.csv",index=False)
     records=clinical_table({x:states[x] for x in order if x in states}); clinical_rows=[]

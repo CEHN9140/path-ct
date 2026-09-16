@@ -143,7 +143,7 @@ def clinical_record(case_id: str, patient_state: Mapping[str, Any]) -> dict[str,
         days_to_last_follow_up = max(follow_days) if follow_days else None
     vital_status = str(demographic.get("vital_status", "") or "")
     os_event = vital_status.strip().lower() in {"dead", "deceased", "1", "true", "yes"}
-    os_time = days_to_death if days_to_death is not None else days_to_last_follow_up
+    os_time = days_to_death if os_event else days_to_last_follow_up
     inventory = dict(patient_state.get("inventory", {}) or {})
     ct_entries = [dict(item) for item in list(inventory.get("CT", []) or [])]
     manufacturer = str(

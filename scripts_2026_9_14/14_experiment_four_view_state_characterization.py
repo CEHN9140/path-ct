@@ -46,6 +46,12 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     wxs = load_table(input_root / "wxs/wxs_discovery_features.csv").reindex(ids)
     wxs_features = [x for x in wxs.columns if x.startswith("mutation::")]
     clinical = clinical_table({case_id: states[case_id] for case_id in ids})
+    event_time_audit = []
+    for case_id in ids:
+        demographic = dict((states[case_id].get("clinical", {}) or {}).get("demographic", {}) or {})
+        if str(demographic.get("vital_status", "")).strip().lower() in {"dead", "deceased", "1", "true", "yes"} and demographic.get("days_to_death") in (None, ""):
+            event_time_audit.append(case_id)
+    (output_root / "survival_event_time_audit.json").write_text(json.dumps({"dead_without_days_to_death": event_time_audit, "handled_as": "excluded_from_OS_analysis"}, indent=2), encoding="utf-8")
 
     ct_payload = build_ct_discovery_feature_matrix(
         [states[case_id] for case_id in sorted(states)],

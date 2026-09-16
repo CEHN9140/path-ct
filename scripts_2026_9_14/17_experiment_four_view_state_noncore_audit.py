@@ -30,16 +30,24 @@ def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/
     core=set(frame.case_id); noncore=[str(x) for x in order if str(x) not in core]
     records=clinical_table(states); conf=confounder_values(states,str(input_root))
     rows=[]
-    categorical=("stage_group","t_stage","m_stage","grade","gender","race","ct_phase","ct_manufacturer","ct_scanner_model","ct_reconstruction_kernel")
+    categorical=("stage_group","t_stage","m_stage","grade","gender","race","tissue_source_site","ct_phase","ct_phase_group","ct_manufacturer","ct_scanner_model","ct_reconstruction_kernel")
     for variable in categorical:
         source = records if variable in records[next(iter(records))] else conf
-        pairs=[(x,str(source.get(x,{}).get(variable,""))) for x in core|set(noncore)]
-        pairs=[(x,v) for x,v in pairs if v.strip() and v.upper() not in {"NAN","NONE","UNKNOWN","NA","N/A","NX","MX","TX"}]
+        all_pairs=[(x,str(source.get(x,{}).get(variable,""))) for x in core|set(noncore)]
+        available=[(x,v) for x,v in all_pairs if v.strip() and v.upper() not in {"NAN","NONE","UNKNOWN","NA","N/A","NX","MX","TX"}]
+        missing_labels=["state" if x in core else "non_core" for x,_ in all_pairs]
+        missing_values=["available" if x in {y for y,_ in available} else "missing" for x,_ in all_pairs]
+        if len(set(missing_values)) > 1:
+            statistic,p_value,levels=permutation_categorical(missing_labels,missing_values,permutations,20260918)
+            rows.append({"variable":variable,"analysis":"missingness","level":"__omnibus__","core_n":len(core),"noncore_n":len(noncore),"levels":";".join(levels),"test":"monte_carlo_chi2","chi_square":statistic,"p_value":p_value})
+        pairs=available
         if len({v for _,v in pairs}) > 1:
             labels=["state" if x in core else "non_core" for x,_ in pairs]; values=[v for _,v in pairs]
             statistic,p_value,levels=permutation_categorical(labels,values,permutations)
             rows.append({"variable":variable,"level":"__omnibus__","core_n":sum(x in core for x,_ in pairs),"noncore_n":sum(x in noncore for x,_ in pairs),"levels":";".join(levels),"test":"monte_carlo_chi2","chi_square":statistic,"p_value":p_value})
-    numeric={"age":{x:records.get(x,{}).get("age") for x in core|set(noncore)},"ct_slice_thickness":{x:conf.get(x,{}).get("ct_slice_thickness") for x in core|set(noncore)}}
+    numeric={"age":{x:records.get(x,{}).get("age") for x in core|set(noncore)}}
+    for variable in ("ct_slice_thickness","ct_z_spacing","ct_pixel_spacing","ct_study_year","ct_n_images"):
+        numeric[variable]={x:conf.get(x,{}).get(variable) for x in core|set(noncore)}
     for variable in ("patch_count", "tumor_patch_count", "tumor_patch_fraction"):
         numeric[f"wsi_{variable}"] = {}
         for case_id in core | set(noncore):

@@ -10,6 +10,7 @@ from scipy.stats import chi2_contingency, fisher_exact
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.post_discovery_characterization import bh_adjust
+from tools.subtype_review_common import bias_corrected_cramers_v
 from four_view_state_common import DEFAULT_MEMBERSHIP, ROOT, groups, load_membership, write_manifest
 
 def permutation_chi2(labels, values, permutations=9999, seed=20260915):
@@ -41,7 +42,14 @@ def run(membership=DEFAULT_MEMBERSHIP, output_root=ROOT/"output_kirc_v14/15_four
         known=merged[merged.reference_status.eq("matched")].copy()
         if not known.empty and known.reference_subtype.nunique()>1:
             statistic,p_value,_=permutation_chi2(known.state_id,known.reference_subtype,permutations,20260915)
-            rows.append({"reference":name,"analysis":"state_label_association","known_n":len(known),"chi_square":statistic,"p_value":p_value,"cramers_v":float(np.sqrt(statistic/(len(known)*min(len(gs)-1,known.reference_subtype.nunique()-1))))})
+            table = pd.crosstab(known.state_id, known.reference_subtype).to_numpy()
+            rows.append({"reference":name,"analysis":"state_label_association","known_n":len(known),"chi_square":statistic,"p_value":p_value,"cramers_v":float(bias_corrected_cramers_v(table) or 0.0)})
+            for state in sorted(gs):
+                state_known=known[known.state_id.eq(state)]; rest_known=known[~known.state_id.eq(state)]
+                for label in sorted(known.reference_subtype.unique()):
+                    a=int((state_known.reference_subtype==label).sum()); b=len(state_known)-a; c=int((rest_known.reference_subtype==label).sum()); d=len(rest_known)-c
+                    odds,p=fisher_exact([[a,b],[c,d]])
+                    rows.append({"reference":name,"analysis":"state_vs_rest_label","state_id":state,"label":label,"known_n":len(known),"odds_ratio":float(odds),"p_value":float(p)})
             y_true=known.state_id.to_numpy(); y_pred=known.reference_subtype.to_numpy(); rows.append({"reference":name,"analysis":"label_information","known_n":len(known),"ari":float(adjusted_rand_score(y_true,y_pred)),"nmi":float(normalized_mutual_info_score(y_true,y_pred))})
         missing_labels = merged.reference_status.ne("matched").map({True:"missing",False:"known"})
         if missing_labels.nunique() > 1:

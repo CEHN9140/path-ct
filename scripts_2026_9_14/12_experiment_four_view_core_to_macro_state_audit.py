@@ -21,15 +21,6 @@ sys.path.insert(0, str(ROOT))
 from utils.io import write_json
 from utils.visualization import configure_matplotlib
 
-CORE_TO_STATE = {
-    "CORE01": "STATE_A", "CORE07": "STATE_A", "CORE09": "STATE_A",
-    "CORE02": "STATE_B", "CORE04": "STATE_B", "CORE10": "STATE_B",
-    "CORE03": "STATE_C", "CORE08": "STATE_C",
-    "CORE05": "STATE_D", "CORE06": "STATE_D",
-}
-STATE_ORDER = ("STATE_A", "STATE_B", "STATE_C", "STATE_D")
-
-
 def load_cores(summary_path):
     summary = pd.read_csv(summary_path)
     cores = {}
@@ -38,8 +29,8 @@ def load_cores(summary_path):
         if isinstance(members, str):
             members = json.loads(members)
         cores[str(row["core_id"])] = sorted(map(str, members))
-    if set(cores) != set(CORE_TO_STATE):
-        raise ValueError(f"Expected cores {sorted(CORE_TO_STATE)}, got {sorted(cores)}")
+    if len(cores) != 10:
+        raise ValueError(f"Expected 10 stable cores, got {sorted(cores)}")
     if len(set().union(*map(set, cores.values()))) != sum(map(len, cores.values())):
         raise ValueError("Stable cores overlap")
     return dict(sorted(cores.items()))
@@ -86,32 +77,29 @@ def write_matrix(path, matrix, labels):
     pd.DataFrame(matrix, index=labels, columns=labels).rename_axis("core_id").to_csv(path)
 
 
-def hierarchy_rows(matrix, labels, matrix_name):
+def hierarchy_rows(matrix, labels, matrix_name, state_by_core):
     distance = np.clip(1.0 - (matrix + matrix.T) / 2.0, 0.0, 1.0)
     np.fill_diagonal(distance, 0.0)
     rows = []
-    candidate = [CORE_TO_STATE[label] for label in labels]
     for method in ("average", "complete"):
         clusters = fcluster(linkage(squareform(distance, checks=False), method=method), 4, criterion="maxclust")
-        ari = adjusted_rand_score(candidate, clusters)
         rows.extend({
             "matrix": matrix_name,
             "linkage": method,
             "core_id": label,
             "hierarchical_cluster": int(cluster),
-            "candidate_state": CORE_TO_STATE[label],
-            "candidate_state_ari": float(ari),
+            "state_id": state_by_core[label],
         } for label, cluster in zip(labels, clusters))
     return rows
 
 
-def state_structure(matrix, labels, matrix_name):
+def state_structure(matrix, labels, matrix_name, state_by_core):
     values = {(a, b): matrix[i, j] for i, a in enumerate(labels) for j, b in enumerate(labels)}
     rows = []
-    for state in STATE_ORDER:
-        members = [core for core in labels if CORE_TO_STATE[core] == state]
+    for state in sorted(set(state_by_core.values())):
+        members = [core for core in labels if state_by_core[core] == state]
         within = [values[tuple(pair)] for pair in combinations(members, 2)]
-        outside = [values[(a, b)] for a in members for b in labels if CORE_TO_STATE[b] != state]
+        outside = [values[(a, b)] for a in members for b in labels if state_by_core[b] != state]
         rows.append({
             "matrix": matrix_name,
             "state": state,
@@ -125,7 +113,7 @@ def state_structure(matrix, labels, matrix_name):
     return rows
 
 
-def write_heatmap(matrices, labels, output_path):
+def write_heatmap(matrices, labels, output_path, state_by_core):
     configure_matplotlib()
     import matplotlib.pyplot as plt
 
@@ -136,7 +124,7 @@ def write_heatmap(matrices, labels, output_path):
         axis.set_xticks(range(len(labels)), labels, rotation=90)
         axis.set_yticks(range(len(labels)), labels)
         for index, state in enumerate(labels):
-            if index and CORE_TO_STATE[state] != CORE_TO_STATE[labels[index - 1]]:
+            if index and state_by_core[state] != state_by_core[labels[index - 1]]:
                 axis.axhline(index - 0.5, color="white", linewidth=1.5)
                 axis.axvline(index - 0.5, color="white", linewidth=1.5)
         figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
@@ -155,6 +143,19 @@ def run(input_root, output_root, force=False):
     if not order_path.is_file():
         raise FileNotFoundError(f"Missing 4-view patient order: {order_path}")
     cores = load_cores(summary_path)
+    selection_path = output_root.parent / "13_four_view_macro_state_robustness/selected_macro_state_model.json"
+    if not selection_path.is_file():
+        raise FileNotFoundError(f"Run experiment 13 first: {selection_path}")
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    assignment_path = output_root.parent / "13_four_view_macro_state_robustness" / selection["assignment_file"]
+    if not assignment_path.is_file():
+        raise FileNotFoundError(f"Run experiment 13 first: {assignment_path}")
+    assignment = pd.read_csv(assignment_path, dtype={"core_id": str})
+    if set(assignment["core_id"]) != set(cores):
+        raise ValueError("Macro-state assignment does not cover all stable cores")
+    cluster_ids = sorted(assignment["cluster"].astype(int).unique())
+    state_names = {cluster: f"STATE_{chr(65 + i)}" for i, cluster in enumerate(cluster_ids)}
+    state_by_core = {str(row.core_id): state_names[int(row.cluster)] for row in assignment.itertuples()}
     patient_ids = list(map(str, json.loads(order_path.read_text(encoding="utf-8"))))
     input_dir = order_path.parent
     wxs_dir = input_root / "inputs" / "four_view_no_cnv" / "wxs"
@@ -196,34 +197,34 @@ def run(input_root, output_root, force=False):
     pd.DataFrame(pair_rows).to_csv(output_root / "core_pair_similarity.csv", index=False)
     hierarchy = []
     for name in ("joint_coassignment", "fused"):
-        hierarchy.extend(hierarchy_rows(core_matrices[name], labels, name))
+        hierarchy.extend(hierarchy_rows(core_matrices[name], labels, name, state_by_core))
     pd.DataFrame(hierarchy).to_csv(output_root / "macro_state_hierarchy.csv", index=False)
     structures = []
     for name, matrix in core_matrices.items():
-        structures.extend(state_structure(matrix, labels, name))
+        structures.extend(state_structure(matrix, labels, name, state_by_core))
     pd.DataFrame(structures).to_csv(output_root / "macro_state_structure.csv", index=False)
-    pd.DataFrame([{"core_id": core, "macro_state": CORE_TO_STATE[core], "core_size": len(members)} for core, members in cores.items()]).to_csv(
+    pd.DataFrame([{"core_id": core, "macro_state": state_by_core[core], "core_size": len(members)} for core, members in cores.items()]).to_csv(
         output_root / "core_to_macro_state.csv", index=False
     )
     pd.DataFrame([
-        {"case_id": patient_id, "core_id": core, "state_id": CORE_TO_STATE[core]}
+        {"case_id": patient_id, "core_id": core, "state_id": state_by_core[core]}
         for core, members in cores.items()
         for patient_id in members
     ]).sort_values(["state_id", "core_id", "case_id"]).to_csv(
         output_root / "final_macro_state_membership.csv", index=False
     )
-    write_heatmap({"joint_coassignment": core_matrices["joint_coassignment"], "fused": core_matrices["fused"]}, labels, output_root / "core_to_macro_state_heatmap.png")
+    write_heatmap({"joint_coassignment": core_matrices["joint_coassignment"], "fused": core_matrices["fused"]}, labels, output_root / "core_to_macro_state_heatmap.png", state_by_core)
     write_json(output_root / "manifest.json", {
         "experiment": "four_view_core_to_macro_state_audit",
         "active_modalities": ["ct", "wsi", "rna", "wxs"],
         "core_count": len(cores),
-        "macro_state_count": len(STATE_ORDER),
-        "core_to_macro_state": CORE_TO_STATE,
+        "macro_state_count": len(state_names),
+        "core_to_macro_state": state_by_core,
         "membership_file": "final_macro_state_membership.csv",
         "source_input_root": str(input_root),
         "affinity_scaling": "each patient-level matrix min-max scaled on off-diagonal values, diagonal reset to 1",
     })
-    return {"output_root": str(output_root), "core_count": len(cores), "macro_state_count": len(STATE_ORDER)}
+    return {"output_root": str(output_root), "core_count": len(cores), "macro_state_count": len(state_names)}
 
 
 def main():
