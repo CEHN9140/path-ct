@@ -79,6 +79,27 @@ def cluster_summary(matrix, labels, k, method, reference=None):
     }
 
 
+def select_macro_state(rows, assignments, labels):
+    candidates = [row for row in rows if row["linkage"] == "average" and row["silhouette"] is not None]
+    valid = []
+    for row in candidates:
+        k = row["macro_k"]
+        average = [assignments[(k, "average")][core] for core in labels]
+        complete = [assignments[(k, "complete")][core] for core in labels]
+        complete_row = next(item for item in rows if item["macro_k"] == k and item["linkage"] == "complete")
+        average_sizes = pd.Series(average).value_counts()
+        complete_sizes = pd.Series(complete).value_counts()
+        if (
+            row["actual_cluster_count"] == k
+            and complete_row["actual_cluster_count"] == k
+            and adjusted_rand_score(average, complete) == 1.0
+            and average_sizes.min() > 1
+            and complete_sizes.min() > 1
+        ):
+            valid.append(row)
+    return min(valid, key=lambda row: (-row["silhouette"], row["macro_k"])) if valid else None
+
+
 def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_audit=False):
     same_count = np.zeros((len(patient_ids), len(patient_ids)), float)
     conditional = np.zeros_like(same_count)
@@ -163,25 +184,9 @@ def run(input_root, data_root, config_dir, output_root, force=False):
                 output_root / f"full_macro_k{k}_{method}_assignment.csv", index=False
             )
     pd.DataFrame(full_rows).to_csv(output_root / "macro_k_summary.csv", index=False)
-    candidates = [row for row in full_rows if row["linkage"] == "average" and row["silhouette"] is not None]
-    valid = []
-    for row in candidates:
-        k, assignments = row["macro_k"], [full_assignments[(row["macro_k"], "complete")][core] for core in labels]
-        average = [full_assignments[(k, "average")][core] for core in labels]
-        sizes = pd.Series(average).value_counts()
-        complete_row = next(item for item in full_rows if item["macro_k"] == k and item["linkage"] == "complete")
-        complete_sizes = pd.Series(assignments).value_counts()
-        if (
-            row["actual_cluster_count"] == k
-            and complete_row["actual_cluster_count"] == k
-            and adjusted_rand_score(average, assignments) == 1.0
-            and sizes.min() > 1
-            and complete_sizes.min() > 1
-        ):
-            valid.append(row)
-    if not valid:
+    selected = select_macro_state(full_rows, full_assignments, labels)
+    if selected is None:
         raise ValueError("No macro-state K satisfies linkage agreement and no-singleton constraints")
-    selected = min(valid, key=lambda row: (-row["silhouette"], row["macro_k"]))
     write_json(output_root / "selected_macro_state_model.json", {
         "selection_rule": "maximum average-linkage core-level silhouette subject to average/complete agreement and no singleton macro-state; ties choose smaller K",
         "selected_macro_k": int(selected["macro_k"]),
@@ -207,7 +212,7 @@ def run(input_root, data_root, config_dir, output_root, force=False):
         output_root / "conditional_coassignment_macro_k_summary.csv", index=False
     )
 
-    loko_rows = []
+    joint_loko_rows, conditional_loko_rows, selected_loko_rows = [], [], []
     for excluded_k in INITIAL_KS:
         joint, conditional, audit_rows = coassignment_from_runs(
             review_root, patient_ids, excluded_k, return_audit=True
@@ -215,19 +220,51 @@ def run(input_root, data_root, config_dir, output_root, force=False):
         for item in audit_rows:
             coverage_audit.append({"excluded_initial_k": excluded_k, **item})
         matrix = aggregate_core_matrix(joint, patient_ids, cores)
+        conditional_core_matrix = aggregate_core_matrix(conditional, patient_ids, cores)
+        joint_assignments, conditional_assignments = {}, {}
         for k in MACRO_KS:
             for method in LINKAGES:
-                result = cluster_summary(matrix, labels, k, method, [full_assignments[(k, method)][core] for core in labels])
-                loko_rows.append({
+                reference = [full_assignments[(k, method)][core] for core in labels]
+                result = cluster_summary(matrix, labels, k, method, reference)
+                joint_assignments[(k, method)] = result["assignments"]
+                joint_loko_rows.append({
                     "excluded_initial_k": excluded_k,
                     **{key: value for key, value in result.items() if key not in {"assignments", "reference_ari"}},
                     "leave_one_k_ari": result["reference_ari"],
                 })
-    pd.DataFrame(loko_rows).to_csv(output_root / "conditional_macro_state_leave_one_resolution_out.csv", index=False)
+                result = cluster_summary(conditional_core_matrix, labels, k, method, reference)
+                conditional_assignments[(k, method)] = result["assignments"]
+                conditional_loko_rows.append({
+                    "excluded_initial_k": excluded_k,
+                    **{key: value for key, value in result.items() if key not in {"assignments", "reference_ari"}},
+                    "leave_one_k_ari": result["reference_ari"],
+                })
+        joint_selected = select_macro_state(
+            [row for row in joint_loko_rows if row["excluded_initial_k"] == excluded_k],
+            joint_assignments,
+            labels,
+        )
+        conditional_selected = select_macro_state(
+            [row for row in conditional_loko_rows if row["excluded_initial_k"] == excluded_k],
+            conditional_assignments,
+            labels,
+        )
+        for coassignment_type, selected_row in (("joint", joint_selected), ("conditional", conditional_selected)):
+            selected_loko_rows.append({
+                "excluded_initial_k": excluded_k,
+                "coassignment_type": coassignment_type,
+                "selected_macro_k": int(selected_row["macro_k"]) if selected_row else None,
+                "silhouette": selected_row["silhouette"] if selected_row else None,
+                "linkage_agreement": bool(selected_row) if selected_row else False,
+                "min_core_nodes": min(json.loads(selected_row["state_sizes_in_core_nodes"])) if selected_row else None,
+            })
+    pd.DataFrame(joint_loko_rows).to_csv(output_root / "joint_macro_state_leave_one_resolution_out.csv", index=False)
+    pd.DataFrame(conditional_loko_rows).to_csv(output_root / "conditional_macro_state_leave_one_resolution_out.csv", index=False)
+    pd.DataFrame(selected_loko_rows).to_csv(output_root / "leave_one_resolution_selected_k.csv", index=False)
     pd.DataFrame(coverage_audit).to_csv(output_root / "coassignment_coverage_audit.csv", index=False)
 
     write_json(output_root / "manifest.json", {
-        "experiment": "conditional_macro_state_leave_one_resolution_out",
+        "experiment": "four_view_macro_state_robustness",
         "discovery_modalities": ["ct", "wsi", "rna", "wxs"],
         "heldout_characterization": [],
         "macro_ks": list(MACRO_KS),
@@ -235,11 +272,12 @@ def run(input_root, data_root, config_dir, output_root, force=False):
         "coassignment_source": "final_subtype_sets.json only; fixed full-data micro-cores",
         "coassignment_denominator": "joint matrix divides by included runs; coverage audit reports accepted-patient union per run",
         "conditional_coassignment_available": True,
+        "leave_one_resolution_selection": "same macro-K rule reapplied separately to joint and conditional coassignment matrices",
         "selected_macro_k": int(selected["macro_k"]),
         "selected_assignment_file": f"full_macro_k{int(selected['macro_k'])}_{selected['linkage']}_assignment.csv",
         "input_root": str(input_root),
     })
-    return {"output_root": str(output_root), "macro_ks": list(MACRO_KS), "loko_rows": len(loko_rows)}
+    return {"output_root": str(output_root), "macro_ks": list(MACRO_KS), "loko_rows": len(joint_loko_rows)}
 
 
 def main():
