@@ -22,6 +22,9 @@ def permutation_categorical(labels, values, permutations=9999, seed=20260917):
         if chi2_contingency(table, correction=False)[0] >= statistic: exceed += 1
     return statistic, (exceed + 1) / (permutations + 1), levels
 
+def ordered_values(order, source, variable):
+    return [(case_id, str(source.get(case_id, {}).get(variable, ""))) for case_id in order]
+
 def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/"output_kirc_v14/17_four_view_state_noncore_audit",permutations=9999,force=False):
     output_root=Path(output_root)
     if output_root.exists() and any(output_root.iterdir()) and not force: raise FileExistsError(f"Output exists: {output_root}")
@@ -33,7 +36,7 @@ def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/
     categorical=("stage_group","t_stage","m_stage","grade","gender","race","tissue_source_site","ct_phase","ct_phase_group","ct_manufacturer","ct_scanner_model","ct_reconstruction_kernel")
     for variable in categorical:
         source = records if variable in records[next(iter(records))] else conf
-        all_pairs=[(x,str(source.get(x,{}).get(variable,""))) for x in core|set(noncore)]
+        all_pairs=ordered_values(order,source,variable)
         available=[(x,v) for x,v in all_pairs if v.strip() and v.upper() not in {"NAN","NONE","UNKNOWN","NA","N/A","NX","MX","TX"}]
         missing_labels=["state" if x in core else "non_core" for x,_ in all_pairs]
         missing_values=["available" if x in {y for y,_ in available} else "missing" for x,_ in all_pairs]

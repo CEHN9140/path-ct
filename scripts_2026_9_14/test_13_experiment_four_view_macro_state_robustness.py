@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 path = Path(__file__).with_name("13_experiment_four_view_macro_state_robustness.py")
 spec = importlib.util.spec_from_file_location("macro_robustness", path)
@@ -34,6 +35,7 @@ def test_coassignment_uses_accepted_subtype_sets_and_reports_coverage(tmp_path, 
     for repeat, members in ((1, ["A", "B"]), (2, ["A"])):
         run_root = tmp_path / f"run{repeat}" / "K2"
         run_root.mkdir(parents=True)
+        (run_root / "final_review_summary.json").write_text(json.dumps({"status": "review_complete"}))
         (run_root / "final_partition_sets.json").write_text("[]")
         (run_root / "final_subtype_sets.json").write_text(json.dumps([
             {"set_id": "C1", "member_ids": members},
@@ -46,3 +48,20 @@ def test_coassignment_uses_accepted_subtype_sets_and_reports_coverage(tmp_path, 
     assert conditional[0, 1] == 1.0
     assert conditional[2, 2] == 0.0
     assert [row["assigned_patient_n"] for row in audit] == [2, 1]
+
+
+@pytest.mark.parametrize("status,members", [
+    ("review_unavailable", ["A"]),
+    ("review_complete", ["A", "UNKNOWN"]),
+])
+def test_coassignment_rejects_incomplete_or_out_of_cohort_run(tmp_path, monkeypatch, status, members):
+    monkeypatch.setattr(module, "REPEATS", (1,))
+    monkeypatch.setattr(module, "INITIAL_KS", (2,))
+    run_root = tmp_path / "run1" / "K2"
+    run_root.mkdir(parents=True)
+    (run_root / "final_review_summary.json").write_text(json.dumps({"status": status}))
+    (run_root / "final_subtype_sets.json").write_text(json.dumps([
+        {"set_id": "C1", "member_ids": members},
+    ]))
+    with pytest.raises(ValueError):
+        module.coassignment_from_runs(tmp_path, ["A", "B"])

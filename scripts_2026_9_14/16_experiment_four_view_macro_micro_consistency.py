@@ -125,11 +125,16 @@ def run(
                     "within_minus_between": observed,
                     "permutation_p_value": p_value,
                     "weighted": weighted,
+                    "analysis_role": "discovery_space_diagnostic",
                 })
 
     for output in (statistics, weighted_statistics):
-        for row, q_value in zip(output, bh_adjust([row["permutation_p_value"] for row in output])):
-            row["q_value"] = q_value
+        for rows in (
+            [row for row in output if row["state_id"] == "ALL"],
+            [row for row in output if row["state_id"] != "ALL"],
+        ):
+            for row, q_value in zip(rows, bh_adjust([row["permutation_p_value"] for row in rows])):
+                row["q_value"] = q_value
     pd.DataFrame(pair_rows).to_csv(output_root / "micro_core_pair_similarity.csv", index=False)
     pd.DataFrame(statistics).drop(columns="weighted").to_csv(
         output_root / "macro_micro_consistency_statistics.csv", index=False
@@ -174,6 +179,7 @@ def run(
         "analysis_patient_count": len(frame),
         "source_cohort_n": len(order),
         "cnv_included": False,
+        "analysis_scope": "in-sample diagnostic; states were derived from these modalities",
         "consistency_test": "core-label permutation preserving macro-state core counts",
         "weighted_sensitivity": True,
         "weighted_metric": "pairwise mean similarity weighted by product of micro-core sizes",

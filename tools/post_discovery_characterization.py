@@ -148,8 +148,12 @@ def continuous_state_vs_rest_descriptive(table, features, groups, bootstrap_iter
 
 
 def _odds_ratio_ci(a, b, c, d):
-    odds = ((a + .5) * (d + .5)) / ((b + .5) * (c + .5))
-    se = sqrt(sum(1 / (value + .5) for value in (a, b, c, d)))
+    if any(value == 0 for value in (a, b, c, d)):
+        a, b, c, d = (value + .5 for value in (a, b, c, d))
+    if b * c == 0:
+        return None, None, None
+    odds = (a * d) / (b * c)
+    se = sqrt(sum(1 / value for value in (a, b, c, d)))
     return odds, exp(log(odds) - 1.96 * se), exp(log(odds) + 1.96 * se)
 
 

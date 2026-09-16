@@ -100,7 +100,7 @@ def select_macro_state(rows, assignments, labels):
     return min(valid, key=lambda row: (-row["silhouette"], row["macro_k"])) if valid else None
 
 
-def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_audit=False):
+def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_audit=False, return_denominator=False):
     same_count = np.zeros((len(patient_ids), len(patient_ids)), float)
     conditional = np.zeros_like(same_count)
     conditional_denominator = np.zeros_like(same_count)
@@ -112,11 +112,18 @@ def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_aud
             if initial_k == excluded_k:
                 continue
             path = review_root / f"run{repeat}" / f"K{initial_k}" / "final_subtype_sets.json"
+            summary = json.loads((path.parent / "final_review_summary.json").read_text(encoding="utf-8"))
+            if summary.get("status") != "review_complete":
+                raise ValueError(f"Agent review is not complete in run{repeat}/K{initial_k}")
             sets = json.loads(path.read_text(encoding="utf-8"))
             run_count += 1
             assigned = set()
             for item in sets:
-                members = [str(member) for member in item.get("member_ids", []) if str(member) in positions]
+                members = [str(member) for member in item.get("member_ids", [])]
+                if not set(members).issubset(positions):
+                    raise ValueError(f"Accepted set contains out-of-cohort patients in run{repeat}/K{initial_k}")
+                if len(members) != len(set(members)) or assigned.intersection(members):
+                    raise ValueError(f"Accepted subtype sets overlap in run{repeat}/K{initial_k}")
                 assigned.update(members)
                 indexes = [positions[member] for member in members]
                 for left in indexes:
@@ -138,6 +145,8 @@ def coassignment_from_runs(review_root, patient_ids, excluded_k=None, return_aud
     conditional[np.diag_indices_from(conditional)] = np.where(
         np.diag(conditional_denominator) > 0, 1.0, 0.0
     )
+    if return_audit and return_denominator:
+        return matrix, conditional, audit, conditional_denominator
     return (matrix, conditional, audit) if return_audit else matrix
 
 
@@ -162,8 +171,8 @@ def run(input_root, data_root, config_dir, output_root, force=False):
     cores = load_cores(review_root / "stable_core_summary.csv")
     labels = list(cores)
     patient_ids = list(map(str, json.loads((input_root / "inputs/four_view_no_cnv/candidate_subtype/affinity_patient_order.json").read_text())))
-    full_joint, full_conditional, coverage_audit = coassignment_from_runs(
-        review_root, patient_ids, return_audit=True
+    full_joint, full_conditional, coverage_audit, full_denominator = coassignment_from_runs(
+        review_root, patient_ids, return_audit=True, return_denominator=True
     )
     coverage_audit = [{"excluded_initial_k": None, **row} for row in coverage_audit]
     full_matrix = aggregate_core_matrix(full_joint, patient_ids, cores)
@@ -172,6 +181,9 @@ def run(input_root, data_root, config_dir, output_root, force=False):
     output_root.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(full_conditional, index=patient_ids, columns=patient_ids).to_csv(
         output_root / "conditional_accepted_coassignment_matrix.csv"
+    )
+    pd.DataFrame(full_denominator / len(coverage_audit), index=patient_ids, columns=patient_ids).to_csv(
+        output_root / "conditional_pair_coverage.csv"
     )
     full_rows = []
     full_assignments = {}
@@ -272,6 +284,7 @@ def run(input_root, data_root, config_dir, output_root, force=False):
         "coassignment_source": "final_subtype_sets.json only; fixed full-data micro-cores",
         "coassignment_denominator": "joint matrix divides by included runs; coverage audit reports accepted-patient union per run",
         "conditional_coassignment_available": True,
+        "conditional_pair_coverage_file": "conditional_pair_coverage.csv",
         "leave_one_resolution_selection": "same macro-K rule reapplied separately to joint and conditional coassignment matrices",
         "selected_macro_k": int(selected["macro_k"]),
         "selected_assignment_file": f"full_macro_k{int(selected['macro_k'])}_{selected['linkage']}_assignment.csv",

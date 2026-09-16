@@ -77,12 +77,12 @@ def write_matrix(path, matrix, labels):
     pd.DataFrame(matrix, index=labels, columns=labels).rename_axis("core_id").to_csv(path)
 
 
-def hierarchy_rows(matrix, labels, matrix_name, state_by_core):
+def hierarchy_rows(matrix, labels, matrix_name, state_by_core, macro_k):
     distance = np.clip(1.0 - (matrix + matrix.T) / 2.0, 0.0, 1.0)
     np.fill_diagonal(distance, 0.0)
     rows = []
     for method in ("average", "complete"):
-        clusters = fcluster(linkage(squareform(distance, checks=False), method=method), 4, criterion="maxclust")
+        clusters = fcluster(linkage(squareform(distance, checks=False), method=method), macro_k, criterion="maxclust")
         rows.extend({
             "matrix": matrix_name,
             "linkage": method,
@@ -202,7 +202,7 @@ def run(input_root, output_root, force=False):
     pd.DataFrame(pair_rows).to_csv(output_root / "core_pair_similarity.csv", index=False)
     hierarchy = []
     for name in ("joint_coassignment", "fused"):
-        hierarchy.extend(hierarchy_rows(core_matrices[name], labels, name, state_by_core))
+        hierarchy.extend(hierarchy_rows(core_matrices[name], labels, name, state_by_core, int(selection["selected_macro_k"])))
     pd.DataFrame(hierarchy).to_csv(output_root / "macro_state_hierarchy.csv", index=False)
     structures = []
     for name, matrix in core_matrices.items():

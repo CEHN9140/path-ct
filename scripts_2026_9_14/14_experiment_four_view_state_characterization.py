@@ -22,6 +22,18 @@ from tools.multimodal_consistency_check import normalized_affinity_with_audit, p
 def continuous_table(frame, ids):
     return {case_id: frame.loc[case_id].to_dict() for case_id in ids if case_id in frame.index}
 
+
+def finalize_diagnostic_roles(affinity_rows, survival):
+    survival["analysis_role"] = "secondary_exploratory"
+    for p_key, q_key in (
+        ("permanova_p_value", "permanova_q_value"),
+        ("permdisp_permdisp_p_value", "permdisp_q_value"),
+    ):
+        for row, q_value in zip(affinity_rows, stats.bh_adjust([row[p_key] for row in affinity_rows])):
+            row[q_key] = q_value
+            row["analysis_role"] = "discovery_space_diagnostic"
+
+
 def stage_binary_cox(records, groups):
     from lifelines import CoxPHFitter
     from lifelines.statistics import proportional_hazard_test
@@ -106,8 +118,6 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     for row, q in zip(clinical_rows, stats.bh_adjust([r["p_value"] for r in clinical_rows])): row["q_value"] = q
     pd.DataFrame(clinical_rows).to_csv(output_root / "clinical_omnibus.csv", index=False)
     survival, survival_pairs = stats.survival_analysis(clinical, state_groups)
-    pd.DataFrame([survival]).to_csv(output_root / "survival_global.csv", index=False)
-    pd.DataFrame(survival_pairs).to_csv(output_root / "survival_posthoc.csv", index=False)
     pd.DataFrame(stats.stage_adjusted_survival(clinical, state_groups)).to_csv(output_root / "stage_adjusted_survival.csv", index=False)
     pd.DataFrame(stage_binary_cox(clinical, state_groups)).to_csv(output_root / "stage_binary_adjusted_survival.csv", index=False)
 
@@ -122,8 +132,11 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
         p = permanova_metrics(normalized, labels, permutations=permutations, seed=20260914)
         d = permdisp_metrics(normalized, labels, permutations=permutations, seed=20260915)
         affinity_rows.append({"modality": modality, **p, **{"permdisp_" + k: v for k, v in d.items()}})
+    finalize_diagnostic_roles(affinity_rows, survival)
+    pd.DataFrame([survival]).to_csv(output_root / "survival_global.csv", index=False)
+    pd.DataFrame(survival_pairs).to_csv(output_root / "survival_posthoc.csv", index=False)
     pd.DataFrame(affinity_rows).to_csv(output_root / "affinity_permanova_permdisp.csv", index=False)
-    write_manifest(output_root / "manifest.json", {"experiment": "four_view_state_characterization", "active_modalities": ["ct", "wsi", "rna", "wxs"], "membership_file": str(Path(membership_path).resolve()), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}, "cnv_included": False, "ct_feature_source": "production_consistent_103_patient_preprocessing_then_86_patient_subset", "ct_feature_count": len(ct_features), "rna_gene_count": int(rna_genes.shape[1]), "rna_pathway_count": len(rna.columns), "rna_min_pathway_overlap": 15, "rna_pathway_source": str((input_root / "rna/case_pathway_features.csv").resolve()), "rna_source_measurement": "tpm_unstranded", "rna_transform": "log2(TPM + 1)", "rna_filtering": "protein_coding_only; TPM >= 1 in at least 20% of the 103-patient cohort", "rna_pathway_matrix_is_independent_of_discovery_top_mad": True, "affinity_audit": audit})
+    write_manifest(output_root / "manifest.json", {"experiment": "four_view_state_characterization", "active_modalities": ["ct", "wsi", "rna", "wxs"], "membership_file": str(Path(membership_path).resolve()), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}, "cnv_included": False, "analysis_scope": "in-sample descriptive characterization, not independent validation", "ct_feature_source": "production_consistent_103_patient_preprocessing_then_86_patient_subset", "ct_feature_count": len(ct_features), "rna_gene_count": int(rna_genes.shape[1]), "rna_pathway_count": len(rna.columns), "rna_min_pathway_overlap": 15, "rna_pathway_source": str((input_root / "rna/case_pathway_features.csv").resolve()), "rna_source_measurement": "tpm_unstranded", "rna_transform": "log2(TPM + 1)", "rna_filtering": "protein_coding_only; TPM >= 1 in at least 20% of the 103-patient cohort", "rna_pathway_matrix_uses_full_genes_not_discovery_top_mad": True, "affinity_audit": audit})
     return {"output_root": str(output_root), "patient_count": len(ids), "state_sizes": {k: len(v) for k, v in state_groups.items()}}
 
 

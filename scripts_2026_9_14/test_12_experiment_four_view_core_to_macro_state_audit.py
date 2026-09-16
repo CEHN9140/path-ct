@@ -22,3 +22,14 @@ def test_aggregate_core_matrix_preserves_core_order():
     result = module.aggregate_core_matrix(np.array([[1.0, 0.2], [0.2, 1.0]]), ["A", "B"], cores)
     assert result.shape == (2, 2)
     assert np.allclose(result, [[1.0, 0.2], [0.2, 1.0]])
+
+
+def test_hierarchy_uses_selected_macro_k():
+    labels = [f"CORE{i:02d}" for i in range(1, 7)]
+    matrix = np.full((6, 6), 0.1)
+    np.fill_diagonal(matrix, 1.0)
+    for left, right in ((0, 1), (2, 3), (4, 5)):
+        matrix[left, right] = matrix[right, left] = 0.9
+    states = {label: f"STATE_{'ABC'[index // 2]}" for index, label in enumerate(labels)}
+    rows = module.hierarchy_rows(matrix, labels, "joint", states, macro_k=3)
+    assert len({row["hierarchical_cluster"] for row in rows if row["linkage"] == "average"}) == 3
