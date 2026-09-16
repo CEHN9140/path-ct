@@ -27,6 +27,9 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     output_root = Path(output_root)
     if output_root.exists() and any(output_root.iterdir()) and not force:
         raise FileExistsError(f"Output exists; pass --force to overwrite: {output_root}")
+    if force and output_root.exists():
+        import shutil
+        shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     input_root, membership = Path(input_root), load_membership(membership_path)
     state_groups, states = groups(membership), load_states(input_root)
@@ -34,7 +37,7 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     if not set(ids).issubset(states):
         raise ValueError("State membership contains patients absent from patient_states")
 
-    rna_genes = load_table(input_root / "rna/case_features.csv").reindex(ids)
+    rna_genes = load_table(input_root / "rna/case_pathway_features.csv").reindex(ids)
     gmt = tool_parameters(str(ROOT / "configs"), "rna")["pathway_gene_sets_path"]
     gene_sets, _ = read_gmt_gene_sets(gmt)
     gene_sets = {name: [gene for gene in genes if gene in rna_genes.columns] for name, genes in gene_sets.items()}
