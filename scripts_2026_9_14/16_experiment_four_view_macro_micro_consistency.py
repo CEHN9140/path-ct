@@ -1,74 +1,191 @@
 #!/usr/bin/env python3
 """Quantify agreement between frozen macro-states and their micro-cores."""
+
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
+import shutil
 from itertools import combinations
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from four_view_state_common import DEFAULT_INPUT, DEFAULT_MEMBERSHIP, ROOT, groups, load_membership, load_states, write_manifest
-from tools.subtype_review_common import clinical_table
+
+from four_view_state_common import (
+    DEFAULT_INPUT,
+    DEFAULT_MEMBERSHIP,
+    ROOT,
+    groups,
+    load_membership,
+    load_states,
+    write_manifest,
+)
 from tools.multimodal_consistency_check import normalized_affinity_with_audit
 from tools.post_discovery_characterization import bh_adjust
+from tools.subtype_review_common import clinical_table
 
-def state_pair_statistic(pair_values, state_by_core, target):
-    within=[value for (a,b),value in pair_values.items() if state_by_core[a]==target and state_by_core[b]==target]
-    outside=[value for (a,b),value in pair_values.items() if state_by_core[a]!=state_by_core[b] and target in (state_by_core[a],state_by_core[b])]
-    return float(np.mean(within)-np.mean(outside)) if within and outside else None
+PERMUTATIONS = 9999
 
-def global_pair_statistic(pair_values, state_by_core):
-    within=[value for (a,b),value in pair_values.items() if state_by_core[a]==state_by_core[b]]
-    outside=[value for (a,b),value in pair_values.items() if state_by_core[a]!=state_by_core[b]]
-    return float(np.mean(within)-np.mean(outside)) if within and outside else None
 
-def run(input_root=DEFAULT_INPUT,membership=DEFAULT_MEMBERSHIP,output_root=ROOT/"output_kirc_v14/16_four_view_macro_micro_consistency",force=False):
-    output_root=Path(output_root)
-    if output_root.exists() and any(output_root.iterdir()) and not force: raise FileExistsError(f"Output exists: {output_root}")
+def pair_statistic(pair_values, state_by_core, target=None, weights=None):
+    within, outside = [], []
+    for pair, value in pair_values.items():
+        left, right = pair
+        same = state_by_core[left] == state_by_core[right]
+        if target is not None and target not in (state_by_core[left], state_by_core[right]):
+            continue
+        (within if same else outside).append((value, weights[pair] if weights else 1.0))
+    if not within or not outside:
+        return None
+    average = lambda values: np.average(
+        [value for value, _ in values], weights=[weight for _, weight in values]
+    )
+    return float(average(within) - average(outside))
+
+
+def permutation_p(pair_values, state_by_core, target, rng, weights=None):
+    observed = pair_statistic(pair_values, state_by_core, target, weights)
+    if observed is None:
+        return None, None
+    cores = list(state_by_core)
+    state_labels = list(state_by_core.values())
+    null = []
+    for _ in range(PERMUTATIONS):
+        shuffled = dict(zip(cores, rng.permutation(state_labels)))
+        value = pair_statistic(pair_values, shuffled, target, weights)
+        if value is not None:
+            null.append(value)
+    p_value = (1 + sum(abs(value) >= abs(observed) for value in null)) / (len(null) + 1)
+    return observed, p_value
+
+
+def run(
+    input_root=DEFAULT_INPUT,
+    membership=DEFAULT_MEMBERSHIP,
+    output_root=ROOT / "output_kirc_v14/16_four_view_macro_micro_consistency",
+    force=False,
+):
+    input_root, membership, output_root = Path(input_root), Path(membership), Path(output_root)
+    if output_root.exists() and any(output_root.iterdir()) and not force:
+        raise FileExistsError(f"Output exists: {output_root}")
     if force and output_root.exists():
-        import shutil
         shutil.rmtree(output_root)
-    output_root.mkdir(parents=True,exist_ok=True); frame=load_membership(membership); gs=groups(frame); states=load_states(input_root)
-    rows=[]
-    for state,members in gs.items():
-        sub=frame[frame.state_id.eq(state)]; rows.append({"state_id":state,"state_n":len(members),"micro_core_count":sub.core_id.nunique(),"micro_core_sizes":json.dumps({k:int(v) for k,v in sub.core_id.value_counts().sort_index().items()})})
-    pd.DataFrame(rows).to_csv(output_root/"state_micro_core_composition.csv",index=False)
-    paths={"ct":Path(input_root)/"candidate_subtype/ct_affinity.npy","wsi":Path(input_root)/"candidate_subtype/wsi_affinity.npy","rna":Path(input_root)/"candidate_subtype/rna_affinity.npy","wxs":Path(input_root)/"wxs/wxs_affinity.npy"}
-    order=json.loads((Path(input_root)/"candidate_subtype/affinity_patient_order.json").read_text())
-    index={x:i for i,x in enumerate(order)}
-    pair=[]; consistency=[]; rng=np.random.default_rng(20260916)
-    for modality,path in paths.items():
-        matrix,_=normalized_affinity_with_audit(np.load(path))
-        core_ids=sorted(frame.core_id.unique()); state_by_core={core:frame.loc[frame.core_id.eq(core),"state_id"].iloc[0] for core in core_ids}; pair_values={}
-        for a,b in combinations(core_ids,2):
-            left=[index[x] for x in frame.loc[frame.core_id.eq(a),"case_id"]]; right=[index[x] for x in frame.loc[frame.core_id.eq(b),"case_id"]]
-            state_a=frame.loc[frame.core_id.eq(a),"state_id"].iloc[0]; state_b=frame.loc[frame.core_id.eq(b),"state_id"].iloc[0]
-            value=float(matrix[np.ix_(left,right)].mean()); pair_values[(a,b)]=value
-            pair.append({"modality":modality,"state_id":state_a if state_a==state_b else "between_states","state_a":state_a,"state_b":state_b,"core_a":a,"core_b":b,"n_a":len(left),"n_b":len(right),"mean_similarity":value})
-        for state in sorted(gs):
-            observed=state_pair_statistic(pair_values,state_by_core,state); null=[]
-            for _ in range(9999):
-                shuffled=dict(zip(core_ids,rng.permutation([state_by_core[x] for x in core_ids])))
-                value=state_pair_statistic(pair_values,shuffled,state)
-                if value is not None: null.append(value)
-            p_value=(1+sum(abs(x)>=abs(observed) for x in null))/(len(null)+1) if observed is not None else None
-            consistency.append({"modality":modality,"state_id":state,"within_minus_between":observed,"permutation_p_value":p_value,"within_pair_count":sum(state_by_core[a]==state and state_by_core[b]==state for a,b in pair_values),"between_pair_count":sum(state_by_core[a]!=state_by_core[b] and state in (state_by_core[a],state_by_core[b]) for a,b in pair_values)})
-        observed=global_pair_statistic(pair_values,state_by_core); null=[]
-        for _ in range(9999):
-            shuffled=dict(zip(core_ids,rng.permutation([state_by_core[x] for x in core_ids])))
-            value=global_pair_statistic(pair_values,shuffled)
-            if value is not None: null.append(value)
-        consistency.append({"modality":modality,"state_id":"ALL","within_minus_between":observed,"permutation_p_value":(1+sum(abs(x)>=abs(observed) for x in null))/(len(null)+1) if observed is not None else None,"within_pair_count":sum(state_by_core[a]==state_by_core[b] for a,b in pair_values),"between_pair_count":sum(state_by_core[a]!=state_by_core[b] for a,b in pair_values)})
-    for row,q in zip(consistency,bh_adjust([row["permutation_p_value"] for row in consistency])): row["q_value"]=q
-    pd.DataFrame(pair).to_csv(output_root/"micro_core_pair_similarity.csv",index=False)
-    pd.DataFrame(consistency).to_csv(output_root/"macro_micro_consistency_statistics.csv",index=False)
-    records=clinical_table({x:states[x] for x in order if x in states}); clinical_rows=[]
-    for state,members in gs.items():
-        for core in sorted(frame.loc[frame.state_id.eq(state),"core_id"].unique()):
-            ids=frame.loc[frame.core_id.eq(core),"case_id"].tolist()
-            clinical_rows.append({"state_id":state,"core_id":core,"core_n":len(ids),"age_median":float(np.nanmedian([records[x]["age"] for x in ids if records[x].get("age") is not None])) if any(records[x].get("age") is not None for x in ids) else None,"stage_counts":json.dumps(pd.Series([records[x].get("stage_group","") for x in ids]).value_counts().to_dict())})
-    pd.DataFrame(clinical_rows).to_csv(output_root/"within_state_micro_core_clinical.csv",index=False)
-    write_manifest(output_root/"manifest.json",{"experiment":"four_view_macro_micro_consistency","active_modalities":["ct","wsi","rna","wxs"],"membership_file":str(Path(membership).resolve()),"analysis_patient_count":len(frame),"source_cohort_n":len(order),"cnv_included":False,"consistency_test":"core-label permutation preserving macro-state core counts","permutations":9999})
-    return {"output_root":str(output_root),"state_sizes":{k:len(v) for k,v in gs.items()}}
+    output_root.mkdir(parents=True, exist_ok=True)
 
-if __name__=="__main__":
-    p=argparse.ArgumentParser(); p.add_argument("--input-root",type=Path,default=DEFAULT_INPUT); p.add_argument("--membership",type=Path,default=DEFAULT_MEMBERSHIP); p.add_argument("--output-root",type=Path,default=ROOT/"output_kirc_v14/16_four_view_macro_micro_consistency"); p.add_argument("--force",action="store_true"); print(json.dumps(run(**vars(p.parse_args())),ensure_ascii=False,indent=2))
+    frame = load_membership(membership)
+    state_groups = groups(frame)
+    states = load_states(input_root)
+    core_ids = sorted(frame.core_id.unique())
+    state_by_core = {
+        core: frame.loc[frame.core_id.eq(core), "state_id"].iloc[0] for core in core_ids
+    }
+    order = json.loads((input_root / "candidate_subtype/affinity_patient_order.json").read_text())
+    index = {case_id: i for i, case_id in enumerate(order)}
+    pair_rows, statistics, weighted_statistics = [], [], []
+    rng = np.random.default_rng(20260916)
+    paths = {
+        "ct": input_root / "candidate_subtype/ct_affinity.npy",
+        "wsi": input_root / "candidate_subtype/wsi_affinity.npy",
+        "rna": input_root / "candidate_subtype/rna_affinity.npy",
+        "wxs": input_root / "wxs/wxs_affinity.npy",
+    }
+
+    for modality, path in paths.items():
+        matrix, _ = normalized_affinity_with_audit(np.load(path))
+        pair_values, pair_weights = {}, {}
+        for left, right in combinations(core_ids, 2):
+            left_ids = frame.loc[frame.core_id.eq(left), "case_id"].tolist()
+            right_ids = frame.loc[frame.core_id.eq(right), "case_id"].tolist()
+            value = float(matrix[np.ix_([index[x] for x in left_ids], [index[x] for x in right_ids])].mean())
+            pair = (left, right)
+            pair_values[pair] = value
+            pair_weights[pair] = len(left_ids) * len(right_ids)
+            left_state, right_state = state_by_core[left], state_by_core[right]
+            pair_rows.append({
+                "modality": modality,
+                "state_id": left_state if left_state == right_state else "between_states",
+                "state_a": left_state,
+                "state_b": right_state,
+                "core_a": left,
+                "core_b": right,
+                "n_a": len(left_ids),
+                "n_b": len(right_ids),
+                "mean_similarity": value,
+            })
+        for weighted, output in ((False, statistics), (True, weighted_statistics)):
+            weights = pair_weights if weighted else None
+            for state in sorted(state_groups) + ["ALL"]:
+                observed, p_value = permutation_p(
+                    pair_values, state_by_core, None if state == "ALL" else state, rng, weights
+                )
+                output.append({
+                    "modality": modality,
+                    "state_id": state,
+                    "within_minus_between": observed,
+                    "permutation_p_value": p_value,
+                    "weighted": weighted,
+                })
+
+    for output in (statistics, weighted_statistics):
+        for row, q_value in zip(output, bh_adjust([row["permutation_p_value"] for row in output])):
+            row["q_value"] = q_value
+    pd.DataFrame(pair_rows).to_csv(output_root / "micro_core_pair_similarity.csv", index=False)
+    pd.DataFrame(statistics).drop(columns="weighted").to_csv(
+        output_root / "macro_micro_consistency_statistics.csv", index=False
+    )
+    pd.DataFrame(weighted_statistics).drop(columns="weighted").rename(
+        columns={"within_minus_between": "weighted_within_minus_between"}
+    ).to_csv(output_root / "macro_micro_consistency_weighted.csv", index=False)
+
+    composition = [
+        {
+            "state_id": state,
+            "state_n": len(members),
+            "micro_core_count": frame.loc[frame.state_id.eq(state), "core_id"].nunique(),
+            "micro_core_sizes": json.dumps(
+                frame.loc[frame.state_id.eq(state), "core_id"].value_counts().sort_index().to_dict()
+            ),
+        }
+        for state, members in state_groups.items()
+    ]
+    pd.DataFrame(composition).to_csv(output_root / "state_micro_core_composition.csv", index=False)
+
+    records = clinical_table({case_id: states[case_id] for case_id in order if case_id in states})
+    clinical_rows = []
+    for state in sorted(state_groups):
+        for core in sorted(frame.loc[frame.state_id.eq(state), "core_id"].unique()):
+            case_ids = frame.loc[frame.core_id.eq(core), "case_id"].tolist()
+            ages = [records[case_id]["age"] for case_id in case_ids if records[case_id].get("age") is not None]
+            clinical_rows.append({
+                "state_id": state,
+                "core_id": core,
+                "core_n": len(case_ids),
+                "age_median": float(np.median(ages)) if ages else None,
+                "stage_counts": json.dumps(
+                    pd.Series([records[case_id].get("stage_group", "") for case_id in case_ids]).value_counts().to_dict()
+                ),
+            })
+    pd.DataFrame(clinical_rows).to_csv(output_root / "within_state_micro_core_clinical.csv", index=False)
+    write_manifest(output_root / "manifest.json", {
+        "experiment": "four_view_macro_micro_consistency",
+        "active_modalities": ["ct", "wsi", "rna", "wxs"],
+        "membership_file": str(membership.resolve()),
+        "analysis_patient_count": len(frame),
+        "source_cohort_n": len(order),
+        "cnv_included": False,
+        "consistency_test": "core-label permutation preserving macro-state core counts",
+        "weighted_sensitivity": True,
+        "weighted_metric": "pairwise mean similarity weighted by product of micro-core sizes",
+        "permutations": PERMUTATIONS,
+    })
+    return {"output_root": str(output_root), "state_sizes": {k: len(v) for k, v in state_groups.items()}}
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--membership", type=Path, default=DEFAULT_MEMBERSHIP)
+    parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc_v14/16_four_view_macro_micro_consistency")
+    parser.add_argument("--force", action="store_true")
+    print(json.dumps(run(**vars(parser.parse_args())), ensure_ascii=False, indent=2))

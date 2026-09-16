@@ -17,6 +17,8 @@ def test_normalize_affinity_uses_off_diagonal_scale():
     assert result.max() == 1.0
 
 
-def test_candidate_mapping_has_four_states_and_ten_cores():
-    assert len(module.CORE_TO_STATE) == 10
-    assert set(module.CORE_TO_STATE.values()) == set(module.STATE_ORDER)
+def test_aggregate_core_matrix_preserves_core_order():
+    cores = {"CORE01": ["A"], "CORE02": ["B"]}
+    result = module.aggregate_core_matrix(np.array([[1.0, 0.2], [0.2, 1.0]]), ["A", "B"], cores)
+    assert result.shape == (2, 2)
+    assert np.allclose(result, [[1.0, 0.2], [0.2, 1.0]])
