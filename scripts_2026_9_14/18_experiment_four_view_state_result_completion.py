@@ -10,10 +10,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import fisher_exact, mannwhitneyu
 
 from four_view_state_common import DEFAULT_INPUT, DEFAULT_MEMBERSHIP, ROOT, load_membership, load_states
 from tools import post_discovery_characterization as stats
 from tools.ct_radiomics import build_ct_discovery_feature_matrix
+from tools.pathway_enrichment import ssgsea_scores
+from tools.subtype_review_common import clinical_table, read_gmt_gene_sets, tool_parameters
 
 CHAR = ROOT / "output_kirc_v14/14_four_view_state_characterization"
 MAP = ROOT / "output_kirc_v14/15_four_view_state_known_ccrcc_mapping"
@@ -87,7 +90,7 @@ def micro_macro_summary(output_root):
 
 def noncore_summary(input_root, membership, output_root):
     order = json.loads((Path(input_root) / "candidate_subtype/affinity_patient_order.json").read_text())
-    matrix = np.load(Path(input_root) / "candidate_subtype/fused_similarity.npy")
+    fused = np.load(Path(input_root) / "candidate_subtype/fused_similarity.npy")
     coassign = pd.read_csv(AGENT / "joint_accepted_coassignment_matrix.csv", index_col=0).reindex(index=order, columns=order).to_numpy(float)
     assigned = set(membership.case_id)
     state_map = membership.set_index("case_id")["state_id"].to_dict()
@@ -95,22 +98,29 @@ def noncore_summary(input_root, membership, output_root):
     acceptance = pd.read_csv(AGENT / "patient_acceptance_frequency.csv").set_index("patient_id")["acceptance_frequency"]
     rows = []
     for i, case_id in enumerate(order):
-        state_scores = {}
+        accepted_scores, fused_scores = {}, {}
         for state, members in state_members.items():
             indices = [order.index(member) for member in members if member != case_id]
-            state_scores[state] = float(matrix[i, indices].mean()) if indices else np.nan
-        finite = {state: score for state, score in state_scores.items() if np.isfinite(score)}
+            accepted_scores[state] = float(coassign[i, indices].mean()) if indices else np.nan
+            fused_scores[state] = float(fused[i, indices].mean()) if indices else np.nan
+        finite = {state: score for state, score in accepted_scores.items() if np.isfinite(score)}
         scores = np.array(list(finite.values()), float)
         probabilities = np.clip(scores - scores.min() + 1e-6, 1e-6, None)
         probabilities /= probabilities.sum()
         entropy = float(-(probabilities * np.log(probabilities)).sum())
         ranked = sorted(finite.items(), key=lambda item: item[1], reverse=True)
+        fused_ranked = sorted(fused_scores.items(), key=lambda item: item[1], reverse=True)
+        fused_values = np.array(list(fused_scores.values()), float)
+        fused_prob = np.clip(fused_values - fused_values.min() + 1e-6, 1e-6, None)
+        fused_prob /= fused_prob.sum()
         max_partner = float(np.max(np.delete(coassign[i], i)))
         rows.append({"case_id": case_id, "state_id": state_map.get(case_id, "NON_CORE"),
                      "is_non_core": case_id not in assigned, "acceptance_frequency": float(acceptance.get(case_id, np.nan)),
                      "max_coassignment": max_partner, "nearest_state": ranked[0][0], "nearest_state_affinity": ranked[0][1],
                      "second_state_affinity": ranked[1][1], "state_affinity_margin": ranked[0][1] - ranked[1][1],
-                     "state_affinity_entropy": entropy})
+                     "state_affinity_entropy": entropy, "fused_nearest_state": fused_ranked[0][0],
+                     "fused_state_affinity_margin": fused_ranked[0][1] - fused_ranked[1][1],
+                     "fused_state_affinity_entropy": float(-(fused_prob * np.log(fused_prob)).sum())})
     result = pd.DataFrame(rows)
     write_csv(result, output_root / "noncore_uncertainty_scores.csv")
     write_csv(result.groupby("is_non_core")[['acceptance_frequency', 'max_coassignment', 'state_affinity_margin', 'state_affinity_entropy']].mean().reset_index(), output_root / "core_noncore_stability_summary.csv")
@@ -120,9 +130,7 @@ def noncore_summary(input_root, membership, output_root):
 def representative_cases(input_root, membership, states, wxs, output_root):
     order = json.loads((Path(input_root) / "candidate_subtype/affinity_patient_order.json").read_text())
     fused = np.load(Path(input_root) / "candidate_subtype/fused_similarity.npy")
-    clinical = {}
-    for case_id, state in states.items():
-        clinical[case_id] = (state.get("clinical", {}) or {}).get("demographic", {}) or {}
+    clinical = clinical_table(states)
     wxs_cols = [x for x in wxs.columns if x.startswith("mutation::")]
     rows = []
     for state in STATE_ORDER:
@@ -140,34 +148,46 @@ def representative_cases(input_root, membership, states, wxs, output_root):
     return result
 
 
-def identity_card(membership, mapping, output_root):
-    def state_specific(path, effect, p_value, state, clean=False):
-        frame = pd.read_csv(path)
-        if frame.empty:
-            return []
-        frame = frame[frame.feature.notna()].copy()
-        frame["direction"] = np.where(
-            ((frame.group_a == state) & (frame[effect] > 0)) | ((frame.group_b == state) & (frame[effect] < 0)), 1, 0
-        )
-        frame = frame[frame.direction == 1].sort_values(p_value)
-        names = frame.feature.astype(str)
-        if clean:
-            names = names.str.replace("mutation::", "", regex=False)
-        return names.drop_duplicates().head(4).tolist()
+def one_vs_rest_features(frame, membership, state, binary=False, limit=3):
+    rows = []
+    rest = membership.loc[membership.state_id != state, "case_id"].tolist()
+    target = membership.loc[membership.state_id == state, "case_id"].tolist()
+    for feature in frame.columns:
+        left = pd.to_numeric(frame.reindex(target)[feature], errors="coerce").dropna().to_numpy()
+        right = pd.to_numeric(frame.reindex(rest)[feature], errors="coerce").dropna().to_numpy()
+        if not len(left) or not len(right):
+            continue
+        if binary:
+            table = [[int((left > 0).sum()), int((left <= 0).sum())], [int((right > 0).sum()), int((right <= 0).sum())]]
+            p = fisher_exact(table)[1]
+            effect = left.mean() - right.mean()
+        else:
+            p = mannwhitneyu(left, right, alternative="two-sided").pvalue
+            effect = float(np.median(left) - np.median(right))
+        rows.append({"feature": feature, "p_value": float(p), "effect": effect})
+    if not rows:
+        return []
+    result = pd.DataFrame(rows)
+    result["q_value"] = stats.bh_adjust(result.p_value.tolist())
+    result = result[(result.q_value < 0.05) & (result.effect > 0)].sort_values("q_value")
+    return result.feature.astype(str).str.replace("mutation::", "", regex=False).head(limit).tolist()
+
+
+def identity_card(membership, mapping, output_root, rna, ct, wxs):
 
     cc = pd.read_csv(MAP / "clearcode34_state_by_label.csv").set_index("state_id")
     rows = []
     for state in STATE_ORDER:
-        rna_names = state_specific(CHAR / "rna_hallmark_posthoc.csv", "cliffs_delta", "p_adjusted_holm", state)[:3]
-        wxs_names = state_specific(CHAR / "wxs_mutation_posthoc.csv", "frequency_difference", "p_adjusted_holm", state, clean=True)[:3]
-        ct_names = state_specific(CHAR / "ct_radiomics_posthoc.csv", "cliffs_delta", "p_adjusted_holm", state)[:2]
+        rna_names = one_vs_rest_features(rna, membership, state, limit=3)
+        wxs_names = one_vs_rest_features(wxs, membership, state, binary=True, limit=3)
+        ct_names = one_vs_rest_features(ct, membership, state, limit=2)
         cc_row = cc.loc[state] if state in cc.index else pd.Series(dtype=float)
         cc_total = float(cc_row.sum()) if len(cc_row) else 0
         rows.append({"state_id": state, "state_n": int((membership.state_id == state).sum()),
                      "micro_core_ids": ";".join(mapping.loc[mapping.macro_state == state, "core_id"]),
-                     "top_state_specific_rna_hallmarks": ";".join(rna_names) or "none detected",
-                     "top_state_specific_wxs_features": ";".join(wxs_names) or "none detected",
-                     "top_state_specific_ct_features": ";".join(ct_names) or "none detected",
+                     "top_state_enriched_rna_features": ";".join(rna_names) or "none detected",
+                     "top_state_enriched_wxs_features": ";".join(wxs_names) or "none detected",
+                     "top_state_enriched_ct_features": ";".join(ct_names) or "none detected",
                      "clearcode_ccA_fraction": float(cc_row.get("ccA", np.nan) / cc_total) if cc_total else np.nan,
                      "clearcode_ccB_fraction": float(cc_row.get("ccB", np.nan) / cc_total) if cc_total else np.nan})
     result = pd.DataFrame(rows)
@@ -193,7 +213,12 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     noncore = noncore_summary(input_root, membership, output_root)
     wxs = pd.read_csv(input_root / "wxs/wxs_discovery_features.csv", index_col=0).reindex(membership.case_id)
     reps = representative_cases(input_root, membership, states, wxs, output_root)
-    card = identity_card(membership, mapping, output_root)
+    rna_genes = pd.read_csv(input_root / "rna/case_pathway_features.csv", index_col=0).reindex(membership.case_id)
+    gene_sets, _ = read_gmt_gene_sets(tool_parameters(str(ROOT / "configs"), "rna")["pathway_gene_sets_path"])
+    gene_sets = {name: [gene for gene in genes if gene in rna_genes.columns] for name, genes in gene_sets.items()}
+    rna_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= 15}
+    rna = ssgsea_scores(rna_genes, rna_sets, 15).reindex(membership.case_id)
+    card = identity_card(membership, mapping, output_root, rna, ct, wxs)
     manifest = {"experiment": "four_view_state_result_completion", "input_root": str(input_root.resolve()),
                 "membership_file": str(Path(membership_path).resolve()), "patient_count": int(len(membership)),
                 "state_sizes": membership.groupby("state_id").size().to_dict(), "active_modalities": ["ct", "wsi", "rna", "wxs"],

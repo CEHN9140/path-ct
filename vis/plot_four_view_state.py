@@ -365,8 +365,8 @@ def plot_identity_cards(out):
         axis.set_facecolor("#fafafa")
         axis.text(.03, .88, row.state_id, color=COLORS[row.state_id], fontsize=15, weight="bold")
         axis.text(.03, .72, f"n = {int(row.state_n)}\nMicro-cores: {row.micro_core_ids}", fontsize=10, va="top")
-        lines = [("RNA", row.top_state_specific_rna_hallmarks), ("WXS", row.top_state_specific_wxs_features),
-                 ("CT", row.top_state_specific_ct_features), ("ClearCode34", f"ccA={row.clearcode_ccA_fraction:.2f}; ccB={row.clearcode_ccB_fraction:.2f}")]
+        lines = [("RNA", row.top_state_enriched_rna_features), ("WXS", row.top_state_enriched_wxs_features),
+                 ("CT", row.top_state_enriched_ct_features), ("ClearCode34", f"ccA={row.clearcode_ccA_fraction:.2f}; ccB={row.clearcode_ccB_fraction:.2f}")]
         for y, (label, value) in zip((.48, .33, .18, .06), lines):
             text = textwrap.fill(f"{label}: {value or 'not available'}", width=65)
             axis.text(.03, y, text, fontsize=7.1, va="top", linespacing=1.2)
