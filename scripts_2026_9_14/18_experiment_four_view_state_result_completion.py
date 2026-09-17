@@ -80,6 +80,111 @@ def ct_summary(input_root, membership, states, output_root):
     return frame, means, rows
 
 
+def state_profiles(input_root, membership, states, clinical, ct, ct_summary_rows, wsi, rna, wxs, output_root):
+    groups = {state: membership.loc[membership.state_id == state, "case_id"].tolist() for state in STATE_ORDER}
+    clinical_rows = []
+    for state, members in groups.items():
+        records = [clinical[x] for x in members]
+        ages = pd.to_numeric([record.get("age") for record in records], errors="coerce")
+        ages = ages[np.isfinite(ages)]
+        row = {"state_id": state, "n": len(members),
+               "age_median": float(np.median(ages)) if len(ages) else np.nan,
+               "age_q1": float(np.quantile(ages, .25)) if len(ages) else np.nan,
+               "age_q3": float(np.quantile(ages, .75)) if len(ages) else np.nan,
+               "os_events": int(sum(record.get("os_event") == 1 for record in records))}
+        for variable in ("gender", "stage_group", "t_stage", "m_stage", "grade"):
+            values = pd.Series([record.get(variable) or "Unknown" for record in records])
+            for level, count in values.value_counts().items():
+                row[f"{variable}_{level}"] = float(count / len(records))
+        stage = pd.Series([record.get("stage_group") or "Unknown" for record in records])
+        row["advanced_stage_fraction"] = float(stage.isin(["III", "IV"]).mean())
+        row["m1_fraction"] = float(pd.Series([record.get("m_stage") for record in records]).eq("M1").mean())
+        row["high_grade_fraction"] = float(pd.Series([record.get("grade") for record in records]).isin(["G3", "G4", "3", "4"]).mean())
+        clinical_rows.append(row)
+    clinical_profile = pd.DataFrame(clinical_rows)
+    write_csv(clinical_profile, output_root / "clinical_state_profile.csv")
+
+    selected_ct = [row["feature"] for row in ct_summary_rows.to_dict("records") if row.get("q_value") is not None and row["q_value"] < .05]
+    selected_ct = [feature for feature in selected_ct if feature in ct.columns][:8]
+    ct_rows = []
+    for state, members in groups.items():
+        for feature in selected_ct:
+            values = pd.to_numeric(ct.loc[members, feature], errors="coerce").dropna()
+            ct_rows.append({"state_id": state, "feature": feature, "n": len(values),
+                            "mean": float(values.mean()), "median": float(values.median()),
+                            "q1": float(values.quantile(.25)), "q3": float(values.quantile(.75)),
+                            "global_q_value": next((row["q_value"] for row in ct_summary_rows.to_dict("records") if row["feature"] == feature), np.nan)})
+    write_csv(pd.DataFrame(ct_rows), output_root / "ct_state_profile.csv")
+
+    wsi_features = [column for column in wsi.columns if column not in {"case_id", "state_id", "tumor_patch_n", "all_patch_n"}]
+    wsi_rows = []
+    for state, members in groups.items():
+        for feature in wsi_features:
+            values = pd.to_numeric(wsi.loc[wsi.case_id.isin(members), feature], errors="coerce").dropna()
+            wsi_rows.append({"state_id": state, "feature": feature, "n": len(values),
+                             "mean": float(values.mean()), "median": float(values.median()),
+                             "q1": float(values.quantile(.25)), "q3": float(values.quantile(.75))})
+    wsi_order = json.loads((Path(input_root) / "candidate_subtype/affinity_patient_order.json").read_text())
+    wsi_affinity = np.load(Path(input_root) / "candidate_subtype/wsi_affinity.npy")
+    wsi_affinity = pd.DataFrame(wsi_affinity, index=wsi_order, columns=wsi_order)
+    for state, members in groups.items():
+        values = wsi_affinity.loc[members, members].to_numpy(float)
+        np.fill_diagonal(values, np.nan)
+        wsi_rows.append({"state_id": state, "feature": "within_state_wsi_affinity_mean", "n": len(members),
+                         "mean": float(np.nanmean(values)), "median": float(np.nanmedian(values)),
+                         "q1": float(np.nanquantile(values, .25)), "q3": float(np.nanquantile(values, .75))})
+    write_csv(pd.DataFrame(wsi_rows), output_root / "wsi_state_profile.csv")
+
+    rna_rows, wxs_rows = [], []
+    for state, members in groups.items():
+        for feature in rna.columns:
+            values = pd.to_numeric(rna.loc[members, feature], errors="coerce").dropna()
+            rna_rows.append({"state_id": state, "feature": feature, "n": len(values),
+                             "mean": float(values.mean()), "median": float(values.median()),
+                             "q1": float(values.quantile(.25)), "q3": float(values.quantile(.75))})
+        for feature in wxs.columns:
+            values = pd.to_numeric(wxs.loc[members, feature], errors="coerce").fillna(0)
+            wxs_rows.append({"state_id": state, "feature": feature.removeprefix("mutation::"), "n": len(values),
+                             "mutation_frequency": float((values > 0).mean())})
+    write_csv(pd.DataFrame(rna_rows), output_root / "rna_state_profile.csv")
+    write_csv(pd.DataFrame(wxs_rows), output_root / "wxs_state_profile.csv")
+
+    subtype_rows = []
+    for filename, label in (("clearcode34_state_by_label.csv", "clearcode34"), ("mrna_m1_m4_state_by_label.csv", "mrna_m1_m4")):
+        table = pd.read_csv(MAP / filename).set_index("state_id")
+        for state in STATE_ORDER:
+            values = table.loc[state].astype(float)
+            total = values.sum()
+            row = {"state_id": state, "reference": label}
+            row.update({column: float(value / total) if total else np.nan for column, value in values.items()})
+            subtype_rows.append(row)
+    write_csv(pd.DataFrame(subtype_rows), output_root / "known_subtype_state_profile.csv")
+
+    identity = pd.read_csv(output_root / "state_identity_card.csv").set_index("state_id")
+    profile_rows = []
+    for state in STATE_ORDER:
+        clinical_row = clinical_profile.set_index("state_id").loc[state]
+        row = {"state_id": state, "n": int(clinical_row["n"]),
+               "age_median": clinical_row["age_median"], "advanced_stage_fraction": clinical_row["advanced_stage_fraction"],
+               "m1_fraction": clinical_row["m1_fraction"], "high_grade_fraction": clinical_row["high_grade_fraction"],
+               "os_events": clinical_row["os_events"],
+               "top_rna_pathways": identity.loc[state, "top_state_enriched_rna_features"],
+               "top_wxs_features": identity.loc[state, "top_state_enriched_wxs_features"],
+               "top_ct_features": identity.loc[state, "top_state_enriched_ct_features"],
+               "clearcode_ccA_fraction": identity.loc[state, "clearcode_ccA_fraction"],
+               "clearcode_ccB_fraction": identity.loc[state, "clearcode_ccB_fraction"]}
+        for feature in selected_ct:
+            value = ct.loc[groups[state], feature].mean()
+            row[f"ct_mean__{feature}"] = float(value)
+        for feature in ("mutation::PBRM1", "mutation::BAP1", "mutation::VHL", "mutation::SETD2", "mutation::KDM5C"):
+            if feature in wxs.columns:
+                row[f"{feature.removeprefix('mutation::')}_frequency"] = float((wxs.loc[groups[state], feature].fillna(0) > 0).mean())
+        wsi_state = wsi[wsi.state_id == state]
+        row["wsi_within_state_affinity_mean"] = next((item["mean"] for item in wsi_rows if item["state_id"] == state and item["feature"] == "within_state_wsi_affinity_mean"), np.nan)
+        profile_rows.append(row)
+    write_csv(pd.DataFrame(profile_rows), output_root / "multimodal_state_profile.csv")
+
+
 def micro_macro_summary(output_root):
     mapping = pd.read_csv(AUDIT / "core_to_macro_state.csv", dtype=str)
     counts = pd.crosstab(mapping.macro_state, mapping.core_id).reindex(index=STATE_ORDER, fill_value=0).fillna(0).astype(int)
@@ -233,12 +338,16 @@ def run(input_root=DEFAULT_INPUT, membership_path=DEFAULT_MEMBERSHIP, output_roo
     rna_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= 15}
     rna = ssgsea_scores(rna_genes, rna_sets, 15).reindex(membership.case_id)
     card = identity_card(membership, mapping, output_root, rna, ct, wxs)
+    state_profiles(input_root, membership, states, clinical_table(states), ct, ct_rows, wsi, rna, wxs, output_root)
     manifest = {"experiment": "four_view_state_result_completion", "input_root": str(input_root.resolve()),
                 "membership_file": str(Path(membership_path).resolve()), "patient_count": int(len(membership)),
                 "state_sizes": membership.groupby("state_id").size().to_dict(), "active_modalities": ["ct", "wsi", "rna", "wxs"],
                 "wsi_summary": "patient-level means of tumor-selected patch class probabilities; no patch-level pseudoreplication",
                 "ct_summary": "production-consistent 308-dimensional CT representation; top omnibus-FDR features exported",
                 "noncore_summary": "post hoc stability explanation; non-core patients are not assigned to states",
+                "profile_outputs": ["clinical_state_profile.csv", "ct_state_profile.csv", "wsi_state_profile.csv",
+                                    "rna_state_profile.csv", "wxs_state_profile.csv", "known_subtype_state_profile.csv",
+                                    "multimodal_state_profile.csv"],
                 "outputs": {"wsi_patient_n": int(len(wsi)), "noncore_n": int(noncore.is_non_core.sum()), "representative_n": int(len(reps)), "identity_card_n": int(len(card))}}
     (output_root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
