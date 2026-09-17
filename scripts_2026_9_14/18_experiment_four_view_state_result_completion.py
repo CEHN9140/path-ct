@@ -151,7 +151,7 @@ def representative_cases(input_root, membership, states, wxs, output_root):
         indices = [order.index(x) for x in members]
         local = coassign[np.ix_(indices, indices)].copy()
         np.fill_diagonal(local, np.nan)
-        case_id = members[int(np.argmax(local.mean(axis=1)))]
+        case_id = members[int(np.nanargmax(np.nanmean(local, axis=1)))]
         mutation = [x.removeprefix("mutation::") for x in wxs.loc[case_id, wxs_cols][wxs.loc[case_id, wxs_cols] > 0].index]
         record = clinical.get(case_id, {})
         rows.append({"state_id": state, "case_id": case_id, "state_n": len(members), "age": record.get("age"),
