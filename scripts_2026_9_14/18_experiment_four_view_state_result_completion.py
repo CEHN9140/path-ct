@@ -165,8 +165,10 @@ def state_profiles(input_root, membership, states, clinical, ct, ct_summary_rows
     write_csv(pd.DataFrame(wxs_rows), output_root / "wxs_state_profile.csv")
 
     subtype_rows = []
+    subtype_tables = {}
     for filename, label in (("clearcode34_state_by_label.csv", "clearcode34"), ("mrna_m1_m4_state_by_label.csv", "mrna_m1_m4")):
         table = pd.read_csv(MAP / filename).set_index("state_id")
+        subtype_tables[label] = table
         for state in STATE_ORDER:
             values = table.loc[state].astype(float)
             total = values.sum()
@@ -188,6 +190,8 @@ def state_profiles(input_root, membership, states, clinical, ct, ct_summary_rows
                "top_rna_pathways": identity.loc[state, "top_state_enriched_rna_features"],
                "top_wxs_features": identity.loc[state, "top_state_enriched_wxs_features"],
                "top_ct_features": identity.loc[state, "top_state_enriched_ct_features"],
+               "clearcode_reference_n": int(subtype_tables["clearcode34"].loc[state].sum()),
+               "mrna_subtype_reference_n": int(subtype_tables["mrna_m1_m4"].loc[state].sum()),
                "clearcode_ccA_fraction": identity.loc[state, "clearcode_ccA_fraction"],
                "clearcode_ccB_fraction": identity.loc[state, "clearcode_ccB_fraction"]}
         for feature in selected_ct:
