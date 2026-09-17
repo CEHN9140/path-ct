@@ -123,26 +123,40 @@ def noncore_summary(input_root, membership, output_root):
                      "fused_state_affinity_entropy": float(-(fused_prob * np.log(fused_prob)).sum())})
     result = pd.DataFrame(rows)
     write_csv(result, output_root / "noncore_uncertainty_scores.csv")
+    metrics = ["max_coassignment", "state_affinity_margin", "state_affinity_entropy"]
+    tests = []
+    for metric in metrics:
+        assigned_values = result.loc[~result.is_non_core, metric].dropna().to_numpy()
+        noncore_values = result.loc[result.is_non_core, metric].dropna().to_numpy()
+        u = mannwhitneyu(assigned_values, noncore_values, alternative="two-sided")
+        tests.append({"metric": metric, "assigned_n": len(assigned_values), "noncore_n": len(noncore_values),
+                      "assigned_mean": float(assigned_values.mean()), "noncore_mean": float(noncore_values.mean()),
+                      "mann_whitney_u": float(u.statistic), "p_value": float(u.pvalue),
+                      "rank_biserial_core_minus_noncore": float(2 * u.statistic / (len(assigned_values) * len(noncore_values)) - 1)})
+    test_frame = pd.DataFrame(tests)
+    test_frame["q_value"] = stats.bh_adjust(test_frame.p_value.tolist())
     write_csv(result.groupby("is_non_core")[['acceptance_frequency', 'max_coassignment', 'state_affinity_margin', 'state_affinity_entropy']].mean().reset_index(), output_root / "core_noncore_stability_summary.csv")
+    write_csv(test_frame, output_root / "core_noncore_stability_tests.csv")
     return result
 
 
 def representative_cases(input_root, membership, states, wxs, output_root):
     order = json.loads((Path(input_root) / "candidate_subtype/affinity_patient_order.json").read_text())
-    fused = np.load(Path(input_root) / "candidate_subtype/fused_similarity.npy")
+    coassign = pd.read_csv(AGENT / "joint_accepted_coassignment_matrix.csv", index_col=0).reindex(index=order, columns=order).to_numpy(float)
     clinical = clinical_table(states)
     wxs_cols = [x for x in wxs.columns if x.startswith("mutation::")]
     rows = []
     for state in STATE_ORDER:
         members = membership.loc[membership.state_id == state, "case_id"].tolist()
         indices = [order.index(x) for x in members]
-        local = fused[np.ix_(indices, indices)]
+        local = coassign[np.ix_(indices, indices)].copy()
+        np.fill_diagonal(local, np.nan)
         case_id = members[int(np.argmax(local.mean(axis=1)))]
         mutation = [x.removeprefix("mutation::") for x in wxs.loc[case_id, wxs_cols][wxs.loc[case_id, wxs_cols] > 0].index]
         record = clinical.get(case_id, {})
         rows.append({"state_id": state, "case_id": case_id, "state_n": len(members), "age": record.get("age"),
                      "stage": record.get("stage_group"), "m_stage": record.get("m_stage"), "major_mutations": ";".join(mutation),
-                     "selection_rule": "fused-affinity medoid within state"})
+                     "selection_rule": "accepted-coassignment medoid within state"})
     result = pd.DataFrame(rows)
     write_csv(result, output_root / "representative_state_patients.csv")
     return result
