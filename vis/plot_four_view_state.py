@@ -1,0 +1,717 @@
+#!/usr/bin/env python3
+"""Create publication-oriented figures and tables for the frozen four-view states."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts_2026_9_14"))
+from four_view_state_common import DEFAULT_INPUT, load_states, load_table  # noqa: E402
+from tools.ct_radiomics import build_ct_discovery_feature_matrix  # noqa: E402
+from tools.pathway_enrichment import ssgsea_scores  # noqa: E402
+from tools.subtype_review_common import clinical_table, read_gmt_gene_sets, tool_parameters  # noqa: E402
+from tools import post_discovery_characterization as stats  # noqa: E402
+
+INPUT = ROOT / "output_kirc_v14/11_four_view_no_cnv/inputs/four_view_no_cnv"
+STATE = ROOT / "output_kirc_v14/12_four_view_core_to_macro_state_audit/final_macro_state_membership.csv"
+CHAR = ROOT / "output_kirc_v14/14_four_view_state_characterization"
+MAP = ROOT / "output_kirc_v14/15_four_view_state_known_ccrcc_mapping"
+ROBUST = ROOT / "output_kirc_v14/13_four_view_macro_state_robustness"
+COMPLETION = ROOT / "output_kirc_v14/18_four_view_state_result_completion"
+AUDIT = ROOT / "output_kirc_v14/12_four_view_core_to_macro_state_audit"
+COLORS = {"STATE_A": "#3366a8", "STATE_B": "#d95f02", "STATE_C": "#1b9e77", "STATE_D": "#7570b3"}
+STATE_ORDER = ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]
+RAW = ROOT / "output_kirc_raw"
+
+
+def save(fig, out, name):
+    fig.savefig(out / f"{name}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(out / f"{name}.pdf", bbox_inches="tight")
+    plt.close(fig)
+
+
+def pcoa(similarity):
+    sim = np.asarray(similarity, float)
+    sim = (sim + sim.T) / 2
+    distance = np.sqrt(np.clip(1 - sim, 0, None))
+    n = len(distance)
+    centering = np.eye(n) - np.ones((n, n)) / n
+    gram = -0.5 * centering @ (distance ** 2) @ centering
+    values, vectors = np.linalg.eigh((gram + gram.T) / 2)
+    order = np.argsort(values)[::-1]
+    values, vectors = values[order], vectors[:, order]
+    keep = np.maximum(values[:2], 0)
+    return vectors[:, :2] * np.sqrt(keep)
+
+
+def heatmap(frame, out, name, title, cmap="vlag", center=0, vmin=None, vmax=None, fmt=".2f"):
+    fig, ax = plt.subplots(figsize=(7.2, max(4.3, min(10, 0.28 * len(frame) + 2))))
+    sns.heatmap(frame, ax=ax, cmap=cmap, center=center, vmin=vmin, vmax=vmax,
+                annot=frame.size <= 80, fmt=fmt, xticklabels=False if len(frame.columns) > 40 else True,
+                linewidths=.5, linecolor="white", cbar_kws={"label": "value"})
+    ax.set_title(title, pad=12, weight="bold")
+    ax.set_xlabel(""); ax.set_ylabel("")
+    save(fig, out, name)
+
+
+def consensus_heatmap(matrix, labels, out):
+    order = np.argsort([{"STATE_A": 0, "STATE_B": 1, "STATE_C": 2, "STATE_D": 3}[x] for x in labels])
+    matrix, labels = matrix[np.ix_(order, order)], np.asarray(labels)[order]
+    fig = plt.figure(figsize=(7.2, 7.4), constrained_layout=True)
+    grid = fig.add_gridspec(2, 2, width_ratios=[.15, 1], height_ratios=[.15, 1], wspace=.02, hspace=.02)
+    top, side, ax = fig.add_subplot(grid[0, 1]), fig.add_subplot(grid[1, 0]), fig.add_subplot(grid[1, 1])
+    colors = [COLORS[x] for x in labels]
+    for strip, axis in [(colors, top), (colors, side)]:
+        axis.imshow(np.array([[mpl.colors.to_rgba(c) for c in strip]] if axis is top else [[mpl.colors.to_rgba(c)] for c in strip]))
+        axis.axis("off")
+    ax.imshow(matrix, cmap="Blues", vmin=0, vmax=1, interpolation="none", aspect="auto")
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xlabel("Patients ordered by macro-state", labelpad=8)
+    ax.set_ylabel("Patients ordered by macro-state", labelpad=8)
+    ax.set_title("K=4 consensus co-assignment", pad=10, weight="bold")
+    handles = [plt.Line2D([0], [0], marker="s", color="w", markerfacecolor=COLORS[x], markersize=7, label=x) for x in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]]
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0, -0.12), ncol=3, frameon=False, fontsize=8)
+    save(fig, out, "figure1_k4_consensus_heatmap")
+
+
+def read_csv(path):
+    return pd.read_csv(path) if path.exists() else pd.DataFrame()
+
+
+def representative_cases(similarity, case_ids, state_by_case, per_state=3):
+    """Select modality-specific medoids, with deterministic within-state diversity."""
+    similarity = np.asarray(similarity, float)
+    rows = []
+    for state in STATE_ORDER:
+        ids = [case_id for case_id in case_ids if state_by_case[case_id] == state]
+        indices = [case_ids.index(case_id) for case_id in ids]
+        sub = similarity[np.ix_(indices, indices)]
+        selected = []
+        for _ in range(min(per_state, len(ids))):
+            scores = sub.mean(axis=1) if not selected else sub.mean(axis=1) - sub[:, selected].max(axis=1)
+            scores[selected] = -np.inf
+            selected.append(int(np.argmax(scores)))
+        rows.extend({"state_id": state, "case_id": ids[index], "state_n": len(ids), "representative_rank": rank + 1}
+                    for rank, index in enumerate(selected))
+    return pd.DataFrame(rows)
+
+
+def resolve_path(path):
+    if not str(path).strip():
+        return Path("__missing_visualization_input__")
+    path = Path(str(path))
+    if path.exists():
+        return path
+    return Path(str(path).replace("/output_kirc/", "/output_kirc_raw/"))
+
+
+def load_patient_state_records():
+    path = RAW / "storage/patient_states/patient_states.jsonl"
+    records = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            record = json.loads(line)
+            records[str(record["case_id"])] = record
+    return records
+
+
+def plot_ct_representatives(representatives, out):
+    import nibabel as nib
+
+    def crop_to_mask(image, mask, margin=.2):
+        ys, xs = np.where(mask)
+        if not len(xs):
+            return image, mask
+        dx = max(8, int((xs.max() - xs.min() + 1) * margin))
+        dy = max(8, int((ys.max() - ys.min() + 1) * margin))
+        x0, x1 = max(0, xs.min() - dx), min(image.shape[1], xs.max() + dx + 1)
+        y0, y1 = max(0, ys.min() - dy), min(image.shape[0], ys.max() + dy + 1)
+        return image[y0:y1, x0:x1], mask[y0:y1, x0:x1]
+
+    rows = []
+    fig, axes = plt.subplots(len(representatives), 3, figsize=(8.8, 2.45 * len(representatives)), squeeze=False)
+    state_by_case = dict(zip(representatives.case_id, representatives.state_id))
+    for row_index, item in representatives.iterrows():
+        case_id, state = item.case_id, item.state_id
+        radiomics_json = RAW / f"ct_radiomics/{case_id}.json"
+        if not radiomics_json.exists():
+            radiomics_json = ROOT / f"output_kirc/ct_radiomics/{case_id}.json"
+        if not radiomics_json.exists():
+            continue
+        payload = json.loads(radiomics_json.read_text()).get("payload", {})
+        ct_path = resolve_path(payload.get("ct_path", ""))
+        mask_path = resolve_path(payload.get("mask_path", ""))
+        if not ct_path.exists() or not mask_path.exists():
+            continue
+        image = np.asarray(nib.load(str(ct_path)).get_fdata(), dtype=float)
+        mask = np.asarray(nib.load(str(mask_path)).get_fdata()) > 0
+        if image.shape != mask.shape or not mask.any():
+            continue
+        center = np.argwhere(mask).mean(axis=0).round().astype(int)
+        z = int(np.argmax(mask.sum(axis=(0, 1))))
+        slices = [(image[:, :, z].T, mask[:, :, z].T, "Axial"),
+                  (image[:, center[1], :].T, mask[:, center[1], :].T, "Coronal"),
+                  (image[center[0], :, :].T, mask[center[0], :, :].T, "Sagittal")]
+        for col, (slice_image, slice_mask, view) in enumerate(slices):
+            slice_image, slice_mask = crop_to_mask(slice_image, slice_mask)
+            axis = axes[row_index, col]
+            axis.imshow(np.clip(slice_image, -150, 250), cmap="gray", vmin=-150, vmax=250)
+            if slice_mask.any():
+                axis.contour(slice_mask, levels=[.5], colors="#e66101", linewidths=1.1)
+            axis.set_title(view, fontsize=9)
+            axis.set_aspect("equal")
+            axis.axis("off")
+            if col == 0:
+                axis.text(-.04, .5, f"{state}\n{case_id}", transform=axis.transAxes, ha="right", va="center", fontsize=8, color=COLORS[state], weight="bold")
+        rows.append({"state_id": state, "case_id": case_id, "ct_path": str(ct_path), "mask_path": str(mask_path), "axial_slice": z})
+    fig.suptitle("Representative CT cases by macro-state", y=.995, weight="bold")
+    fig.text(.5, .01, "Window: [-150, 250] HU; orange contour: tumor mask", ha="center", fontsize=8)
+    fig.subplots_adjust(top=.94, bottom=.05, wspace=.03, hspace=.18)
+    save(fig, out, "figure3_ct_representative_cases")
+    return rows
+
+
+def plot_wsi_representatives(representatives, out):
+    import h5py
+    import torch
+    from PIL import Image
+
+    slide_vectors, available = {}, {}
+    for case_id in representatives.case_id:
+        json_path = RAW / f"wsi_embeddings/{case_id}.json"
+        if not json_path.exists():
+            json_path = ROOT / f"output_kirc/wsi_embeddings/{case_id}.json"
+        if not json_path.exists():
+            continue
+        payload = json.loads(json_path.read_text()).get("tool_result", {})
+        artifact = payload.get("artifacts", {})
+        embedding_path = resolve_path(artifact.get("slide_embedding_npy_path", ""))
+        tile_path = resolve_path(artifact.get("tile_embeddings_path", ""))
+        coords_path = resolve_path(artifact.get("tumor_coordinates_h5_path", ""))
+        patch_dir = resolve_path(artifact.get("patch_dir", ""))
+        if embedding_path.exists() and tile_path.exists() and coords_path.exists() and patch_dir.exists():
+            slide_vectors[case_id] = np.load(embedding_path).astype(float)
+            available[case_id] = (tile_path, coords_path, patch_dir)
+    if not slide_vectors:
+        return []
+    vector_frame = pd.DataFrame(slide_vectors).T
+    selected = []
+    for state in STATE_ORDER:
+        candidates = representatives.loc[representatives.state_id == state, "case_id"].tolist()
+        candidates = [case_id for case_id in candidates if case_id in slide_vectors]
+        if not candidates:
+            continue
+        state_center = vector_frame.loc[candidates].mean(axis=0).to_numpy()
+        selected.extend((state, case_id) for case_id in sorted(candidates, key=lambda x: float(np.linalg.norm(slide_vectors[x] - state_center))))
+
+    sampled_tiles, patient_records = {}, {}
+    for state, case_id in selected:
+        tile_path, coords_path, patch_dir = available[case_id]
+        tiles = torch.load(str(tile_path), map_location="cpu", weights_only=True).numpy().astype(float)
+        with h5py.File(coords_path, "r") as handle:
+            coordinates = np.asarray(handle["coordinates"], dtype=int)
+        if len(tiles) != len(coordinates):
+            raise ValueError(f"WSI tile/coordinate length mismatch for {case_id}")
+        sample_index = np.linspace(0, len(tiles) - 1, min(200, len(tiles)), dtype=int)
+        sampled_tiles[(state, case_id)] = tiles[sample_index]
+        patient_records[(state, case_id)] = (tiles, coordinates, patch_dir)
+
+    state_centers = {state: np.vstack([sampled_tiles[key] for key in sampled_tiles if key[0] == state]).mean(axis=0) for state in STATE_ORDER}
+    norms = {state: np.linalg.norm(center) or 1.0 for state, center in state_centers.items()}
+    selected_rows = []
+    figures = [("prototype", "State-prototypical WSI tumor patches", "figure3_wsi_state_prototypical_patches"),
+               ("discriminative", "State-discriminative WSI tumor patches", "figure3_wsi_state_discriminative_patches")]
+    selected_by_state = {state: [case_id for state_id, case_id in selected if state_id == state] for state in STATE_ORDER}
+    for selection_type, title, filename in figures:
+        fig, axes = plt.subplots(4, 6, figsize=(12.0, 8.2), squeeze=False)
+        for row_index, state in enumerate(STATE_ORDER):
+          for patient_index, case_id in enumerate(selected_by_state[state]):
+            tiles, coordinates, patch_dir = patient_records[(state, case_id)]
+            tile_norm = np.linalg.norm(tiles, axis=1) * norms[state]
+            own_score = tiles @ state_centers[state] / np.maximum(tile_norm, 1e-12)
+            other_score = np.column_stack([tiles @ state_centers[other] / np.maximum(np.linalg.norm(tiles, axis=1) * norms[other], 1e-12) for other in STATE_ORDER if other != state]).max(axis=1)
+            score = own_score if selection_type == "prototype" else own_score - other_score
+            chosen = np.argsort(score)[::-1][:2]
+            for col, patch_index in enumerate(chosen):
+                panel_col = patient_index * 2 + col
+                x, y = coordinates[patch_index]
+                patch_path = patch_dir / f"{y}_{x}.png"
+                if not patch_path.exists():
+                    continue
+                with Image.open(patch_path) as image:
+                    axes[row_index, panel_col].imshow(image.convert("RGB"))
+                axes[row_index, panel_col].set_title(f"{case_id}\n({x}, {y})", fontsize=7)
+                axes[row_index, panel_col].axis("off")
+                selected_rows.append({"selection_type": selection_type, "state_id": state, "case_id": case_id, "patch_index": int(patch_index), "x": int(x), "y": int(y), "patch_path": str(patch_path), "embedding_score": float(score[patch_index])})
+          axes[row_index, 0].text(-.03, .5, state, transform=axes[row_index, 0].transAxes, ha="right", va="center", fontsize=10, color=COLORS[state], weight="bold")
+        fig.suptitle(title, y=.995, weight="bold")
+        fig.text(.5, .01, "Three WSI-affinity representative patients per state; two tumor patches per patient selected from cross-patient state prototypes", ha="center", fontsize=8)
+        fig.subplots_adjust(top=.91, bottom=.07, left=.09, right=.99, wspace=.12, hspace=.36)
+        save(fig, out, filename)
+    return selected_rows
+
+
+def plot_radio_pathological_exemplars(ct_rows, wsi_rows, out):
+    from PIL import Image
+    import nibabel as nib
+
+    ct_by_state = {row["state_id"]: row for row in ct_rows if row.get("representative_rank", 1) == 1}
+    prototype_rows = [row for row in wsi_rows if row["selection_type"] == "prototype"]
+    wsi_by_state = {state: [row for row in prototype_rows if row["state_id"] == state][:2] for state in STATE_ORDER}
+    fig, axes = plt.subplots(3, 4, figsize=(10.5, 7.8), squeeze=False)
+    for col, state in enumerate(STATE_ORDER):
+        axes[0, col].set_title(state, color=COLORS[state], weight="bold")
+        for row_index, patch in enumerate(wsi_by_state[state], 1):
+            with Image.open(patch["patch_path"]) as image:
+                axes[row_index - 1, col].imshow(image.convert("RGB"))
+            axes[row_index - 1, col].set_title(f"WSI\n{patch['case_id']}", fontsize=7)
+            axes[row_index - 1, col].axis("off")
+        ct = ct_by_state.get(state)
+        if ct:
+            image = np.asarray(nib.load(ct["ct_path"]).get_fdata(), dtype=float)
+            mask = np.asarray(nib.load(ct["mask_path"]).get_fdata()) > 0
+            z = int(ct["axial_slice"])
+            axes[2, col].imshow(np.clip(image[:, :, z].T, -150, 250), cmap="gray", vmin=-150, vmax=250)
+            axes[2, col].contour(mask[:, :, z].T, levels=[.5], colors="#e66101", linewidths=1.0)
+            axes[2, col].set_title(f"CT\n{ct['case_id']}", fontsize=7)
+        axes[2, col].axis("off")
+    axes[0, 0].set_ylabel("WSI\nprototype", rotation=0, labelpad=30, va="center", fontsize=8)
+    axes[1, 0].set_ylabel("WSI\nprototype", rotation=0, labelpad=30, va="center", fontsize=8)
+    axes[2, 0].set_ylabel("CT\naxial", rotation=0, labelpad=30, va="center", fontsize=8)
+    fig.suptitle("Radio-pathological exemplars of four macro-states", y=.995, weight="bold")
+    fig.text(.5, .01, "Patients selected using modality-specific affinity medoids; orange contour denotes the CT tumor mask", ha="center", fontsize=8)
+    fig.subplots_adjust(top=.91, bottom=.07, left=.10, right=.99, wspace=.08, hspace=.28)
+    save(fig, out, "figure3a_radio_pathological_exemplars")
+
+
+def plot_multimodal_feature_heatmap(blocks, out):
+    frame = pd.concat(blocks, axis=0) if blocks else pd.DataFrame()
+    if frame.empty:
+        return
+    frame = frame.replace([np.inf, -np.inf], np.nan).dropna(how="all").fillna(0)
+    fig, ax = plt.subplots(figsize=(7.8, max(4.8, .28 * len(frame) + 1.8)))
+    sns.heatmap(frame, ax=ax, cmap="vlag", center=0, vmin=-2.5, vmax=2.5,
+                linewidths=.35, linecolor="white", cbar_kws={"label": "Feature value (within-feature z-score)"})
+    ax.set_xlabel("Macro-state"); ax.set_ylabel("")
+    ax.set_title("Four-modality quantitative characterization", pad=12, weight="bold")
+    group_sizes = [len(block) for block in blocks]
+    boundary = np.cumsum(group_sizes)[:-1]
+    for y in boundary:
+        ax.axhline(y, color="black", linewidth=1.2)
+    save(fig, out, "figure3b_four_modality_feature_heatmap")
+
+
+def plot_completion_heatmap(path, out, name, title, label_prefix):
+    frame = pd.read_csv(path).set_index("state_id")
+    frame = frame.drop(columns=[x for x in frame if x.startswith("state_n")], errors="ignore")
+    frame = frame.apply(pd.to_numeric, errors="coerce").reindex(STATE_ORDER)
+    frame = frame.loc[:, frame.notna().any()]
+    if frame.empty:
+        return
+    z = frame.sub(frame.mean(axis=0), axis=1).div(frame.std(axis=0).replace(0, np.nan), axis=1).fillna(0)
+    z.index = [f"{label_prefix} | {str(x).replace('_', ' ').title()}" for x in z.index]
+    fig, ax = plt.subplots(figsize=(7.8, max(4.0, .28 * len(z) + 1.8)))
+    sns.heatmap(z, ax=ax, cmap="vlag", center=0, vmin=-2.2, vmax=2.2, annot=frame.round(2), fmt=".2f",
+                linewidths=.5, linecolor="white", cbar_kws={"label": "Within-feature z-score"})
+    ax.set_xlabel("Macro-state"); ax.set_ylabel(""); ax.set_title(title, weight="bold", pad=12)
+    save(fig, out, name)
+
+
+def plot_micro_macro_structure(out):
+    mapping = pd.read_csv(COMPLETION / "micro_core_to_macro_state_membership.csv")
+    matrix = pd.read_csv(AUDIT / "core_joint_coassignment_similarity.csv", index_col=0)
+    cores = sorted(mapping.core_id, key=lambda x: (STATE_ORDER.index(mapping.set_index("core_id").loc[x, "macro_state"]), x))
+    matrix = matrix.loc[cores, cores].to_numpy(float)
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    distance = np.clip(1 - (matrix + matrix.T) / 2, 0, None)
+    np.fill_diagonal(distance, 0)
+    link = linkage(distance[np.triu_indices_from(distance, 1)], method="average")
+    fig = plt.figure(figsize=(8.2, 6.2), constrained_layout=True)
+    grid = fig.add_gridspec(2, 1, height_ratios=[.25, 1], hspace=.02)
+    dendro = fig.add_subplot(grid[0, 0]); ax = fig.add_subplot(grid[1, 0])
+    order = dendrogram(link, ax=dendro, no_labels=True, color_threshold=0, above_threshold_color="#555555")["leaves"]
+    dendro.axis("off")
+    matrix = matrix[np.ix_(order, order)]
+    ordered_cores = [cores[i] for i in order]
+    ax.imshow(matrix, cmap="Blues", vmin=0, vmax=1, interpolation="nearest", aspect="equal")
+    ax.set_xticks(range(len(ordered_cores)), ordered_cores, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(ordered_cores)), ordered_cores, fontsize=8)
+    ax.set_title("")
+    ax.set_xlabel("Micro-core (dendrogram order)"); ax.set_ylabel("Micro-core")
+    state_colors = [COLORS[mapping.set_index("core_id").loc[core, "macro_state"]] for core in ordered_cores]
+    for index, color in enumerate(state_colors):
+        ax.add_patch(plt.Rectangle((index - .5, -.72), 1, .16, color=color, clip_on=False))
+        ax.add_patch(plt.Rectangle((-.72, index - .5), .16, 1, color=color, clip_on=False))
+    ax.text(4.5, -1.0, "Color bars: macro-state", ha="center", va="top", fontsize=8)
+    save(fig, out, "figure4_micro_core_to_macro_state")
+
+
+def plot_identity_cards(out):
+    cards = pd.read_csv(COMPLETION / "state_identity_card.csv")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7.2), squeeze=False)
+    import textwrap
+    for axis, (_, row) in zip(axes.flat, cards.set_index("state_id").reindex(STATE_ORDER).reset_index().iterrows()):
+        axis.axis("off")
+        axis.set_facecolor("#fafafa")
+        axis.text(.03, .88, row.state_id, color=COLORS[row.state_id], fontsize=15, weight="bold")
+        axis.text(.03, .72, f"n = {int(row.state_n)}\nMicro-cores: {row.micro_core_ids}", fontsize=10, va="top")
+        lines = [("RNA", row.top_state_specific_rna_hallmarks), ("WXS", row.top_state_specific_wxs_features),
+                 ("CT", row.top_state_specific_ct_features), ("ClearCode34", f"ccA={row.clearcode_ccA_fraction:.2f}; ccB={row.clearcode_ccB_fraction:.2f}")]
+        for y, (label, value) in zip((.48, .33, .18, .06), lines):
+            text = textwrap.fill(f"{label}: {value or 'not available'}", width=65)
+            axis.text(.03, y, text, fontsize=7.1, va="top", linespacing=1.2)
+        axis.add_patch(plt.Rectangle((0, 0), 1, 1, transform=axis.transAxes, fill=False, edgecolor=COLORS[row.state_id], linewidth=1.5))
+    fig.suptitle("Four-state identity cards", weight="bold", y=.98)
+    save(fig, out, "figure4_state_identity_cards")
+
+
+def plot_noncore_stability(out):
+    frame = pd.read_csv(COMPLETION / "noncore_uncertainty_scores.csv")
+    frame["group"] = np.where(frame.is_non_core, "Non-core", "State-assigned")
+    metrics = [("max_coassignment", "Maximum co-assignment"), ("state_affinity_margin", "Nearest-state affinity margin"), ("state_affinity_entropy", "State-affinity entropy")]
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.6), squeeze=False)
+    for axis, (metric, title) in zip(axes.flat, metrics):
+        values = [frame.loc[frame.group == group, metric].dropna().to_numpy() for group in ["State-assigned", "Non-core"]]
+        axis.boxplot(values, tick_labels=["Assigned", "Non-core"], patch_artist=True,
+                     boxprops={"facecolor": "#d9d9d9"}, medianprops={"color": "#222222"})
+        for i, vals in enumerate(values, 1):
+            rng = np.random.default_rng(20260918 + i)
+            axis.scatter(rng.normal(i, .04, len(vals)), vals, s=10, alpha=.65, color=["#3366a8", "#999999"][i - 1])
+        axis.set_title(title, fontsize=9); axis.grid(axis="y", color="#eeeeee")
+    fig.suptitle("Post hoc stability profile of state-assigned and non-core patients", weight="bold", y=1.02)
+    fig.text(.5, .01, "Non-core patients are not assigned to a macro-state; this figure describes recurrent-membership uncertainty only.", ha="center", fontsize=8)
+    fig.subplots_adjust(top=.80, bottom=.22, wspace=.35)
+    save(fig, out, "supplement_noncore_stability")
+
+
+def run(output_dir=Path("vis/figs")):
+    out = ROOT / output_dir
+    out.mkdir(parents=True, exist_ok=True)
+    sns.set_theme(style="whitegrid", context="paper", font_scale=1.05)
+    membership = pd.read_csv(STATE, dtype=str)
+    state_by_case = membership.set_index("case_id")["state_id"].to_dict()
+    states = load_states(INPUT)
+    order = json.loads((INPUT / "candidate_subtype/affinity_patient_order.json").read_text())
+    fused = np.load(INPUT / "candidate_subtype/fused_similarity.npy")
+    state_rank = {state: i for i, state in enumerate(["STATE_A", "STATE_B", "STATE_C", "STATE_D"])}
+    core_order = sorted(
+        (case_id for case_id in order if case_id in state_by_case),
+        key=lambda case_id: (state_rank[state_by_case[case_id]], case_id),
+    )
+    positions = [order.index(case_id) for case_id in core_order]
+    coords = pcoa(fused[np.ix_(positions, positions)])
+    labels = [state_by_case[case_id] for case_id in core_order]
+    ct_similarity = np.load(INPUT / "candidate_subtype/ct_affinity.npy")
+    wsi_similarity = np.load(INPUT / "candidate_subtype/wsi_affinity.npy")
+    ct_representatives = representative_cases(ct_similarity[np.ix_(positions, positions)], core_order, state_by_case)
+    wsi_representatives = representative_cases(wsi_similarity[np.ix_(positions, positions)], core_order, state_by_case)
+    ct_rows = plot_ct_representatives(ct_representatives, out)
+    wsi_rows = plot_wsi_representatives(wsi_representatives, out)
+    pd.DataFrame(ct_rows + wsi_rows).to_csv(out / "table_representative_imaging_cases.csv", index=False)
+
+    # Figure 1: fused geometry and macro-state discovery diagnostics.
+    fig, ax = plt.subplots(figsize=(6.3, 5.2))
+    for group in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
+        idx = np.array(labels) == group
+        ax.scatter(coords[idx, 0], coords[idx, 1], s=28, alpha=.85, label=group, c=COLORS[group], edgecolor="none")
+    ax.set(title="Fused-space visualization of four-view macro-states", xlabel="PCoA 1", ylabel="PCoA 2")
+    ax.legend(frameon=True, title="Patient label", ncol=2)
+    save(fig, out, "figure1_fused_pcoa")
+
+    coassign_path = INPUT / "candidate_subtype/consensus_cluster/matrices/consensus_matrix_K4.npy"
+    if not coassign_path.exists():
+        coassign_path = ROOT / "output_kirc_v14/11_four_view_no_cnv/agent_review/joint_accepted_coassignment_matrix.csv"
+    coassign = np.load(coassign_path) if coassign_path.suffix == ".npy" else pd.read_csv(coassign_path, index_col=0).to_numpy(float)
+    coassign = coassign[np.ix_(positions, positions)]
+    consensus_heatmap(coassign, labels, out)
+
+    k = read_csv(ROBUST / "macro_k_summary.csv")
+    if not k.empty:
+        fig, ax = plt.subplots(figsize=(7.2, 4.0))
+        for linkage, sub in k.groupby("linkage"):
+            ax.plot(sub["macro_k"], sub["silhouette"], marker="o", label=linkage)
+        ax.axvline(4, ls="--", color="black", lw=1, label="selected K=4")
+        ax.set(xlabel="Macro-state K", ylabel="Core-level silhouette", title="Macro-state resolution diagnostics")
+        ax.legend()
+        save(fig, out, "figure1_macro_k_stability")
+
+    fig, axes = plt.subplots(2, 2, figsize=(9, 8))
+    for ax, modality in zip(axes.flat, ["ct", "wsi", "rna", "wxs"]):
+        path = INPUT / "candidate_subtype" / f"{modality}_affinity.npy" if modality != "wxs" else INPUT / "wxs/wxs_affinity.npy"
+        matrix = np.load(path)
+        xy = pcoa(matrix[np.ix_(positions, positions)])
+        for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
+            idx = np.array([state_by_case[case_id] == state for case_id in core_order])
+            ax.scatter(xy[idx, 0], xy[idx, 1], s=18, color=COLORS[state], label=state)
+        ax.set_title(modality.upper())
+        ax.set_xlabel("PCoA 1"); ax.set_ylabel("PCoA 2")
+    axes[0, 0].legend(frameon=True, fontsize=8)
+    fig.suptitle("Per-view state overlays (86 state patients)", y=1.01, weight="bold")
+    save(fig, out, "supplement_per_view_pcoa")
+
+    # Figure 2: state biology and known taxonomy.
+    rna_omnibus = read_csv(CHAR / "rna_hallmark_omnibus.csv")
+    selected = rna_omnibus[rna_omnibus.q_value < .05].sort_values("q_value").head(12).feature.tolist()
+    feature_blocks = []
+    if selected:
+        rna_genes = load_table(INPUT / "rna/case_pathway_features.csv").reindex(core_order)
+        gmt = tool_parameters(str(ROOT / "configs"), "rna")["pathway_gene_sets_path"]
+        gene_sets, _ = read_gmt_gene_sets(gmt)
+        gene_sets = {name: [g for g in genes if g in rna_genes.columns] for name, genes in gene_sets.items()}
+        gene_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= 15}
+        scores = ssgsea_scores(rna_genes, gene_sets, 15)[selected].apply(pd.to_numeric, errors="coerce")
+        state_means = pd.DataFrame({state: scores[[x == state for x in labels]].mean() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
+        feature_blocks.append(state_means.sub(state_means.mean(axis=1), axis=0).div(state_means.std(axis=1).replace(0, np.nan), axis=0).rename(index=lambda x: "RNA | " + x.replace("HALLMARK_", "").replace("_", " ").title()))
+        heatmap(state_means, out, "figure2_rna_hallmark_effects", "RNA Hallmark state means", cmap="vlag", center=0)
+        plot_features = selected[:4]
+        fig, axes = plt.subplots(2, 2, figsize=(7.2, 5.8), squeeze=False)
+        for ax, feature in zip(axes.flat, plot_features):
+            values = [scores.loc[[x == state for x in labels], feature].dropna().to_numpy() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]]
+            ax.boxplot(values, tick_labels=["A", "B", "C", "D"], patch_artist=True,
+                       boxprops={"facecolor": "#e6e6e6"}, medianprops={"color": "black"})
+            for i, (state, vals) in enumerate(zip(["STATE_A", "STATE_B", "STATE_C", "STATE_D"], values), 1):
+                rng = np.random.default_rng(20260920 + i)
+                ax.scatter(rng.normal(i, .045, len(vals)), vals, s=9, alpha=.65, color=COLORS[state], zorder=3)
+            ax.set_title(feature.replace("HALLMARK_", "").replace("_", " ").title(), fontsize=9)
+            ax.set_ylabel("ssGSEA score")
+        fig.suptitle("RNA pathway activity by macro-state", y=.995, weight="bold")
+        fig.subplots_adjust(top=.88, wspace=.28, hspace=.38)
+        save(fig, out, "figure2_rna_pathway_boxplots")
+
+    # Gene-level RNA characterization: full normalized expression, global BH-FDR.
+    rna_expression = load_table(INPUT / "rna/case_pathway_features.csv").reindex(core_order).apply(pd.to_numeric, errors="coerce")
+    gene_table = {case_id: rna_expression.loc[case_id].to_dict() for case_id in core_order}
+    gene_rows = stats.continuous_omnibus(gene_table, list(rna_expression.columns),
+                                         {state: [x for x in core_order if state_by_case[x] == state] for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
+    gene_results = pd.DataFrame(gene_rows)
+    gene_results.to_csv(out / "table2_rna_gene_characterization.csv", index=False)
+    gene_results = gene_results[gene_results.q_value < .05].sort_values(["q_value", "epsilon_squared"], ascending=[True, False]).head(30)
+    if not gene_results.empty:
+        genes = gene_results.feature.tolist()
+        z = rna_expression[genes].sub(rna_expression[genes].mean()).div(rna_expression[genes].std().replace(0, np.nan)).T
+        z = z.loc[genes, core_order].clip(-2.5, 2.5)
+
+        # Standard patient-level expression heatmap: state blocks, row z-scores,
+        # and an explicit state annotation bar above the samples.
+        fig = plt.figure(figsize=(10.2, max(5.0, 0.22 * len(genes) + 2.4)), constrained_layout=True)
+        grid = fig.add_gridspec(2, 2, width_ratios=[10, .35], height_ratios=[.22, 1], wspace=.04, hspace=.03)
+        annotation_ax = fig.add_subplot(grid[0, 0])
+        ax = fig.add_subplot(grid[1, 0])
+        cbar_ax = fig.add_subplot(grid[1, 1])
+        state_codes = np.array([state_rank[state_by_case[case_id]] for case_id in core_order])[None, :]
+        annotation_ax.imshow(state_codes, aspect="auto", cmap=mpl.colors.ListedColormap([COLORS[s] for s in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]]), vmin=0, vmax=3)
+        annotation_ax.set_xticks([]); annotation_ax.set_yticks([]); annotation_ax.set_ylabel("State", rotation=0, labelpad=28)
+        sns.heatmap(z, ax=ax, cmap="vlag", center=0, vmin=-2.5, vmax=2.5, xticklabels=False,
+                    yticklabels=True, linewidths=0, cbar=True, cbar_ax=cbar_ax,
+                    cbar_kws={"label": "RNA expression (row z-score)"})
+        ax.set_xlabel("Patients ordered by macro-state"); ax.set_ylabel("Gene")
+        ax.set_title("RNA expression patterns across four macro-states", pad=10, weight="bold")
+        boundaries = np.cumsum([sum(state_by_case[x] == state for x in core_order) for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]])[:-1]
+        for boundary in boundaries:
+            ax.axvline(boundary, color="white", linewidth=1.2)
+            annotation_ax.axvline(boundary - .5, color="white", linewidth=1.2)
+        centers = []
+        start = 0
+        for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
+            count = sum(state_by_case[x] == state for x in core_order)
+            centers.append(start + (count - 1) / 2)
+            start += count
+        for center, state in zip(centers, ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]):
+            annotation_ax.text(center, -.8, state, ha="center", va="bottom", fontsize=8, color=COLORS[state], weight="bold")
+        save(fig, out, "figure2_rna_gene_heatmap")
+
+        # Enrichment-style dot plot: pathway activity is encoded by color and
+        # the global omnibus significance by point size.
+        pathway_means = pd.DataFrame({state: scores[[state_by_case[x] == state for x in core_order]].mean() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
+        pathway_means = pathway_means.sub(pathway_means.mean(axis=1), axis=0).div(pathway_means.std(axis=1).replace(0, np.nan), axis=0)
+        pathway_means.index.name = "pathway"
+        dot = pathway_means.reset_index().melt(id_vars="pathway", var_name="state", value_name="activity_z")
+        q_map = rna_omnibus.set_index("feature")["q_value"]
+        dot["neg_log10_q"] = dot.pathway.map(lambda x: -np.log10(max(float(q_map[x]), 1e-300)))
+        dot["pathway_label"] = dot.pathway.str.replace("HALLMARK_", "", regex=False).str.replace("_", " ", regex=False).str.title()
+        pathway_order = selected[::-1]
+        fig, ax = plt.subplots(figsize=(8.6, max(4.8, .34 * len(pathway_order) + 1.8)))
+        for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
+            sub = dot[dot.state == state].set_index("pathway").reindex(pathway_order)
+            x = np.full(len(sub), ["STATE_A", "STATE_B", "STATE_C", "STATE_D"].index(state))
+            ax.scatter(x, np.arange(len(sub)), s=35 + 24 * sub.neg_log10_q.to_numpy(),
+                       c=sub.activity_z.to_numpy(), cmap="vlag", vmin=-2, vmax=2,
+                       edgecolors=COLORS[state], linewidths=.7, alpha=.95)
+        ax.set_xticks(range(4), ["STATE_A", "STATE_B", "STATE_C", "STATE_D"])
+        ax.set_yticks(range(len(pathway_order)), [x.replace("HALLMARK_", "").replace("_", " ").title() for x in pathway_order])
+        ax.set(xlabel="Macro-state", ylabel="Hallmark pathway", title="RNA Hallmark activity by macro-state")
+        ax.grid(axis="x", visible=False); ax.grid(axis="y", color="#eeeeee", linewidth=.6)
+        sm = mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(-2, 2), cmap="vlag")
+        fig.colorbar(sm, ax=ax, pad=.02, aspect=28, label="Pathway activity (within-pathway z-score)")
+        for size, label in [(35 + 24 * 1, "q≈0.37"), (35 + 24 * 2, "q≈0.14"), (35 + 24 * 3, "q≈0.05")]:
+            ax.scatter([], [], s=size, color="#777777", label=label)
+        ax.legend(title="Global FDR", frameon=False, loc="upper left", bbox_to_anchor=(1.16, .55), fontsize=8)
+        save(fig, out, "figure3c_rna_pathway_dotplot")
+
+    wxs = read_csv(CHAR / "wxs_mutation_omnibus.csv")
+    wxs = wxs[wxs.q_value < .05].sort_values("q_value")
+    wxs_features = wxs.feature.str.replace("mutation::", "", regex=False).tolist()
+    wxs_matrix = load_table(INPUT / "wxs/wxs_discovery_features.csv").reindex(order)
+    wxs_matrix.columns = wxs_matrix.columns.str.replace("mutation::", "", regex=False)
+    wxs_matrix = wxs_matrix.reindex(columns=wxs_features)
+    if not wxs_matrix.empty:
+        wxs_matrix = wxs_matrix.loc[core_order]
+        state_colors = [COLORS[state_by_case[x]] for x in core_order]
+        fig = plt.figure(figsize=(10, 5.2), constrained_layout=True)
+        grid = fig.add_gridspec(2, 1, height_ratios=[.12, 1], hspace=.03)
+        top, ax = fig.add_subplot(grid[0]), fig.add_subplot(grid[1])
+        top.imshow([[mpl.colors.to_rgba(c) for c in state_colors]], aspect="auto")
+        top.set_xticks([]); top.set_yticks([]); top.set_ylabel("State", rotation=0, labelpad=22)
+        sns.heatmap(wxs_matrix.T, cmap=mpl.colors.ListedColormap(["#ffffff", "#222222"]),
+                    vmin=0, vmax=1, cbar=False, linewidths=.2, linecolor="#dddddd", ax=ax)
+        ax.set(title="WXS mutation features in state patients", xlabel="Patients (ordered by state)", ylabel="Selected mutation features")
+        ax.set_xticks([])
+        handles = [plt.Line2D([0], [0], marker="s", color="w", markerfacecolor=COLORS[x], markersize=7, label=x) for x in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]]
+        ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0, -0.18), ncol=4, frameon=False, fontsize=8)
+        save(fig, out, "figure2_wxs_oncoplot")
+        frequencies = pd.DataFrame({state: wxs_matrix.loc[[state_by_case[x] == state for x in core_order]].mean() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
+        feature_blocks.append(frequencies.sub(frequencies.mean(axis=1), axis=0).div(frequencies.std(axis=1).replace(0, np.nan), axis=0).rename(index=lambda x: "WXS | " + x))
+        long = frequencies.reset_index().melt(id_vars="index", var_name="state", value_name="frequency").rename(columns={"index": "gene"})
+        fig, ax = plt.subplots(figsize=(6.6, 3.6))
+        for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
+            sub = long[long.state == state]
+            ax.scatter(sub.frequency, sub.gene, s=42, color=COLORS[state], label=state)
+        ax.set(xlabel="Mutation frequency", ylabel="Gene", xlim=(0, 1), title="WXS mutation frequency by macro-state")
+        ax.legend(frameon=False, ncol=4, loc="lower center", bbox_to_anchor=(.5, -0.28))
+        save(fig, out, "figure2_wxs_mutation_frequency")
+
+    ct = read_csv(CHAR / "ct_radiomics_omnibus.csv")
+    ct = ct[ct.q_value < .05].sort_values("q_value").head(4)
+    ct_post = read_csv(CHAR / "ct_radiomics_posthoc.csv")
+    if not ct.empty and not ct_post.empty:
+        ct_payload = build_ct_discovery_feature_matrix([states[x] for x in sorted(states)], config_dir=str(ROOT / "configs"), output_root=str(INPUT))
+        ct_frame = pd.DataFrame(ct_payload["matrix"], index=ct_payload["patient_ids"], columns=ct_payload["feature_names"])
+        fig, axes = plt.subplots(2, 2, figsize=(7.2, 6.0), squeeze=False)
+        short_names = {"original_shape_SurfaceVolumeRatio": "Surface / volume ratio",
+                       "original_glrlm_LowGrayLevelRunEmphasis": "Low gray-level run emphasis",
+                       "log-sigma-2-0-mm-3D_glrlm_RunEntropy": "Run entropy (σ=2 mm)",
+                       "log-sigma-3-0-mm-3D_glrlm_RunEntropy": "Run entropy (σ=3 mm)"}
+        for ax, feature in zip(axes.flat, ct.feature):
+            values = [ct_frame.loc[membership.loc[membership.state_id == state, "case_id"], feature].dropna().to_numpy() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]]
+            ax.boxplot(values, tick_labels=["A", "B", "C", "D"], patch_artist=True,
+                       boxprops={"facecolor": "#e6e6e6"}, medianprops={"color": "black"})
+            for i, (state, vals) in enumerate(zip(["STATE_A", "STATE_B", "STATE_C", "STATE_D"], values), 1):
+                rng = np.random.default_rng(20260916 + i)
+                ax.scatter(rng.normal(i, .045, len(vals)), vals, s=10, alpha=.65, color=COLORS[state], zorder=3)
+            ax.set(title=short_names.get(feature, feature), ylabel="Feature value")
+        ct_state_means = pd.DataFrame({state: [ct_frame.loc[membership.loc[membership.state_id == state, "case_id"], feature].mean() for feature in ct.feature] for state in STATE_ORDER}, index=["CT | " + short_names.get(feature, feature) for feature in ct.feature])
+        feature_blocks.append(ct_state_means.sub(ct_state_means.mean(axis=1), axis=0).div(ct_state_means.std(axis=1).replace(0, np.nan), axis=0))
+        fig.suptitle("Top CT radiomics features", y=.995, weight="bold")
+        fig.subplots_adjust(top=.88, wspace=.28, hspace=.40)
+        save(fig, out, "figure2_ct_radiomics")
+        effect_rows = []
+        for feature in ct.feature:
+            rows = ct_post[ct_post.feature == feature]
+            for _, row in rows.iterrows():
+                effect_rows.append({"feature": feature, "comparison": f"{row.group_a} vs {row.group_b}", "effect": row.cliffs_delta})
+        effect = pd.DataFrame(effect_rows)
+        effect = effect[effect.feature.isin(ct.feature)].copy()
+        effect["feature"] = effect.feature.map(short_names).fillna(effect.feature)
+        fig, ax = plt.subplots(figsize=(7.2, 3.8))
+        sns.stripplot(data=effect, x="effect", y="feature", hue="comparison", dodge=False, size=6, palette="Set2", ax=ax)
+        ax.axvline(0, ls="--", color="#777777", lw=.8)
+        ax.set(xlabel="Cliff's delta", ylabel="", title="Pairwise CT effect sizes")
+        ax.legend(frameon=False, bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=7)
+        save(fig, out, "figure2_ct_effect_sizes")
+
+    wsi_within = {}
+    for state in STATE_ORDER:
+        indices = [i for i, case_id in enumerate(core_order) if state_by_case[case_id] == state]
+        sub = wsi_similarity[np.ix_(indices, indices)]
+        wsi_within[state] = float(sub[~np.eye(len(sub), dtype=bool)].mean()) if len(sub) > 1 else np.nan
+    wsi_block = pd.DataFrame([wsi_within], index=["WSI | within-state affinity"])
+    feature_blocks.append(wsi_block.sub(wsi_block.mean(axis=1), axis=0).div(wsi_block.std(axis=1).replace(0, np.nan), axis=0))
+
+    cc = read_csv(MAP / "clearcode34_state_by_label.csv").set_index("state_id")
+    if not cc.empty:
+        heatmap(cc, out, "figure2_clearcode34_mapping", "ClearCode34 composition by macro-state", cmap="YlGnBu", center=None, vmin=0, fmt=".0f")
+
+    # Figure 3: clinical and modality dependency.
+    clinical = clinical_table(states)
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    try:
+        from lifelines import KaplanMeierFitter
+        for state, ids in membership.groupby("state_id").case_id:
+            rows = [(clinical[i].get("os_time"), clinical[i].get("os_event")) for i in ids if clinical[i].get("os_time") is not None]
+            if rows:
+                km = KaplanMeierFitter().fit([x[0] for x in rows], [x[1] for x in rows], label=f"{state} (n={len(rows)})")
+                km.plot_survival_function(ax=ax, color=COLORS[state])
+        ax.set(xlabel="Days", ylabel="Overall survival", title="Overall survival by macro-state")
+        ax.legend()
+        save(fig, out, "figure3_overall_survival")
+    except ImportError:
+        plt.close(fig)
+
+    cox = read_csv(CHAR / "stage_binary_adjusted_survival.csv")
+    cox = cox[(cox.model == "state_plus_binary_stage") & (cox.status == "estimable")].copy()
+    if not cox.empty:
+        fig, ax = plt.subplots(figsize=(6.2, 3.4))
+        cox["label"] = cox.covariate.map(lambda x: "Advanced stage (III-IV)" if x == "advanced_stage" else x.replace("state_STATE_", "STATE "))
+        y = np.arange(len(cox))
+        ax.errorbar(cox.hazard_ratio, y, xerr=[cox.hazard_ratio - cox.ci_low, cox.ci_high - cox.hazard_ratio], fmt="o", color="#333333")
+        ax.axvline(1, ls="--", color="#888888")
+        ax.set(yticks=y, yticklabels=cox.label, xscale="log", xlabel="Hazard ratio (log scale)", title="Stage-adjusted exploratory Cox model")
+        save(fig, out, "figure3_stage_adjusted_cox")
+
+    plot_multimodal_feature_heatmap(feature_blocks, out)
+    plot_radio_pathological_exemplars(ct_rows, wsi_rows, out)
+    if COMPLETION.exists():
+        plot_completion_heatmap(COMPLETION / "wsi_state_phenotype_means.csv", out,
+                                "figure4_wsi_state_phenotype_heatmap",
+                                "WSI tumor-patch phenotype composition by macro-state", "WSI")
+        plot_completion_heatmap(COMPLETION / "ct_state_feature_means.csv", out,
+                                "figure4_ct_state_feature_heatmap",
+                                "Representative CT radiomics by macro-state", "CT")
+        plot_micro_macro_structure(out)
+        plot_identity_cards(out)
+        plot_noncore_stability(out)
+
+    # Tables: compact artifacts for manuscript assembly.
+    table1 = membership.groupby("state_id").size().rename("state_n").reset_index()
+    table1["micro_core_n"] = membership.groupby("state_id").core_id.nunique().values
+    for state in table1.state_id:
+        ids = membership.loc[membership.state_id == state, "case_id"]
+        records = [clinical[x] for x in ids if x in clinical]
+        table1.loc[table1.state_id == state, "age_median"] = np.nanmedian([r.get("age", np.nan) for r in records])
+        table1.loc[table1.state_id == state, "os_event_n"] = np.nansum([r.get("os_event", 0) for r in records])
+        table1.loc[table1.state_id == state, "stage_III_IV_n"] = sum(r.get("stage_group") in {"III", "IV"} for r in records)
+        table1.loc[table1.state_id == state, "m1_n"] = sum(r.get("m_stage") == "M1" for r in records)
+    table1.to_csv(out / "table1_state_composition.csv", index=False)
+    for source, target in [(CHAR / "rna_hallmark_omnibus.csv", "table2_rna_characterization.csv"),
+                           (CHAR / "wxs_mutation_omnibus.csv", "table2_wxs_characterization.csv"),
+                           (CHAR / "ct_radiomics_omnibus.csv", "table2_ct_characterization.csv"),
+                           (CHAR / "affinity_permanova_permdisp.csv", "table2_affinity_diagnostics.csv"),
+                           (MAP / "mapping_coverage.csv", "table4_known_subtype_mapping.csv")]:
+        frame = read_csv(source)
+        if not frame.empty: frame.to_csv(out / target, index=False)
+    k.to_csv(out / "table_s1_macro_k_stability.csv", index=False)
+    read_csv(CHAR / "survival_global.csv").to_csv(out / "table_s2_survival_global.csv", index=False)
+
+    manifest = {"experiment": "four_view_state_visualization", "input_root": str(INPUT), "state_membership": str(STATE), "output_root": str(out),
+                "state_patient_count": int(len(membership)), "state_sizes": membership.groupby("state_id").size().to_dict(),
+                "active_modalities": ["ct", "wsi", "rna", "wxs"],
+                "rna_gene_level_test": "Kruskal-Wallis across four states with BH-FDR over all genes",
+                "analysis_note": "All visualizations use the 86 patients assigned to one of the four macro-states. State characterization plots are in-sample discovery-space diagnostics; WSI is shown as affinity/QC structure because no interpretable pathomics table is available."}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", type=Path, default=Path("vis/figs"))
+    print(json.dumps(run(parser.parse_args().output_dir), indent=2))
