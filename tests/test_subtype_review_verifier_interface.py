@@ -9,7 +9,7 @@ from agents.subtype_review.graph import (
     initial_review_state,
     required_reports_for_round,
 )
-from agents.subtype_review.llm_summary import summarize_evidence
+from agents.subtype_review.llm_summary import summarize_reports
 from agents.subtype_review.tools import TOOL_REGISTRY
 
 
@@ -50,15 +50,18 @@ def test_tool_message_contains_only_decision_payload():
     assert payload["metrics"] == {"C1": {"q": 0.01}}
 
 
-def test_round_evidence_summary_excludes_metrics():
-    assert summarize_evidence([{
+def test_router_report_summary_preserves_interpretation_and_excludes_raw_metrics():
+    assert summarize_reports([{
         "tool_name": "pathway_enrichment", "dimension": "biological_support",
         "scope": "set_identity", "target_ids": ["C1"], "status": "success",
+        "observations": [{"metric": "q", "finding": "small effect"}],
+        "medical_interpretation": "uncertain identity",
         "metrics": {"private": 1}, "metric_refs": ["leaf.ref"],
     }]) == [{
-        "tool_name": "pathway_enrichment", "dimension": "biological_support",
-        "scope": "set_identity", "target_ids": ["C1"], "status": "success",
-        "warnings": [], "errors": [], "missing_reason": "",
+        "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"],
+        "observations": [{"metric": "q", "finding": "small effect"}],
+        "statistical_interpretation": "", "medical_interpretation": "uncertain identity",
+        "limitations": [], "tool_refs": [],
     }]
 
 

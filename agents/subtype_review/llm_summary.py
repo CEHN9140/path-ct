@@ -4,22 +4,6 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def summarize_evidence(evidence: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "tool_name": row.get("tool_name", ""),
-            "dimension": row.get("dimension", ""),
-            "scope": row.get("scope", ""),
-            "target_ids": list(row.get("target_ids", []) or []),
-            "status": row.get("status", ""),
-            "warnings": list(row.get("warnings", []) or []),
-            "errors": list(row.get("errors", []) or []),
-            "missing_reason": row.get("missing_reason", ""),
-        }
-        for row in evidence
-    ]
-
-
 def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {

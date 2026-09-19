@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from functools import cached_property
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
+
+from langchain_core.messages import convert_to_openai_messages
 
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
@@ -173,16 +176,7 @@ def parse_json_content(content: Any) -> dict[str, Any]:
 def normalize_message(message: Any) -> dict[str, Any]:
     if isinstance(message, Mapping):
         return dict(message)
-    message_type = str(getattr(message, "type", "assistant"))
-    result = {
-        "role": {"human": "user", "ai": "assistant"}.get(message_type, message_type),
-        "content": getattr(message, "content", ""),
-    }
-    if getattr(message, "tool_call_id", None):
-        result["tool_call_id"] = str(message.tool_call_id)
-    if getattr(message, "tool_calls", None):
-        result["tool_calls"] = [dict(call) for call in message.tool_calls]
-    return result
+    return convert_to_openai_messages(message)
 
 
 def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -262,20 +256,34 @@ class JsonStructuredModel:
         )
         self.usage_tracker = usage_tracker
 
-    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+    @cached_property
+    def client(self) -> Any:
         from openai import OpenAI
 
-        client = OpenAI(
+        return OpenAI(
             api_key=resolve_api_key(self.config),
             base_url=str(self.config["base_url"]),
             timeout=float(self.config.get("timeout", 120)),
         )
+
+    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self.client
         messages = [
             {"role": "system", "content": self.prompt},
             {"role": "user", "content": serialize_llm_payload(payload)},
         ]
         attempts = int(self.config.get("json_retries", 1) or 1) + 1
         last_error = ""
+        request = {
+            "model": str(self.config["model_name"]),
+            "messages": messages,
+            "temperature": float(self.config.get("temperature", 0.0)),
+            "max_tokens": int(self.config["max_new_tokens"]),
+            "response_format": {"type": "json_object"},
+        }
+        extra_body = api_extra_body(self.config)
+        if extra_body:
+            request["extra_body"] = extra_body
         for _ in range(attempts):
             content = None
             if self.usage_tracker:
@@ -284,16 +292,6 @@ class JsonStructuredModel:
                     model=str(self.config["model_name"]), messages=messages,
                 )
             try:
-                request = {
-                    "model": str(self.config["model_name"]),
-                    "messages": messages,
-                    "temperature": float(self.config.get("temperature", 0.0)),
-                    "max_tokens": int(self.config["max_new_tokens"]),
-                    "response_format": {"type": "json_object"},
-                }
-                extra_body = api_extra_body(self.config)
-                if extra_body:
-                    request["extra_body"] = extra_body
                 response = client.chat.completions.create(**request)
                 if self.usage_tracker:
                     self.usage_tracker.record_response(response)
@@ -302,9 +300,7 @@ class JsonStructuredModel:
                         "LLM output reached max_new_tokens before completing JSON"
                     )
                 content = response.choices[0].message.content
-                return dict(
-                    self.schema.model_validate(parse_json_content(content)).model_dump()
-                )
+                return self.schema.model_validate(parse_json_content(content)).model_dump()
             except LLMOutputLengthError:
                 raise
             except Exception as exc:
@@ -350,11 +346,7 @@ class LocalStructuredModel:
         )
         if self.usage_tracker:
             self.usage_tracker.record_response(response)
-        return dict(
-            self.schema.model_validate(
-                parse_json_content(response.get("content"))
-            ).model_dump()
-        )
+        return self.schema.model_validate(parse_json_content(response.get("content"))).model_dump()
 
 
 class VerifierChatModel:

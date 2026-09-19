@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -171,21 +172,45 @@ class ReviewContext(TypedDict, total=False):
     artifact_root: str
     config_dir: str
     tool_registry: dict[str, dict[str, Any]]
+    active_modalities: tuple[str, ...]
     verifier_model: Any
     router_model: Any
     reviser_model: Any
 
 
+class ReviewControl(TypedDict, total=False):
+    round: int
+    failures: int
+    status: Literal["reviewing", "complete", "review_unavailable", "review_incomplete_due_to_round_budget"]
+    next: Literal["router", "verifier_acquire", "verifier_audit", "reviser", "end"]
+    error: str | None
+    max_rounds: int
+    max_failures: int
+    pending_evidence_requests: list[dict[str, Any]]
+    eligible_tools: dict[str, dict[str, Any]]
+    trace: list[dict[str, Any]]
+    router_validation_error: str | None
+    router_correction_attempts: int
+    previous_invalid_plan: dict[str, Any] | None
+    history_index: int
+    revision_validation_error: str | None
+    failed_revision_plan_signatures: list[str]
+    partition_signature: str
+    llm_usage: dict[str, int | float | None]
+
+
 class ReviewState(TypedDict, total=False):
+    """Sequential nodes overwrite these channels; messages are reset each evidence round."""
+
     partition: dict[str, Any]
     round_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
     evidence_memory: dict[str, list[dict[str, Any]]]
-    messages: list[Any]
+    messages: list[BaseMessage | dict[str, Any]]
     router_plan: dict[str, Any] | None
     revision_plan: dict[str, Any] | None
     revision_result: dict[str, Any] | None
-    control: dict[str, Any]
+    control: ReviewControl
     history: list[dict[str, Any]]
 
 
