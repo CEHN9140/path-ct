@@ -14,19 +14,23 @@ import numpy as np
 import pandas as pd
 import yaml
 from scipy.spatial.distance import cdist
+from sklearn.cluster import AgglomerativeClustering, SpectralClustering
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agents.candidate_proposer import consensus_records_from_similarity
 from tools.evidence_features import distance_to_affinity, fuse_affinities
 from tools.wxs import binary_mutation_distance
+from utils.candidate_clustering_outputs import canonical_partition, fit_kmedoids
 from utils.io import write_json
 from utils.llm_utils import load_candidate_proposer_config
 
 ACTIVE_MODALITIES = ("ct", "wsi", "rna", "wxs")
 CORRELATION_THRESHOLD = 0.95
 EMPTY_MUTATION_DISTANCE = 1.0
+PATIENT_RESAMPLE_FRACTION = 0.80
+PATIENT_RESAMPLE_COUNT = 500
+PATIENT_RESAMPLE_SEED = 20260921
 RUNNER_PATH = ROOT / "scripts_2026_9_7" / "00_experiment_five_view_multi_k_agent_review.py"
 
 
@@ -35,6 +39,121 @@ def load_runner():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def cluster_once(similarity, n_clusters, algorithm, run_index, rng, clustering_config):
+    similarity = np.asarray(similarity, dtype=float)
+    similarity = np.clip((similarity + similarity.T) / 2.0, 0.0, 1.0)
+    np.fill_diagonal(similarity, 1.0)
+    distance = 1.0 - similarity
+    np.fill_diagonal(distance, 0.0)
+    algorithm_config = clustering_config["algorithms"][algorithm]
+
+    if algorithm == "hierarchical":
+        options = list(algorithm_config["linkage_options"])
+        labels = AgglomerativeClustering(
+            n_clusters=n_clusters,
+            metric="precomputed",
+            linkage=options[run_index % len(options)],
+        ).fit_predict(distance)
+    elif algorithm == "spectral":
+        options = list(algorithm_config["assign_labels_options"])
+        labels = SpectralClustering(
+            n_clusters=n_clusters,
+            affinity="precomputed",
+            assign_labels=options[run_index % len(options)],
+            random_state=int(rng.integers(0, np.iinfo(np.int32).max)),
+        ).fit_predict(similarity)
+    elif algorithm == "kmedoids":
+        options = list(algorithm_config["init_options"])
+        labels = fit_kmedoids(
+            distance,
+            n_clusters=n_clusters,
+            init=options[run_index % len(options)],
+            seed=int(rng.integers(0, np.iinfo(np.int32).max)),
+        )
+    else:
+        raise ValueError(f"Unknown clustering algorithm: {algorithm}")
+
+    labels = np.asarray(canonical_partition(np.asarray(labels, dtype=int)), dtype=int)
+    if len(np.unique(labels)) != n_clusters:
+        raise RuntimeError(f"{algorithm} produced {len(np.unique(labels))} clusters instead of {n_clusters}")
+    return labels
+
+
+def build_patient_resampled_consensus(
+    modality_affinities,
+    patient_ids,
+    snf_config,
+    clustering_config,
+    candidate_ks=range(2, 9),
+    sample_fraction=PATIENT_RESAMPLE_FRACTION,
+    n_resamples=PATIENT_RESAMPLE_COUNT,
+    random_seed=PATIENT_RESAMPLE_SEED,
+):
+    patient_ids = list(patient_ids)
+    candidate_ks = tuple(candidate_ks)
+    sample_size = int(round(len(patient_ids) * sample_fraction))
+    if sample_size < max(candidate_ks):
+        raise ValueError("Patient subsample is too small for requested K values")
+
+    algorithms = ("hierarchical", "spectral", "kmedoids")
+    rng = np.random.default_rng(random_seed)
+    pair_seen = np.zeros((len(patient_ids), len(patient_ids)), dtype=np.int32)
+    pair_same = {
+        k: {algorithm: np.zeros_like(pair_seen) for algorithm in algorithms}
+        for k in candidate_ks
+    }
+
+    for run_index in range(n_resamples):
+        sampled = np.sort(rng.choice(len(patient_ids), size=sample_size, replace=False))
+        sampled_pairs = np.ix_(sampled, sampled)
+        pair_seen[sampled_pairs] += 1
+        sub_views = {
+            name: np.asarray(matrix)[sampled_pairs]
+            for name, matrix in modality_affinities.items()
+        }
+        sub_fused = fuse_affinities(sub_views, snf_config)
+
+        for k in candidate_ks:
+            for algorithm in algorithms:
+                labels = cluster_once(sub_fused, k, algorithm, run_index, rng, clustering_config)
+                same = (labels[:, None] == labels[None, :]).astype(np.int32)
+                pair_same[k][algorithm][sampled_pairs] += same
+
+    off_diagonal = ~np.eye(len(patient_ids), dtype=bool)
+    if np.any(pair_seen[off_diagonal] == 0):
+        raise RuntimeError("Some patient pairs were never co-sampled; increase n_resamples")
+
+    records = []
+    for k in candidate_ks:
+        algorithm_consensus = {}
+        for algorithm in algorithms:
+            consensus = np.divide(
+                pair_same[k][algorithm], pair_seen,
+                out=np.zeros(pair_seen.shape, dtype=float), where=pair_seen > 0,
+            )
+            consensus = (consensus + consensus.T) / 2.0
+            np.fill_diagonal(consensus, 1.0)
+            algorithm_consensus[algorithm] = consensus
+
+        final_consensus = np.mean(list(algorithm_consensus.values()), axis=0)
+        final_consensus = (final_consensus + final_consensus.T) / 2.0
+        np.fill_diagonal(final_consensus, 1.0)
+        consensus_distance = 1.0 - final_consensus
+        np.fill_diagonal(consensus_distance, 0.0)
+        labels = np.asarray(canonical_partition(AgglomerativeClustering(
+            n_clusters=k, metric="precomputed", linkage="average"
+        ).fit_predict(consensus_distance)), dtype=int)
+        records.append({
+            "n_clusters": k,
+            "labels": labels,
+            "consensus": final_consensus,
+            "algorithm_consensus": algorithm_consensus,
+            "pair_seen": pair_seen,
+            "cluster_sizes": [int(np.sum(labels == label)) for label in sorted(np.unique(labels))],
+        })
+    return records
 
 
 def prune_correlated_features(matrix, feature_names, threshold):
@@ -166,23 +285,59 @@ def prepare_variant_input(data_root, output_root, patient_ids, views, fused, wxs
         "paths": paths,
     })
     np.save(candidate_dir / "fused_similarity.npy", fused)
-    records, _ = consensus_records_from_similarity(fused, config["clustering"])
+    records = build_patient_resampled_consensus(
+        {name: views[name] for name in ACTIVE_MODALITIES},
+        patient_ids,
+        config["snf"],
+        config["clustering"],
+    )
     consensus_dir = candidate_dir / "consensus_cluster"
     consensus_dir.mkdir()
+    np.save(consensus_dir / "pair_seen_counts.npy", records[0]["pair_seen"])
     for record in records:
         k = int(record["n_clusters"])
+        np.save(consensus_dir / f"consensus_matrix_K{k}.npy", record["consensus"])
+        for algorithm, matrix in record["algorithm_consensus"].items():
+            np.save(consensus_dir / f"{algorithm}_consensus_matrix_K{k}.npy", matrix)
         write_json(consensus_dir / f"consensus_hierarchical_K{k}.json", {
             "n_clusters": k,
             "labels": dict(zip(patient_ids, map(int, record["labels"]))),
-            "partition_source": "production_consensus_records_from_similarity",
+            "cluster_sizes": record["cluster_sizes"],
+            "partition_source": "patient_resampled_multi_algorithm_consensus",
+            "patient_resample_fraction": PATIENT_RESAMPLE_FRACTION,
+            "patient_resample_count": PATIENT_RESAMPLE_COUNT,
+            "patient_resample_seed": PATIENT_RESAMPLE_SEED,
+            "algorithms": ["hierarchical", "spectral", "kmedoids"],
+            "algorithm_weighting": "equal",
             "active_modalities": list(ACTIVE_MODALITIES),
         })
+    write_json(consensus_dir / "resampling_manifest.json", {
+        "patient_count": len(patient_ids),
+        "sample_fraction": PATIENT_RESAMPLE_FRACTION,
+        "sample_size": int(round(len(patient_ids) * PATIENT_RESAMPLE_FRACTION)),
+        "resample_count": PATIENT_RESAMPLE_COUNT,
+        "random_seed": PATIENT_RESAMPLE_SEED,
+        "candidate_ks": [int(record["n_clusters"]) for record in records],
+        "algorithms": ["hierarchical", "spectral", "kmedoids"],
+        "algorithm_consensus_weighting": "equal",
+        "final_partition_algorithm": "average_linkage_on_equal_weight_algorithm_consensus",
+        "full_cohort_fused_similarity_preserved": True,
+    })
     write_json(candidate_dir / "feature_engineering_variant.json", {
         "variant": "four_view_feature_engineering",
         "active_modalities": list(ACTIVE_MODALITIES),
         "disabled_modalities": ["cnv"],
         "ct": ct_audit,
         "wxs": wxs_audit,
+        "candidate_generation": {
+            "candidate_ks": list(range(2, 9)),
+            "patient_resample_fraction": PATIENT_RESAMPLE_FRACTION,
+            "patient_sample_size": int(round(len(patient_ids) * PATIENT_RESAMPLE_FRACTION)),
+            "patient_resample_count": PATIENT_RESAMPLE_COUNT,
+            "patient_resample_seed": PATIENT_RESAMPLE_SEED,
+            "algorithm_weighting": "equal",
+            "final_partition_algorithm": "average_linkage_on_equal_weight_algorithm_consensus",
+        },
     })
     return input_root
 
@@ -255,6 +410,17 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         "ct_pipeline": "cached PyRadiomics -> constant/near-constant QC -> order-independent |r| > 0.95 pruning -> feature-wise z-score -> Euclidean",
         "ct_stability_filter": "not performed in this experiment",
         "ct_technical_residualization": False,
+        "candidate_patient_resampling": {
+            "fraction": PATIENT_RESAMPLE_FRACTION,
+            "sample_size": int(round(len(patient_ids) * PATIENT_RESAMPLE_FRACTION)),
+            "resamples": PATIENT_RESAMPLE_COUNT,
+            "seed": PATIENT_RESAMPLE_SEED,
+            "candidate_ks": list(range(2, 9)),
+            "algorithms": ["hierarchical", "spectral", "kmedoids"],
+            "algorithm_consensus_weighting": "equal",
+            "final_partition_algorithm": "average_linkage_on_equal_weight_algorithm_consensus",
+            "full_cohort_fused_similarity_preserved": True,
+        },
         "modality_normalization": {
             "ct": "cached PyRadiomics; constant/near-constant QC; order-independent correlation pruning; feature-wise z-score; Euclidean",
             "wsi": "existing row-wise L2-normalized GigaPath embeddings; cosine; affinity reused unchanged",

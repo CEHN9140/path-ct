@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 SCRIPT = Path(__file__).with_name("01_four_view_feature_engineering.py")
@@ -50,6 +51,63 @@ def test_correlation_pruning_is_invariant_to_input_column_order():
     kept_permuted, _, _ = MODULE.prune_correlated_features(matrix[:, order], [names[i] for i in order], 0.95)
 
     assert set(kept_first) == set(kept_permuted) == {"feature_a", "feature_c"}
+
+
+def test_patient_resampled_consensus_reuses_each_sample_across_k_and_algorithms(monkeypatch):
+    rng = np.random.default_rng(12)
+    points = rng.normal(size=(8, 3))
+    distance = np.sqrt(((points[:, None] - points[None, :]) ** 2).sum(axis=2))
+    affinity = np.exp(-distance)
+    modalities = {name: affinity.copy() for name in ("ct", "wsi", "rna", "wxs")}
+    original_fuse = MODULE.fuse_affinities
+    fuse_calls = []
+
+    def count_fuse(networks, config):
+        fuse_calls.append(tuple(networks))
+        return original_fuse(networks, config)
+
+    monkeypatch.setattr(MODULE, "fuse_affinities", count_fuse)
+    records = MODULE.build_patient_resampled_consensus(
+        modalities,
+        [f"P{i}" for i in range(8)],
+        {"neighbor_count": 3, "iterations": 5, "alpha": 1.0},
+        {
+            "algorithms": {
+                "hierarchical": {"linkage_options": ["average", "complete"]},
+                "spectral": {"assign_labels_options": ["kmeans", "discretize", "cluster_qr"]},
+                "kmedoids": {"init_options": ["k-medoids++", "random", "heuristic"]},
+            }
+        },
+        candidate_ks=(2, 3),
+        sample_fraction=0.875,
+        n_resamples=30,
+        random_seed=20260921,
+    )
+
+    assert len(fuse_calls) == 30
+    assert [record["n_clusters"] for record in records] == [2, 3]
+    for record in records:
+        assert record["labels"].shape == (8,)
+        assert sum(record["cluster_sizes"]) == 8
+        assert np.all(record["pair_seen"][~np.eye(8, dtype=bool)] > 0)
+        assert set(record["algorithm_consensus"]) == {"hierarchical", "spectral", "kmedoids"}
+        mean_consensus = np.mean(list(record["algorithm_consensus"].values()), axis=0)
+        assert np.allclose(record["consensus"], mean_consensus)
+        assert np.allclose(record["consensus"], record["consensus"].T)
+        assert np.allclose(np.diag(record["consensus"]), 1.0)
+
+
+def test_patient_resampled_consensus_rejects_subsamples_smaller_than_max_k():
+    with pytest.raises(ValueError, match="too small"):
+        MODULE.build_patient_resampled_consensus(
+            {"ct": np.eye(8)},
+            [f"P{i}" for i in range(8)],
+            {},
+            {},
+            candidate_ks=(2, 7),
+            sample_fraction=0.5,
+            n_resamples=5,
+        )
 
 
 def test_wxs_variant_uses_empty_mutation_distance_one_without_affinity_override():
