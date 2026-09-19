@@ -16,9 +16,11 @@
   "repeats": [
     1
   ],
-  "ct_pipeline": "PyRadiomics -> low variance -> |r| > 0.95 pruning -> technical residualization -> z-score -> Euclidean",
+  "ct_pipeline": "cached PyRadiomics -> constant/near-constant QC -> order-independent |r| > 0.95 pruning -> feature-wise z-score -> Euclidean",
+  "ct_stability_filter": "not performed in this experiment",
+  "ct_technical_residualization": false,
   "modality_normalization": {
-    "ct": "feature-wise z-score after technical residualization; Euclidean",
+    "ct": "cached PyRadiomics; constant/near-constant QC; order-independent correlation pruning; feature-wise z-score; Euclidean",
     "wsi": "existing row-wise L2-normalized GigaPath embeddings; cosine; affinity reused unchanged",
     "rna": "existing log2(TPM+1), top-MAD genes, gene-wise cohort z-score; Pearson correlation; affinity reused unchanged",
     "wxs": "prevalence-filtered nonsynonymous binary events; no scaling; Jaccard"

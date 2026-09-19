@@ -19,7 +19,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agents.candidate_proposer import consensus_records_from_similarity
-from tools.confound import confounder_values
 from tools.evidence_features import distance_to_affinity, fuse_affinities
 from tools.wxs import binary_mutation_distance
 from utils.io import write_json
@@ -38,86 +37,66 @@ def load_runner():
     return module
 
 
-def transform_ct_features(matrix, feature_names, technical_design, low_variance_threshold, correlation_threshold):
-    matrix = np.asarray(matrix, dtype=float)
-    keep = np.var(matrix, axis=0) > float(low_variance_threshold)
-    low_variance_removed = [name for name, selected in zip(feature_names, keep) if not selected]
-    matrix = matrix[:, keep]
-    names = [name for name, selected in zip(feature_names, keep) if selected]
+def prune_correlated_features(matrix, feature_names, threshold):
+    values = np.asarray(matrix, dtype=float)
+    names = list(feature_names)
+    if len(names) < 2:
+        return names, values, []
+    active = np.ones(len(names), dtype=bool)
+    removed = []
+    correlation = np.nan_to_num(np.corrcoef(values, rowvar=False), nan=0.0)
+    absolute = np.abs(correlation)
+    np.fill_diagonal(absolute, 0.0)
+    edges = [(absolute[i, j], names[i], names[j], i, j)
+             for i in range(len(names)) for j in range(i + 1, len(names))
+             if absolute[i, j] > threshold]
+    edges.sort(key=lambda edge: (-edge[0], edge[1], edge[2]))
+    row_sums = absolute.sum(axis=1)
+    active_count = len(names)
+    for _, _, _, left, right in edges:
+        if not (active[left] and active[right]):
+            continue
+        denominator = max(active_count - 1, 1)
+        drop = max((left, right), key=lambda index: (row_sums[index] / denominator, names[index]))
+        active[drop] = False
+        row_sums -= absolute[:, drop]
+        active_count -= 1
+        removed.append(names[drop])
+    kept = np.flatnonzero(active).tolist()
+    return [names[index] for index in kept], values[:, kept], removed
 
-    pruned = []
-    if matrix.shape[1] > 1:
-        correlation = np.nan_to_num(np.corrcoef(matrix, rowvar=False), nan=0.0)
-        selected = []
-        for index, name in enumerate(names):
-            if any(abs(correlation[index, prior]) > correlation_threshold for prior in selected):
-                pruned.append(name)
-            else:
-                selected.append(index)
-        matrix = matrix[:, selected]
-        names = [names[index] for index in selected]
 
-    design = np.asarray(technical_design, dtype=float)
-    residual = matrix - design @ np.linalg.lstsq(design, matrix, rcond=None)[0]
-    means = residual.mean(axis=0, keepdims=True)
-    stds = residual.std(axis=0, keepdims=True)
-    zero_variance = stds <= 1e-12
-    standardized = np.divide(residual - means, stds, out=np.zeros_like(residual), where=~zero_variance)
+def transform_ct_features(
+    matrix,
+    feature_names,
+    correlation_threshold=CORRELATION_THRESHOLD,
+):
+    values = np.asarray(matrix, dtype=float)
+    names = list(feature_names)
+    scales = np.maximum(1.0, np.max(np.abs(values), axis=0))
+    constant = np.std(values, axis=0) <= np.finfo(float).eps * scales * 16
+    constant_removed = [name for name, drop in zip(names, constant) if drop]
+    values, names = values[:, ~constant], [name for name, drop in zip(names, constant) if not drop]
+    names, values, correlation_pruned = prune_correlated_features(values, names, correlation_threshold)
+    means, stds = values.mean(axis=0, keepdims=True), values.std(axis=0, keepdims=True)
+    standardized = (values - means) / stds
     audit = {
-        "raw_feature_count": int(len(feature_names)),
-        "low_variance_threshold": float(low_variance_threshold),
-        "low_variance_removed": low_variance_removed,
-        "after_low_variance_count": int(len(feature_names) - len(low_variance_removed)),
+        "raw_feature_count": len(feature_names),
+        "constant_removed": constant_removed,
         "correlation_threshold": float(correlation_threshold),
-        "correlation_pruned": pruned,
-        "after_correlation_count": int(len(names)),
+        "correlation_pruned": correlation_pruned,
         "retained_features": names,
-        "technical_design_shape": list(design.shape),
-        "technical_design_rank": int(np.linalg.matrix_rank(design)),
-        "residual_degrees_of_freedom": int(len(matrix) - np.linalg.matrix_rank(design)),
-        "post_residual_zero_variance_features": [
-            name for name, is_zero in zip(names, zero_variance.ravel()) if is_zero
-        ],
+        "technical_residualization": False,
+        "radiomics_stability_filter": False,
         "steps": [
             "PyRadiomics cached feature extraction",
-            "low variance filter",
-            "absolute Pearson correlation pruning",
-            "technical-covariate residualization",
+            "constant/near-constant QC",
+            "order-independent absolute Pearson correlation pruning",
             "column-wise z-score",
             "Euclidean distance",
         ],
     }
     return standardized, names, audit
-
-
-def technical_design_matrix(patient_ids, states, data_root, ct_config):
-    correction = dict(ct_config.get("confound_correction", {}) or {})
-    fields = list(correction.get("fields") or []) if correction.get("enabled", True) else []
-    values = confounder_values(states, str(data_root))
-    parts = [np.ones((len(patient_ids), 1))]
-    audit = {}
-    for field in fields:
-        raw = [dict(values.get(case_id, {}) or {}).get(field, "") for case_id in patient_ids]
-        if field == "ct_slice_thickness":
-            numeric = pd.to_numeric(pd.Series(raw), errors="coerce")
-            missing = int(numeric.isna().sum())
-            numeric = numeric.fillna(float(numeric.median()) if numeric.notna().any() else 0.0)
-            parts.append(numeric.to_numpy(float)[:, None])
-            audit[field] = {"type": "numeric", "missing_count": missing}
-        else:
-            missing = sum(not str(value or "").strip() for value in raw)
-            series = pd.Series([str(value or "missing") for value in raw])
-            encoded = pd.get_dummies(series, dtype=float)
-            parts.append(encoded.to_numpy(float))
-            audit[field] = {
-                "type": "categorical",
-                "levels": sorted(series.unique().tolist()),
-                "level_counts": {str(key): int(value) for key, value in series.value_counts().sort_index().items()},
-                "singleton_levels": sorted(series.value_counts()[series.value_counts() == 1].index.tolist()),
-                "rare_levels_lt_5": sorted(series.value_counts()[series.value_counts() < 5].index.tolist()),
-                "missing_count": missing,
-            }
-    return np.column_stack(parts), {"fields": audit}
 
 
 def load_ct_features(patient_ids, states):
@@ -162,6 +141,8 @@ def prepare_variant_input(data_root, output_root, patient_ids, views, fused, wxs
     candidate_dir.mkdir(parents=True)
     for name in ("storage", "ct_radiomics", "ct_qc", "rna", "wsi_tumor_seg"):
         (input_root / name).symlink_to((data_root / name).resolve(), target_is_directory=True)
+    ct_tumor_seg = (data_root / "ct_qc").resolve().parent / "ct_tumor_seg"
+    (input_root / "ct_tumor_seg").symlink_to(ct_tumor_seg, target_is_directory=True)
     shutil.copytree(data_root / "wxs", input_root / "wxs")
     wxs_root = input_root / "wxs"
     wxs_table.to_csv(wxs_root / "wxs_discovery_features.csv", index=False)
@@ -217,16 +198,19 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
     states = {case_id: states_map[case_id] for case_id in patient_ids}
 
     raw_ct, feature_names = load_ct_features(patient_ids, states)
-    technical_design, technical_audit = technical_design_matrix(patient_ids, states, data_root, yaml.safe_load((config_dir / "ct_radiomics.yaml").read_text(encoding="utf-8")))
     snf_config = load_candidate_proposer_config(config_dir)["snf"]
     ct_matrix, retained_ct_features, ct_audit = transform_ct_features(
-        raw_ct, feature_names, technical_design,
-        snf_config["ct_low_variance_threshold"], CORRELATION_THRESHOLD,
+        raw_ct, feature_names, CORRELATION_THRESHOLD,
     )
+    if not retained_ct_features:
+        raise ValueError("CT constant/correlation filters removed every feature")
     ct_distance = cdist(ct_matrix, ct_matrix, metric="euclidean")
     source_views["ct"] = distance_to_affinity(ct_distance, snf_config)
-    ct_audit.update(technical_audit)
-    ct_audit.update({"patient_count": len(patient_ids), "retained_feature_count": len(retained_ct_features)})
+    ct_audit.update({
+        "patient_count": len(patient_ids),
+        "retained_feature_count": len(retained_ct_features),
+        "technical_residualization": False,
+    })
 
     source_table = pd.read_csv(data_root / "wxs" / "wxs_discovery_features.csv")
     min_prevalence = float(yaml.safe_load((config_dir / "wxs.yaml").read_text(encoding="utf-8"))["min_gene_prevalence"])
@@ -268,9 +252,11 @@ def run(data_root, config_dir, output_root, initial_ks, repeats, force=False, pr
         "patient_count": len(patient_ids),
         "initial_ks": list(initial_ks),
         "repeats": list(repeats),
-        "ct_pipeline": "PyRadiomics -> low variance -> |r| > 0.95 pruning -> technical residualization -> z-score -> Euclidean",
+        "ct_pipeline": "cached PyRadiomics -> constant/near-constant QC -> order-independent |r| > 0.95 pruning -> feature-wise z-score -> Euclidean",
+        "ct_stability_filter": "not performed in this experiment",
+        "ct_technical_residualization": False,
         "modality_normalization": {
-            "ct": "feature-wise z-score after technical residualization; Euclidean",
+            "ct": "cached PyRadiomics; constant/near-constant QC; order-independent correlation pruning; feature-wise z-score; Euclidean",
             "wsi": "existing row-wise L2-normalized GigaPath embeddings; cosine; affinity reused unchanged",
             "rna": "existing log2(TPM+1), top-MAD genes, gene-wise cohort z-score; Pearson correlation; affinity reused unchanged",
             "wxs": "prevalence-filtered nonsynonymous binary events; no scaling; Jaccard",

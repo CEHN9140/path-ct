@@ -11,11 +11,11 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-def test_ct_transform_prunes_then_residualizes_and_standardizes():
-    technical = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+def test_ct_transform_applies_constant_correlation_and_zscore_without_residualization():
+    trend = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     matrix = np.column_stack([
-        technical,
-        technical * 2.0,
+        trend,
+        trend * 2.0,
         [0.0, 2.0, 1.0, 4.0, 3.0],
         np.ones(5),
     ])
@@ -23,18 +23,33 @@ def test_ct_transform_prunes_then_residualizes_and_standardizes():
     transformed, names, audit = MODULE.transform_ct_features(
         matrix,
         ["technical", "correlated", "independent", "constant"],
-        np.column_stack([np.ones(5), technical]),
-        low_variance_threshold=1e-8,
         correlation_threshold=0.95,
     )
 
-    assert names == ["technical", "independent"]
-    assert audit["low_variance_removed"] == ["constant"]
-    assert audit["correlation_pruned"] == ["correlated"]
-    assert audit["post_residual_zero_variance_features"] == ["technical"]
-    assert np.allclose(transformed[:, 0], 0.0)
-    assert np.allclose(transformed[:, 1].mean(), 0.0, atol=1e-12)
-    assert np.isclose(transformed[:, 1].std(), 1.0)
+    assert names == ["correlated", "independent"]
+    assert audit["constant_removed"] == ["constant"]
+    assert audit["correlation_pruned"] == ["technical"]
+    assert audit["technical_residualization"] is False
+    assert audit["radiomics_stability_filter"] is False
+    assert np.allclose(transformed.mean(axis=0), 0.0, atol=1e-12)
+    assert np.allclose(transformed.std(axis=0), 1.0)
+
+
+def test_correlation_pruning_is_invariant_to_input_column_order():
+    matrix = np.array([
+        [0.0, 0.0, 2.0],
+        [1.0, 2.0, 1.0],
+        [2.0, 4.0, 0.0],
+        [3.0, 6.0, 3.0],
+        [4.0, 8.0, 2.0],
+    ])
+    names = ["feature_a", "feature_b", "feature_c"]
+
+    kept_first, _, _ = MODULE.prune_correlated_features(matrix, names, 0.95)
+    order = [2, 1, 0]
+    kept_permuted, _, _ = MODULE.prune_correlated_features(matrix[:, order], [names[i] for i in order], 0.95)
+
+    assert set(kept_first) == set(kept_permuted) == {"feature_a", "feature_c"}
 
 
 def test_wxs_variant_uses_empty_mutation_distance_one_without_affinity_override():
