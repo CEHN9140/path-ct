@@ -41,7 +41,7 @@ def run_subtype_review(
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = dict(review_config.get("budget", {}) or {})
-    usage_tracker = LLMUsageTracker()
+    usage_tracker = LLMUsageTracker(Path(artifact_root or data_root) / "llm_requests.jsonl")
     active = tuple(active_modalities or DEFAULT_ACTIVE_MODALITIES)
     runtime = {
         "patient_states_by_id": {

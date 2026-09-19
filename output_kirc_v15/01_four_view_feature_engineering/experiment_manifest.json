@@ -1,0 +1,36 @@
+{
+  "experiment": "four_view_feature_engineering_variant",
+  "active_modalities": [
+    "ct",
+    "wsi",
+    "rna",
+    "wxs"
+  ],
+  "disabled_modalities": [
+    "cnv"
+  ],
+  "patient_count": 103,
+  "initial_ks": [
+    2
+  ],
+  "repeats": [
+    1
+  ],
+  "ct_pipeline": "PyRadiomics -> low variance -> |r| > 0.95 pruning -> technical residualization -> z-score -> Euclidean",
+  "modality_normalization": {
+    "ct": "feature-wise z-score after technical residualization; Euclidean",
+    "wsi": "existing row-wise L2-normalized GigaPath embeddings; cosine; affinity reused unchanged",
+    "rna": "existing log2(TPM+1), top-MAD genes, gene-wise cohort z-score; Pearson correlation; affinity reused unchanged",
+    "wxs": "prevalence-filtered nonsynonymous binary events; no scaling; Jaccard"
+  },
+  "shared_affinity_construction": {
+    "function": "distance_to_affinity",
+    "neighbor_count": 20,
+    "mu": 0.5
+  },
+  "wxs_driver_forced_inclusion": false,
+  "wxs_empty_mutation_distance": 1.0,
+  "rna_unchanged": true,
+  "wsi_unchanged": true,
+  "input_root": "/data/qijun/path-ct/output_kirc_v15/01_four_view_feature_engineering/inputs/four_view_feature_engineering"
+}

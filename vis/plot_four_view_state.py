@@ -405,7 +405,9 @@ def run(output_dir=Path("vis/figs")):
 
     # Figure 2: state biology and known taxonomy.
     rna_omnibus = read_csv(CHAR / "rna_hallmark_omnibus.csv")
-    selected = rna_omnibus[rna_omnibus.q_value < .05].sort_values("q_value").head(12).feature.tolist()
+    # Show a readable representative set in figures; full inference remains in
+    # rna_hallmark_omnibus.csv and is not restricted to this plotting subset.
+    selected = rna_omnibus.sort_values(["q_value", "epsilon_squared"], ascending=[True, False]).head(15).feature.tolist()
     if selected:
         rna_genes = load_table(INPUT / "rna/case_pathway_features.csv").reindex(core_order)
         gmt = tool_parameters(str(ROOT / "configs"), "rna")["pathway_gene_sets_path"]
@@ -512,8 +514,8 @@ def run(output_dir=Path("vis/figs")):
             annotation_ax.text(center, -.8, state, ha="center", va="bottom", fontsize=8, color=COLORS[state], weight="bold")
         save(fig, out, "figure_rna_gene_heatmap")
 
-        # Enrichment-style dot plot: pathway activity is encoded by color and
-        # the global omnibus significance by point size.
+        # Multi-state enrichment dot plot: activity is encoded by color and
+        # global omnibus FDR by bubble size.
         pathway_means = pd.DataFrame({state: scores[[state_by_case[x] == state for x in core_order]].mean() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
         pathway_means = pathway_means.sub(pathway_means.mean(axis=1), axis=0).div(pathway_means.std(axis=1).replace(0, np.nan), axis=0)
         pathway_means.index.name = "pathway"
@@ -522,22 +524,33 @@ def run(output_dir=Path("vis/figs")):
         dot["neg_log10_q"] = dot.pathway.map(lambda x: -np.log10(max(float(q_map[x]), 1e-300)))
         dot["pathway_label"] = dot.pathway.str.replace("HALLMARK_", "", regex=False).str.replace("_", " ", regex=False).str.title()
         pathway_order = selected[::-1]
-        fig, ax = plt.subplots(figsize=(8.6, max(4.8, .34 * len(pathway_order) + 1.8)))
+        fig, ax = plt.subplots(figsize=(10.4, max(5.2, .34 * len(pathway_order) + 1.8)))
+        fig.subplots_adjust(left=.24, right=.78, top=.94, bottom=.12)
         for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]:
             sub = dot[dot.state == state].set_index("pathway").reindex(pathway_order)
             x = np.full(len(sub), ["STATE_A", "STATE_B", "STATE_C", "STATE_D"].index(state))
-            ax.scatter(x, np.arange(len(sub)), s=35 + 24 * sub.neg_log10_q.to_numpy(),
+            ax.scatter(x, np.arange(len(sub)), s=90 + 130 * sub.neg_log10_q.to_numpy(),
                        c=sub.activity_z.to_numpy(), cmap="vlag", vmin=-2, vmax=2,
-                       edgecolors=COLORS[state], linewidths=.7, alpha=.95)
+                       edgecolors=COLORS[state], linewidths=1.0, alpha=.95)
         ax.set_xticks(range(4), ["STATE_A", "STATE_B", "STATE_C", "STATE_D"])
         ax.set_yticks(range(len(pathway_order)), [x.replace("HALLMARK_", "").replace("_", " ").title() for x in pathway_order])
-        ax.set(xlabel="Macro-state", ylabel="Hallmark pathway", title="RNA Hallmark activity by macro-state")
+        ax.set(xlabel="Macro-state", ylabel="", title="RNA Hallmark activity by macro-state")
         ax.grid(axis="x", visible=False); ax.grid(axis="y", color="#eeeeee", linewidth=.6)
         sm = mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(-2, 2), cmap="vlag")
-        fig.colorbar(sm, ax=ax, pad=.02, aspect=28, label="Pathway activity (within-pathway z-score)")
-        for size, label in [(35 + 24 * 1, "q≈0.37"), (35 + 24 * 2, "q≈0.14"), (35 + 24 * 3, "q≈0.05")]:
-            ax.scatter([], [], s=size, color="#777777", label=label)
-        ax.legend(title="Global FDR", frameon=False, loc="upper left", bbox_to_anchor=(1.16, .55), fontsize=8)
+        colorbar = fig.colorbar(sm, ax=ax, pad=.02, aspect=28)
+        colorbar.ax.set_ylabel("")
+        colorbar.ax.set_title("Relative\npathway activity", fontsize=10, pad=8)
+        size_handles = []
+        for q_value in (.05, .01, .001):
+            size = 90 + 130 * (-np.log10(q_value))
+            handle = mpl.lines.Line2D([], [], marker="o", linestyle="None",
+                                      markersize=np.sqrt(size),
+                                      markerfacecolor="#777777", markeredgecolor="none",
+                                      label=f"q={q_value:g}")
+            size_handles.append(handle)
+        ax.legend(handles=size_handles, title="Global FDR", frameon=False,
+                  loc="upper left", bbox_to_anchor=(1.42, .55), fontsize=9,
+                  labelspacing=1.5, handletextpad=.8, borderpad=.5)
         save(fig, out, "figure_rna_pathway_dotplot")
 
     wxs_matrix = load_table(INPUT / "wxs/wxs_discovery_features.csv").reindex(order)

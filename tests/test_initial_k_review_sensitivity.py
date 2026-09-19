@@ -61,6 +61,11 @@ def test_usage_tracker_counts_unbounded_requests():
         "prompt_tokens": 3,
         "completion_tokens": 5,
         "total_tokens": 8,
+        "prompt_cache_hit_tokens": None,
+        "prompt_cache_miss_tokens": None,
+        "prompt_cache_hit_rate": None,
+        "cache_observed_requests": 0,
+        "usage_observed_requests": 1,
     }
 
 
@@ -75,6 +80,11 @@ def test_usage_tracker_reads_langchain_token_metadata():
         "prompt_tokens": 11,
         "completion_tokens": 7,
         "total_tokens": 18,
+        "prompt_cache_hit_tokens": None,
+        "prompt_cache_miss_tokens": None,
+        "prompt_cache_hit_rate": None,
+        "cache_observed_requests": 0,
+        "usage_observed_requests": 1,
     }
 
 

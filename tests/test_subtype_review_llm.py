@@ -224,6 +224,11 @@ def test_usage_tracker_is_statistics_only():
         "prompt_tokens": 3,
         "completion_tokens": 5,
         "total_tokens": 8,
+        "prompt_cache_hit_tokens": None,
+        "prompt_cache_miss_tokens": None,
+        "prompt_cache_hit_rate": None,
+        "cache_observed_requests": 0,
+        "usage_observed_requests": 1,
     }
 
 
@@ -354,7 +359,7 @@ def test_review_prompts_constrain_internal_evidence_and_medical_claims():
 
     assert "independent external validation" in router
     assert "one modality provides a strong" in router.lower()
-    assert "effect size" in verifier.lower()
+    assert "effect magnitude" in verifier.lower()
     assert "do not recommend" in verifier.lower()
     assert "prognosis" in verifier
     assert "nonsignificant evidence" in verifier.lower()

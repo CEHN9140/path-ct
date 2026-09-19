@@ -585,4 +585,9 @@ def test_length_errors_are_recognized_and_usage_is_statistics_only():
     tracker = LLMUsageTracker()
     tracker.before_request()
     tracker.record_response({"usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}})
-    assert tracker.snapshot() == {"api_calls": 1, "prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}
+    assert tracker.snapshot() == {
+        "api_calls": 1, "prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5,
+        "prompt_cache_hit_tokens": None, "prompt_cache_miss_tokens": None,
+        "prompt_cache_hit_rate": None, "cache_observed_requests": 0,
+        "usage_observed_requests": 1,
+    }
