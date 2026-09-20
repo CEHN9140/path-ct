@@ -134,12 +134,6 @@ def validate_router_plan(
     ):
         raise ValueError("Terminal disposition requires a partition structural screen")
 
-    signature = partition_signature(current_sets(state))
-    screen = next((row for row in state["tool_evidence"]
-                   if row["tool_name"] == "structural_diagnostics"
-                   and row["scope"] == "partition"
-                   and row["partition_signature"] == signature), None)
-    screened_sets = (screen or {}).get("metrics", {}).get("partition", {}).get("internal_structure", {})
     for action in plan.actions:
         target = action.target_ids[0]
         reports = state["reports"]
@@ -190,65 +184,24 @@ def validate_router_plan(
             )
             if not negative_evidence and decision.uncertainty != "yes":
                 raise ValueError("Drop requires negative evidence or unresolved insufficient support")
-            if decision.uncertainty == "yes":
-                unresolved_dimensions = set()
-                if decision.identity in {"uncertain", "unassessed"}:
-                    unresolved_dimensions.add("biological_support")
-                if decision.structure in {"uncertain", "unassessed"}:
-                    unresolved_dimensions.add("cross_modal_consistency")
-                if decision.alternative_explanation in {"uncertain", "unassessed"}:
-                    unresolved_dimensions.add("confounder_exclusion")
-                remaining = [
-                    (dimension, scope, request_targets)
-                    for dimension, scope, request_targets in available
-                    if (
-                        dimension in unresolved_dimensions
-                        and (
-                            (scope == "set" and request_targets == (target,))
-                            or (scope == "partition" and not request_targets)
-                        )
-                    )
-                    or (
-                        dimension == "cross_modal_consistency"
-                        and "cross_modal_consistency" in unresolved_dimensions
-                        and scope == "pair"
-                        and target in request_targets
-                    )
-                ]
-                if remaining:
-                    raise ValueError(
-                        "Decision-critical evidence remains available; "
-                        "Router must request evidence before dropping the candidate"
-                    )
         if decision.structure == "unassessed":
             raise ValueError("Terminal structure must be assessed after the partition structural screen")
-        if int(screened_sets.get(target, {}).get("candidate_k") or 1) > 1 and not any(
-            row["dimension"] == "cross_modal_consistency"
-            and row["aspect"] == "structural_diagnostics"
-            and row["scope"] == "set" and row["target_ids"] == [target]
-            for row in reports
-        ):
-            raise ValueError(f"Terminal disposition requires a targeted set structural diagnostic for {target}")
         requirements = (
-            (decision.identity, "biological_support", "set"),
-            (decision.structure, "cross_modal_consistency", "set"),
-            (decision.alternative_explanation, "confounder_exclusion", "set"),
+            (decision.identity, "biological_support", {"set"}),
+            (decision.structure, "cross_modal_consistency", {"set", "pair", "partition"}),
+            (decision.alternative_explanation, "confounder_exclusion", {"set", "partition"}),
         )
-        for value, dimension, scope in requirements:
+        for value, dimension, scopes in requirements:
             if value == "unassessed":
                 continue
             assessed = any(
                 row["dimension"] == dimension
-                and (
-                    row["aspect"] == "structural_diagnostics"
-                    and (row["scope"] == "partition" or (row["scope"] == scope and target in row["target_ids"]))
-                    if dimension == "cross_modal_consistency"
-                    else row["scope"] == scope and target in row["target_ids"]
-                )
+                and row["scope"] in scopes
+                and (row["scope"] == "partition" or target in row["target_ids"])
                 for row in reports
             )
             if not assessed:
-                raise ValueError(f"{dimension} cannot be asserted without a set-level report for {target}")
+                raise ValueError(f"{dimension} cannot be asserted without related evidence for {target}")
 
 
 def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
@@ -262,18 +215,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         for row in state["tool_evidence"] if row["partition_signature"] == signature
     }
     partition_screen_done = ("structural_diagnostics", "partition", ()) in completed
-    screen = next((row for row in state["tool_evidence"]
-                   if row["partition_signature"] == signature
-                   and row["tool_name"] == "structural_diagnostics"
-                   and row["scope"] == "partition"), None)
-    screen_metrics = (screen or {}).get("metrics", {}).get("partition", {})
-    structural_sets = {
-        target for target, metrics in screen_metrics.get("internal_structure", {}).items()
-        if int(metrics.get("candidate_k") or 1) > 1
-    }
-    structural_pairs = {
-        tuple(sorted(pair)) for pair in screen_metrics.get("merge_candidates", [])
-    }
     set_ids = [set_id(item) for item in current]
     available_aspects = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
@@ -288,8 +229,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             for target_ids in targets:
                 if name == "structural_diagnostics" and (
                     (scope == "partition" and partition_screen_done)
-                    or (scope == "set" and target_ids[0] not in structural_sets)
-                    or (scope == "pair" and tuple(sorted(target_ids)) not in structural_pairs)
+                    or (scope in {"set", "pair"} and not partition_screen_done)
                 ):
                     continue
                 key = (name, scope, tuple(target_ids))
@@ -314,27 +254,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             report["target_ids"][0] if scope == "set" else "partition"
         )
         coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
-    pending_structural_sets = sorted(
-        target for target in structural_sets
-        if ("structural_diagnostics", "set", (target,)) not in completed
-    )
-    if control["round"] >= control["max_rounds"] and pending_structural_sets:
-        control["status"] = "incomplete_due_to_round_budget"
-        control["next"] = "end"
-        control["pending_evidence_requests"] = [
-            {
-                "dimension": "cross_modal_consistency",
-                "scope": "set",
-                "target_ids": [target],
-                "question": "Complete the mandatory targeted structural diagnostic for this set.",
-            }
-            for target in pending_structural_sets
-        ]
-        control["trace"].append({
-            "round": control["round"], "node": "router", "event": "round_budget_exhausted",
-            "pending_structural_sets": pending_structural_sets,
-        })
-        return {"control": control}
     budget_exhausted = control["round"] >= control["max_rounds"]
     if not budget_exhausted:
         control["round"] += 1
@@ -412,14 +331,6 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                    if row["partition_signature"] == signature
                    and row["tool_name"] == "structural_diagnostics"
                    and row["scope"] == "partition"), None)
-    screen_metrics = (screen or {}).get("metrics", {}).get("partition", {})
-    structural_sets = {
-        target for target, metrics in screen_metrics.get("internal_structure", {}).items()
-        if int(metrics.get("candidate_k") or 1) > 1
-    }
-    structural_pairs = {
-        tuple(sorted(pair)) for pair in screen_metrics.get("merge_candidates", [])
-    }
     eligible = {}
     for name, metadata in registry.items():
         allowed = []
@@ -430,8 +341,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                     and (name, request.scope, targets) not in completed
                     and not (name == "structural_diagnostics" and (
                         (request.scope == "partition" and screen is not None)
-                        or (request.scope == "set" and targets[0] not in structural_sets)
-                        or (request.scope == "pair" and targets not in structural_pairs)
+                        or (request.scope in {"set", "pair"} and screen is None)
                     ))):
                 allowed.append({"scope": request.scope, "target_ids": list(targets)})
         if allowed:
@@ -540,24 +450,23 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 ref for ref in row["metric_refs"]
                 if scope == "partition" or ref.startswith(prefix + ".") or ref.startswith(prefix + "[")
             )
-            if (row["tool_name"] == "structural_diagnostics" and aspect == "structural_diagnostics" and scope == "set"
-                    and report_target in row["metrics"].get("set", {})):
-                report.suggested_k = row["metrics"]["set"][report_target]["suggested_k"]
         report.metric_refs = sorted(metric_refs)
-        if report.internal_structure_assessment == "supports_subdivision" and report.suggested_k is None:
-            raise ValueError("Verifier cannot support subdivision without an estimable suggested_k")
-        if aspect != "structural_diagnostics" and (
-            report.internal_structure_assessment is not None
-            or report.pair_boundary_assessment is not None
-            or report.suggested_k is not None
-        ):
-            raise ValueError("Structural assessments must be reported under the structural_diagnostics aspect")
-        if aspect == "structural_diagnostics" and scope == "partition" and (
-            report.internal_structure_assessment is not None
-            or report.pair_boundary_assessment is not None
-            or report.suggested_k is not None
-        ):
-            raise ValueError("Partition structural screens use observations, not set/pair assessment fields")
+        if report.internal_structure_assessment == "supports_subdivision":
+            structural_result = next(
+                (
+                    row for row in new_rows
+                    if row["tool_name"] == "structural_diagnostics"
+                    and row["scope"] == "set"
+                    and row["target_ids"] == [report_target]
+                ),
+                None,
+            )
+            solutions = (
+                structural_result["metrics"].get("set", {}).get(report_target, {}).get("solutions", {})
+                if structural_result else {}
+            )
+            if str(report.suggested_k) not in solutions:
+                raise ValueError("Verifier suggested_k must name a feasible structural solution")
         if report.pair_boundary_assessment == "insufficiently_separated" and "structural_diagnostics" not in report.tool_refs:
             raise ValueError("Verifier cannot report a weak boundary without pair structural diagnostics")
 

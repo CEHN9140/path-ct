@@ -50,10 +50,44 @@ class EvidenceReport(BaseModel):
         return sorted({str(value) for value in values if str(value)})
 
     @model_validator(mode="after")
-    def valid_scope(self) -> "EvidenceReport":
+    def valid_report_shape(self) -> "EvidenceReport":
         expected = {"set": 1, "pair": 2, "partition": 0}[self.scope]
         if len(self.target_ids) != expected:
             raise ValueError(f"{self.scope} reports require exactly {expected} target_ids")
+
+        has_structural_fields = any((
+            self.internal_structure_assessment is not None,
+            self.pair_boundary_assessment is not None,
+            self.suggested_k is not None,
+        ))
+        if self.aspect != "structural_diagnostics":
+            if has_structural_fields:
+                raise ValueError(
+                    "Structural assessment fields require the structural_diagnostics aspect"
+                )
+            return self
+        if self.dimension != "cross_modal_consistency":
+            raise ValueError("Structural diagnostics belong to cross_modal_consistency")
+
+        if self.scope == "set":
+            if (
+                self.internal_structure_assessment is None
+                or self.pair_boundary_assessment is not None
+            ):
+                raise ValueError("Set structural reports require only an internal structure assessment")
+            if (
+                self.internal_structure_assessment == "supports_subdivision"
+            ) != (self.suggested_k is not None):
+                raise ValueError("suggested_k is required only when subdivision is supported")
+        elif self.scope == "pair":
+            if (
+                self.internal_structure_assessment is not None
+                or self.pair_boundary_assessment is None
+                or self.suggested_k is not None
+            ):
+                raise ValueError("Pair structural reports require only a pair boundary assessment")
+        elif has_structural_fields:
+            raise ValueError("Partition structural reports use observations, not structural assessment fields")
         return self
 
 

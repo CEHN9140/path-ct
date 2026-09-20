@@ -16,15 +16,14 @@ from agents.common import (
     load_selected_wsi_record,
     load_tool_snapshot,
 )
+from agents.inventory import missing_view_reasons
+from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
 from utils.omics_utils import build_cohort_signature, collect_case_file_paths
-from utils.cache_utils import file_identity, hash_payload, semantic_config
 from utils.tool_utils import (
     safe_identifier,
     save_snapshot,
 )
-from agents.inventory import missing_view_reasons
-
 
 WSI_EMBEDDING_RUNTIME_KEYS = {
     "batch_size",
@@ -149,9 +148,7 @@ def wsi_embedding_context(
         or {}
     )
     patch_dir_path = Path(str(source_patch_artifacts["patch_dir"]))
-    tumor_coordinates_h5_path = Path(
-        str(patch_artifacts["tumor_coordinates_h5_path"])
-    )
+    tumor_coordinates_h5_path = Path(str(patch_artifacts["tumor_coordinates_h5_path"]))
     tile_embeddings_path = Path(
         str(cached_artifacts.get("tile_embeddings_path", "") or "")
     )
@@ -174,10 +171,10 @@ def wsi_embedding_context(
             (path.stat().st_mtime for path in patch_dir_path.glob("*.png")), default=0.0
         )
     )
-    cached_inputs_match = (
-        str(cached_artifacts.get("patch_dir", "") or "") == str(patch_dir_path)
-        and str(cached_artifacts.get("tumor_coordinates_h5_path", "") or "")
-        == str(tumor_coordinates_h5_path)
+    cached_inputs_match = str(cached_artifacts.get("patch_dir", "") or "") == str(
+        patch_dir_path
+    ) and str(cached_artifacts.get("tumor_coordinates_h5_path", "") or "") == str(
+        tumor_coordinates_h5_path
     )
     reuse_cached_embeddings = (
         cached_bundle
@@ -249,9 +246,7 @@ def wsi_embeddings(
         wsi_record={"File Path": context["selected_slide_path"]},
         output_root=output_root,
         patch_dir=str(context["request"]["patch_dir"]),
-        tumor_coordinates_h5_path=str(
-            context["request"]["tumor_coordinates_h5_path"]
-        ),
+        tumor_coordinates_h5_path=str(context["request"]["tumor_coordinates_h5_path"]),
         config_dir=config_dir,
     )
     errors = [
@@ -321,7 +316,6 @@ def build_wsi_embeddings_cohort(
     return updated
 
 
-
 def ct_radiomics(
     state: Mapping[str, Any], *, output_root: str, config_dir: str
 ) -> Mapping[str, Any]:
@@ -364,7 +358,9 @@ def ct_radiomics(
                 )
             },
             "inputs": {
-                "ct": file_identity(ct_path) if Path(ct_path).is_file() else {"path": ct_path},
+                "ct": file_identity(ct_path)
+                if Path(ct_path).is_file()
+                else {"path": ct_path},
                 "mask": current_mask_identity,
             },
         }
@@ -414,7 +410,9 @@ def ct_radiomics(
     ]
     if str(radiomics_result.get("status", "") or "") == "failure":
         raise RuntimeError(errors[0] if errors else "CT radiomics failed.")
-    snapshot_path = Path(output_root) / "ct_radiomics" / f"{safe_identifier(case_id)}.json"
+    snapshot_path = (
+        Path(output_root) / "ct_radiomics" / f"{safe_identifier(case_id)}.json"
+    )
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     snapshot_payload = dict(snapshot.get("payload", {}) or {})
     snapshot_payload["cache_signature"] = current_radiomics_cache_signature
@@ -459,7 +457,9 @@ def save_modality_affinity_artifacts(
     candidate_dir = Path(output_root) / "candidate_subtype"
     candidate_dir.mkdir(parents=True, exist_ok=True)
     if set(modality_affinities) != {"ct", "wsi", "rna", "wxs"}:
-        raise ValueError("Candidate generation requires exactly CT, WSI, RNA, and WXS affinities")
+        raise ValueError(
+            "Candidate generation requires exactly CT, WSI, RNA, and WXS affinities"
+        )
     paths = {}
     for modality, matrix in modality_affinities.items():
         path = candidate_dir / f"{modality}_affinity.npy"
@@ -481,7 +481,9 @@ def filter_four_view_states(
     complete_states = []
     audit = {
         "pre_qc_count": len(patient_states),
-        "ct_wsi_pass_count": sum(state.get("qc") == "success" for state in patient_states),
+        "ct_wsi_pass_count": sum(
+            state.get("qc") == "success" for state in patient_states
+        ),
     }
     excluded = {}
     for state in patient_states:
@@ -495,7 +497,9 @@ def filter_four_view_states(
                 ("ct_evidence", "missing_ct_feature"),
                 ("wsi_evidence", "missing_wsi_embedding"),
             ):
-                if not Path(str(dict(state.get(bucket, {}) or {}).get("feature_path", ""))).is_file():
+                if not Path(
+                    str(dict(state.get(bucket, {}) or {}).get("feature_path", ""))
+                ).is_file():
                     reasons.add(reason)
         if reasons:
             updated["qc"] = "fail"
@@ -507,16 +511,22 @@ def filter_four_view_states(
             updated["missing_view_reason"] = []
             complete_states.append(updated)
         updated_states.append(updated)
-    audit.update({
-        "four_view_complete_count": len(complete_states),
-        **{f"excluded_{reason}": sorted(case_ids) for reason, case_ids in excluded.items()},
-    })
+    audit.update(
+        {
+            "four_view_complete_count": len(complete_states),
+            **{
+                f"excluded_{reason}": sorted(case_ids)
+                for reason, case_ids in excluded.items()
+            },
+        }
+    )
     return updated_states, complete_states, audit
 
 
 def build_evidence_states(
     patient_states: list[dict[str, Any]], *, output_root: str, config_dir: str = ""
 ) -> list[dict[str, Any]]:
+    from tools.evidence_features import build_modality_affinity_artifacts
     from tools.rna import build_rna_cohort_cache, rna_signature_extra
     from tools.wxs import build_wxs_artifacts, build_wxs_cohort_cache
     from utils.cache_utils import file_identity, hash_payload
@@ -533,11 +543,13 @@ def build_evidence_states(
     cohort_cases = []
     for state in eligible_states:
         inventory = dict(state["inventory"])
-        cohort_cases.append({
-            "Case_ID": str(state["case_id"]),
-            "RNA_Seq": list(inventory["RNA_Seq"]),
-            "WXS": list(inventory["WXS"]),
-        })
+        cohort_cases.append(
+            {
+                "Case_ID": str(state["case_id"]),
+                "RNA_Seq": list(inventory["RNA_Seq"]),
+                "WXS": list(inventory["WXS"]),
+            }
+        )
 
     rna_cache = build_rna_cohort_cache(
         cohort_cases, output_root=output_root, config_dir=config_dir
@@ -551,14 +563,20 @@ def build_evidence_states(
         extra=rna_signature_extra(config_dir),
     )
     for state in eligible_states:
-        state.setdefault("omics_evidence", {}).update({
-            "rna_feature_path": rna_cache["case_features_path"],
-            "rna_pathway_feature_path": rna_cache["pathway_features_path"],
-            "wxs_discovery_feature_path": wxs_artifacts["wxs_discovery_feature_path"],
-            "wxs_validation_feature_path": wxs_artifacts["wxs_validation_feature_path"],
-            "wxs_discovery_audit_path": wxs_artifacts["wxs_discovery_audit_path"],
-            "wxs_patient_order_path": wxs_artifacts["wxs_patient_order_path"],
-        })
+        state.setdefault("omics_evidence", {}).update(
+            {
+                "rna_feature_path": rna_cache["case_features_path"],
+                "rna_pathway_feature_path": rna_cache["pathway_features_path"],
+                "wxs_discovery_feature_path": wxs_artifacts[
+                    "wxs_discovery_feature_path"
+                ],
+                "wxs_validation_feature_path": wxs_artifacts[
+                    "wxs_validation_feature_path"
+                ],
+                "wxs_discovery_audit_path": wxs_artifacts["wxs_discovery_audit_path"],
+                "wxs_patient_order_path": wxs_artifacts["wxs_patient_order_path"],
+            }
+        )
 
     patient_ids = [str(state["case_id"]) for state in eligible_states]
     candidate_dir = Path(output_root) / "candidate_subtype"
@@ -572,27 +590,40 @@ def build_evidence_states(
     for _, path in collect_case_file_paths(cohort_cases, "RNA_Seq"):
         input_files.append(file_identity(path))
     input_files.extend(
-        file_identity(row["file_path"])
-        for row in wxs_cache["manifest"]["input_cases"]
+        file_identity(row["file_path"]) for row in wxs_cache["manifest"]["input_cases"]
     )
-    signature = hash_payload({
-        "cache_version": 7,
-        "patient_ids": patient_ids,
-        "input_files": input_files,
-        "rna_signature": rna_signature,
-        "wxs_signature": wxs_cache["signature"],
-        "wxs_affinity": file_identity(wxs_artifacts["wxs_affinity_path"]),
-        "snf": proposer_config["snf"],
-        "candidate_views": ["ct", "wsi", "rna", "wxs"],
-        "code": {
-            "evidence_builder.py": file_identity(__file__),
-            **{
-                name: file_identity(str(Path(__file__).resolve().parent.parent / "tools" / name))
-                for name in ("evidence_features.py", "ct_radiomics.py", "rna.py", "wsi_affinity.py", "wxs.py")
+    signature = hash_payload(
+        {
+            "cache_version": 7,
+            "patient_ids": patient_ids,
+            "input_files": input_files,
+            "rna_signature": rna_signature,
+            "wxs_signature": wxs_cache["signature"],
+            "wxs_affinity": file_identity(wxs_artifacts["wxs_affinity_path"]),
+            "snf": proposer_config["snf"],
+            "candidate_views": ["ct", "wsi", "rna", "wxs"],
+            "code": {
+                "evidence_builder.py": file_identity(__file__),
+                **{
+                    name: file_identity(
+                        str(Path(__file__).resolve().parent.parent / "tools" / name)
+                    )
+                    for name in (
+                        "evidence_features.py",
+                        "ct_radiomics.py",
+                        "rna.py",
+                        "wsi_affinity.py",
+                        "wxs.py",
+                    )
+                },
             },
-        },
-    })
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+        }
+    )
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.is_file()
+        else {}
+    )
     paths = dict(manifest.get("paths", {}))
     if (
         manifest.get("cache_signature") != signature
@@ -625,10 +656,16 @@ def build_evidence_states(
 
     for state in updated_states:
         if state.get("qc") == "success":
-            state.setdefault("omics_evidence", {}).update({
-                "modality_affinity_paths": paths,
-                "modality_affinity_cache_signature": signature,
-                "modality_affinity_patient_order_path": str(candidate_dir / "affinity_patient_order.json"),
-                "multimodal_audit_path": str(candidate_dir / "feature_engineering_audit.json"),
-            })
+            state.setdefault("omics_evidence", {}).update(
+                {
+                    "modality_affinity_paths": paths,
+                    "modality_affinity_cache_signature": signature,
+                    "modality_affinity_patient_order_path": str(
+                        candidate_dir / "affinity_patient_order.json"
+                    ),
+                    "multimodal_audit_path": str(
+                        candidate_dir / "feature_engineering_audit.json"
+                    ),
+                }
+            )
     return updated_states

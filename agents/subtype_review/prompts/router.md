@@ -13,9 +13,9 @@ Reason jointly over these four dimensions:
 - `confounder_exclusion`
 - `known_label_echo`
 
-They answer different scientific questions. They are not votes, scores, or a four-dimension checklist. Each current partition receives one mandatory partition-level structural screen before a Router scientific decision; this is a protocol step, not evidence for a split or merge. There is no predetermined acquisition order for the other evidence dimensions. Do not request evidence merely because a dimension is unassessed.
+They answer different scientific questions. They are not votes, scores, or a four-dimension checklist. Base scientific actions on the Verifier's Evidence Reports. Raw tool measurements and algorithmic screening candidates are inputs interpreted by the Verifier, not automatic action rules. Each current partition receives one mandatory partition-level structural screen as triage before a Router scientific decision; it may surface questions but does not itself establish a split or merge. There is no predetermined acquisition order for other evidence dimensions. Do not request evidence merely because a dimension is unassessed.
 
-`unassessed` means that the relevant Evidence Report has not been obtained. It is not evidence of support, contradiction, or absence of a problem. Use `evidence_coverage` and request only dimension/target combinations listed in `available_evidence_requests`. Each option's `available_aspects` lists the evidence types currently eligible for that exact scope and target; do not request an aspect that is not listed. A request is appropriate only when a specific unresolved question is material to the current decision, available evidence can address it, and the result could change the next action or its interpretation. Requests may cover different dimensions for the same set, multiple sets, or a partition-level question.
+`unassessed` means that the relevant Evidence Report has not been obtained. It is not evidence of support, contradiction, or absence of a problem. `available_evidence_requests` are options, not mandatory work items: do not request all available evidence or request evidence only because it is unassessed. Use `evidence_coverage` and request only listed dimension/scope/target combinations; each option's `available_aspects` lists eligible evidence types for that exact combination. Request evidence only when an unresolved question is decision-critical and the available evidence could plausibly change the action or its interpretation. Requests may cover different dimensions for the same set, multiple sets, or a partition-level question.
 
 For every scientific action, return `decision_state` with exactly these fields:
 
@@ -40,7 +40,7 @@ Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Re
 
 One modality provides a strong identity signal only when it is coherent and interpretable; do not require a fixed number of supporting modalities and do not treat modality count as a score.
 
-`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the four-view data. Interpret affinity-geometry concordance, fused structure, pair boundaries, and internal subdivision jointly. It does not require every modality to be equally strong. For subdivision, use targeted set diagnostics only when the screen suggests K>1; for merging, require targeted pair diagnostics with union candidate K=1 and affirmative weak-boundary evidence.
+`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the four-view data. Interpret affinity-geometry concordance, fused structure, pair boundaries, and internal subdivision jointly. It does not require every modality to be equally strong. The partition structural screen is triage: a screening candidate or a nearest pair does not establish a structural conclusion. Request targeted set or pair diagnostics when a structural question is material and resolving it could change the action. Do not require a set diagnostic merely because `screen_candidate_k > 1`, or forbid one when it is 1. Do not require union `candidate_k=1` for a pair assessment. Do not infer a structural action directly from silhouette signs, eigengap candidates, affinity comparisons, or any other raw metric.
 
 `confounder_exclusion` evaluates whether measured technical, acquisition, or site-related factors plausibly explain the signal defining the candidate. Technical association alone does not establish artifact.
 
@@ -50,9 +50,9 @@ One modality provides a strong identity signal only when it is coherent and inte
 
 Choose `accept` only when `identity=supported`, `structure=compatible`, `uncertainty=no`, and `alternative_explanation` is not `concerning`. The current partition's structural screen must have been interpreted, and no better-supported structural revision may be indicated. Absence of contradiction alone is not sufficient. An unassessed alternative explanation may remain only when it is not decision-critical.
 
-Choose `drop` when available evidence affirmatively argues against retaining the candidate, or when the candidate still lacks sufficient affirmative support after all eligible evidence relevant to its decision-critical uncertainty has been used. If such uncertainty remains and a related eligible evidence request is still available, request that evidence instead of dropping the candidate. Do not drop a candidate merely because the current evidence is incomplete when an available decision-relevant request could resolve the uncertainty.
+Choose `drop` when available evidence affirmatively argues against retaining the candidate, or when the candidate remains insufficiently defensible under the evidence obtained and no supported structural revision should be applied. If material uncertainty remains and an available request is reasonably expected to resolve or materially change it, request that evidence instead. If relevant evidence has been reasonably exhausted, or remaining options are not expected to change the decision, unresolved insufficient support may justify `drop`. Availability alone does not prohibit dropping.
 
-Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact target. Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact targets. Do not infer either action from unassessed or merely weak evidence.
+Choose `split` only when the Verifier's exact-set structural report says `supports_subdivision`; use its `suggested_k` exactly. Choose `merge` only when the Verifier's exact-pair structural report says `insufficiently_separated`. Do not invent universal cutoffs for silhouette, eigengap, affinity, p-values, q-values, effect sizes, or concordance. Do not infer either structural action directly from raw metrics, unassessed evidence, or merely weak evidence.
 
 When positive structural evidence directly supports an exact `split` or `merge`, prefer the supported structural revision over dropping the affected candidate(s) solely because the current representation is structurally incompatible.
 
@@ -97,7 +97,7 @@ Scientific action mode:
         "alternative_explanation": "unassessed",
         "uncertainty": "no"
       },
-      "reason": "C0001 has coherent identity evidence, and the mandatory partition structural screen found no material concern for retaining it for downstream validation. Alternative-explanation evidence remains unassessed and is not decision-critical."
+      "reason": "The Evidence Reports support a coherent identity and defensible current structure for discovery-stage retention. Alternative-explanation evidence remains unassessed and is not decision-critical."
     }
   ],
   "evidence_requests": []

@@ -108,7 +108,11 @@ def structural_diagnostics(
         values = np.linalg.eigvalsh((laplacian + laplacian.T) / 2)
         gaps = {k: float(values[k] - values[k - 1]) for k in range(1, max_k + 1) if k < len(values)}
         best = max(gaps, key=gaps.get) if gaps else None
-        return {"candidate_k": best, "eigengap": gaps.get(best) if best else None}
+        return {
+            "candidate_k": int(best) if best is not None else None,
+            "candidate_eigengap": gaps.get(best) if best is not None else None,
+            "eigengaps": {str(k): value for k, value in gaps.items()},
+        }
 
     set_members = {
         str(item["set_id"]): list(map(str, item["member_ids"]))
@@ -120,10 +124,13 @@ def structural_diagnostics(
             local = fused[np.ix_([index[item] for item in members], [index[item] for item in members])]
             upper = local[np.triu_indices(len(local), 1)]
             max_k = min(max_children, len(members) // min_size)
+            gaps = eigengap(local, max_k)
             internal[set_id] = {
                 "member_n": len(members),
                 "mean_within_affinity": float(upper.mean()) if len(upper) else None,
-                **eigengap(local, max_k),
+                "screen_candidate_k": gaps["candidate_k"],
+                "candidate_eigengap": gaps["candidate_eigengap"],
+                "eigengaps": gaps["eigengaps"],
             }
         boundaries = []
         for left, right in combinations(sorted(set_members), 2):
@@ -142,7 +149,7 @@ def structural_diagnostics(
         boundaries.sort(key=lambda row: (-row["mean_between_affinity"], row["target_ids"]))
         return tool_result("structural_diagnostics", {"partition": {
             "internal_structure": internal,
-            "merge_candidates": [row["target_ids"] for row in boundaries],
+            "nearest_pair_targets": [row["target_ids"] for row in boundaries],
             "nearest_pair_affinities": boundaries,
         }})
 
@@ -167,20 +174,12 @@ def structural_diagnostics(
                     "silhouette": float(silhouette_score(distance, labels, metric="precomputed")),
                     "child_sizes": sorted(map(int, sizes)),
                 }
-            candidate_k = spectrum["candidate_k"]
-            suggested = (
-                candidate_k
-                if candidate_k and candidate_k > 1
-                and str(candidate_k) in solutions
-                and solutions[str(candidate_k)]["silhouette"] > 0
-                else None
-            )
             output[key] = {
                 "member_n": len(case_ids),
                 "screen_candidate_k": spectrum["candidate_k"],
-                "eigengap": spectrum["eigengap"],
+                "candidate_eigengap": spectrum["candidate_eigengap"],
+                "eigengaps": spectrum["eigengaps"],
                 "solutions": solutions,
-                "suggested_k": int(suggested) if suggested else None,
             }
         else:
             left, right = (set_members[target] for target in target_ids)
@@ -204,11 +203,6 @@ def structural_diagnostics(
                 "mean_between_affinity": between_mean,
                 "boundary_silhouette": boundary_silhouette,
                 "union_eigengap": spectrum,
-                "merge_supported": bool(
-                    spectrum["candidate_k"] == 1
-                    and within_mean is not None and between_mean is not None
-                    and between_mean >= within_mean and boundary_silhouette <= 0
-                ),
             }
     return tool_result("structural_diagnostics", {scope: output})
 
@@ -694,7 +688,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "structural_diagnostics": {
         "aspect": "structural_diagnostics",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
-        "description": "Screen partition structure, assess a requested set for multi-child splits, or assess a requested pair boundary.",
+        "description": "Return partition triage measurements or requested set/pair structural measurements and feasible spectral solutions.",
         "function": structural_diagnostics,
     },
     "rna_pathway_enrichment": {
