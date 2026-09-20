@@ -16,6 +16,8 @@ Python executes the split or set union. Return no extra operations.
 
 Return exactly one valid JSON object matching RevisionPlan and no markdown:
 
+The top-level JSON object may contain only `split_plans`, `merge_plans`, and `rationale`. Do not add wrapper or response-format metadata fields.
+
 ```json
 {
   "split_plans": [],

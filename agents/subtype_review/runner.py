@@ -30,15 +30,28 @@ def run_subtype_review(
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = review_config["budget"]
+    runtime_trace_path = runtime_trace_path or str(Path(artifact_root) / "runtime_trace.jsonl")
     usage_tracker = LLMUsageTracker(Path(artifact_root) / "llm_requests.jsonl")
     runtime = {
         "patient_states_by_id": {str(key): dict(value) for key, value in patient_states_by_id.items()},
         "data_root": str(data_root),
         "config_dir": str(config_dir),
         "tool_registry": TOOL_REGISTRY,
-        "verifier_model": build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker),
-        "router_model": build_default_router(review_config, config_dir, usage_tracker=usage_tracker),
-        "reviser_model": build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker),
+        "verifier_model": build_default_verifier(
+            review_config, config_dir,
+            usage_tracker=usage_tracker,
+            runtime_trace_path=runtime_trace_path,
+        ),
+        "router_model": build_default_router(
+            review_config, config_dir,
+            usage_tracker=usage_tracker,
+            runtime_trace_path=runtime_trace_path,
+        ),
+        "reviser_model": build_default_reviser(
+            review_config, config_dir,
+            usage_tracker=usage_tracker,
+            runtime_trace_path=runtime_trace_path,
+        ),
         "runtime_trace_path": runtime_trace_path,
     }
     state = initial_review_state(candidate_sets)

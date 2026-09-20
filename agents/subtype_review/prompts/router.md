@@ -66,6 +66,8 @@ The reason must directly justify the selected action and must not state or imply
 
 Return exactly one JSON object and no markdown or commentary. Return exactly one mode:
 
+The top-level JSON object may contain only `actions` and `evidence_requests`. Do not emit wrapper or metadata fields such as `type`, `format`, `json_object`, `response`, or `schema`.
+
 Evidence acquisition mode:
 
 ```json

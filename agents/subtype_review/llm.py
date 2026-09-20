@@ -8,16 +8,27 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
 
+from pydantic import ValidationError
+
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
     RevisionPlan,
     RouterPlan,
 )
+from agents.subtype_review.runtime_trace import append_runtime_trace
 from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
 
 
 class LLMOutputLengthError(RuntimeError):
     pass
+
+
+def structured_role(schema: type) -> str:
+    return {
+        RouterPlan: "router",
+        RevisionPlan: "reviser",
+        EvidenceReportBatch: "verifier_audit",
+    }.get(schema, "structured")
 
 
 class LLMUsageTracker:
@@ -179,11 +190,17 @@ class JsonStructuredModel:
         schema: type,
         system_prompt: str,
         usage_tracker: LLMUsageTracker | None = None,
+        runtime_trace_path: str | Path | None = None,
     ):
         self.config = dict(llm_config)
         self.schema = schema
+        self.runtime_trace_path = Path(runtime_trace_path) if runtime_trace_path is not None else None
+        allowed_fields = ", ".join(sorted(self.schema.model_fields))
         self.prompt = (
-            f"{system_prompt.rstrip()}\n\nReturn exactly one valid JSON object."
+            f"{system_prompt.rstrip()}\n\n"
+            "Return exactly one valid JSON object.\n"
+            f"Allowed top-level JSON fields: {allowed_fields}.\n"
+            "Do not output any additional top-level wrapper fields."
         )
         self.usage_tracker = usage_tracker
         api_key_env = str(self.config.get("api_key_env", "") or "").strip()
@@ -204,29 +221,92 @@ class JsonStructuredModel:
         )
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-        messages = [
+        base_messages = [
             {"role": "system", "content": self.prompt},
             {"role": "user", "content": serialize_llm_payload(payload)},
         ]
-        request = {
-            "model": str(self.config["model_name"]),
-            "messages": messages,
-            "temperature": float(self.config.get("temperature", 0.0)),
-            "max_tokens": int(self.config["max_new_tokens"]),
-            "response_format": {"type": "json_object"},
-        }
-        extra_body = api_extra_body(self.config)
-        if extra_body:
-            request["extra_body"] = extra_body
-        if self.usage_tracker:
-            role = {RouterPlan: "router", RevisionPlan: "reviser", EvidenceReportBatch: "verifier_audit"}.get(self.schema, "structured")
-            self.usage_tracker.before_request(role=role, model=str(self.config["model_name"]), messages=messages)
-        response = self.client.chat.completions.create(**request)
-        if self.usage_tracker:
-            self.usage_tracker.record_response(response)
-        if getattr(response.choices[0], "finish_reason", None) == "length":
-            raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
-        return self.schema.model_validate(parse_json_content(response.choices[0].message.content)).model_dump()
+        messages = list(base_messages)
+        max_retries = int(self.config.get("structured_output_retries", 1))
+        role = structured_role(self.schema)
+
+        for attempt in range(max_retries + 1):
+            request = {
+                "model": str(self.config["model_name"]),
+                "messages": messages,
+                "temperature": float(self.config.get("temperature", 0.0)),
+                "max_tokens": int(self.config["max_new_tokens"]),
+                "response_format": {"type": "json_object"},
+            }
+            extra_body = api_extra_body(self.config)
+            if extra_body:
+                request["extra_body"] = extra_body
+            if self.usage_tracker:
+                request_role = role if attempt == 0 else f"{role}_schema_repair"
+                self.usage_tracker.before_request(
+                    role=request_role,
+                    model=str(self.config["model_name"]),
+                    messages=messages,
+                )
+            response = self.client.chat.completions.create(**request)
+            if self.usage_tracker:
+                self.usage_tracker.record_response(response)
+            if getattr(response.choices[0], "finish_reason", None) == "length":
+                raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
+
+            raw_content = response.choices[0].message.content
+            parsed = None
+            try:
+                parsed = parse_json_content(raw_content)
+                validated = self.schema.model_validate(parsed)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                validation_errors = (
+                    exc.errors()
+                    if isinstance(exc, ValidationError)
+                    else [{"type": "json_decode_error", "msg": str(exc)}]
+                )
+                append_runtime_trace(
+                    self.runtime_trace_path,
+                    node=role,
+                    event="structured_output_invalid",
+                    round_id=payload.get("round"),
+                    payload={
+                        "schema": self.schema.__name__,
+                        "attempt": attempt + 1,
+                        "raw_output": raw_content,
+                        "parsed_output": parsed,
+                        "validation_errors": validation_errors,
+                    },
+                )
+                if attempt >= max_retries:
+                    raise
+
+                repair_instruction = (
+                    "Your previous response was valid JSON or attempted JSON, but it did not satisfy "
+                    "the required output schema. The only allowed top-level fields are: "
+                    f"{sorted(self.schema.model_fields)}. Do not output wrapper fields such as 'type', "
+                    "'format', 'json_object', 'response', or 'schema'. Preserve the scientific decision "
+                    "and all substantive content from your previous response. Repair only the JSON/schema "
+                    "structure needed to satisfy the required schema. Return exactly one corrected JSON "
+                    "object and no commentary."
+                )
+                messages = [
+                    *base_messages,
+                    {"role": "assistant", "content": str(raw_content)},
+                    {"role": "user", "content": repair_instruction},
+                ]
+                continue
+
+            if attempt > 0:
+                append_runtime_trace(
+                    self.runtime_trace_path,
+                    node=role,
+                    event="structured_output_repaired",
+                    round_id=payload.get("round"),
+                    payload={"schema": self.schema.__name__, "attempt": attempt + 1},
+                )
+            return validated.model_dump()
+
+        raise RuntimeError("Unreachable structured-output state")
 
 
 class VerifierChatModel:
@@ -285,6 +365,7 @@ def build_default_verifier(
     config_dir: str | Path,
     *,
     usage_tracker: LLMUsageTracker | None = None,
+    runtime_trace_path: str | Path | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
     prompt = (prompt_dir(config, config_dir) / "verifier.md").read_text(encoding="utf-8")
@@ -313,7 +394,10 @@ def build_default_verifier(
         model_kwargs["extra_body"] = extra_body
     return VerifierChatModel(
         ChatOpenAI(**model_kwargs),
-        JsonStructuredModel(cfg, EvidenceReportBatch, prompt, usage_tracker),
+        JsonStructuredModel(
+            cfg, EvidenceReportBatch, prompt, usage_tracker,
+            runtime_trace_path=runtime_trace_path,
+        ),
         prompt, tools, usage_tracker,
     )
 
@@ -323,10 +407,14 @@ def build_default_router(
     config_dir: str | Path,
     *,
     usage_tracker: LLMUsageTracker | None = None,
+    runtime_trace_path: str | Path | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
     prompt = (prompt_dir(config, config_dir) / "router.md").read_text(encoding="utf-8")
-    return JsonStructuredModel(cfg, RouterPlan, prompt, usage_tracker)
+    return JsonStructuredModel(
+        cfg, RouterPlan, prompt, usage_tracker,
+        runtime_trace_path=runtime_trace_path,
+    )
 
 
 def build_default_reviser(
@@ -334,10 +422,14 @@ def build_default_reviser(
     config_dir: str | Path,
     *,
     usage_tracker: LLMUsageTracker | None = None,
+    runtime_trace_path: str | Path | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
     prompt = (prompt_dir(config, config_dir) / "reviser.md").read_text(encoding="utf-8")
-    return JsonStructuredModel(cfg, RevisionPlan, prompt, usage_tracker)
+    return JsonStructuredModel(
+        cfg, RevisionPlan, prompt, usage_tracker,
+        runtime_trace_path=runtime_trace_path,
+    )
 
 
 def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:

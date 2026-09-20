@@ -34,6 +34,8 @@ Do not infer prognosis, treatment response, causality, novelty, clinical utility
 
 Return exactly one valid JSON object and no markdown or extra text. Python validates provenance and attaches `tool_refs` and `metric_refs`; return both as empty arrays. Structural assessment fields follow the requested scope: set reports require `internal_structure_assessment`; only `supports_subdivision` has `suggested_k`. Pair reports require `pair_boundary_assessment`. Partition reports and non-structural reports leave all structural fields null.
 
+For audit mode, the top-level JSON object may contain only `reports`. Do not add wrapper or response-format metadata fields.
+
 ```json
 {
   "reports": [

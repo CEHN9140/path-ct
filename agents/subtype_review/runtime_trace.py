@@ -1,13 +1,28 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
 from utils.tool_utils import to_jsonable
 
 
-TRACE_VERSION = 1
+TRACE_VERSION = 2
+
+
+def strict_json_value(value: Any) -> Any:
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "NaN"
+        if math.isinf(value):
+            return "Infinity" if value > 0 else "-Infinity"
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): strict_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [strict_json_value(item) for item in value]
+    return value
 
 
 def append_runtime_trace(
@@ -34,7 +49,12 @@ def append_runtime_trace(
         row.update(to_jsonable(dict(payload)))
 
     with trace_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+        handle.write(json.dumps(
+            strict_json_value(to_jsonable(row)),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ) + "\n")
 
 
 def partition_snapshot(
