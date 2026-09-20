@@ -150,12 +150,23 @@ def run_pipeline(
         flush=True,
     )
 
-    review_patients = list(candidate_output.get("patient_states", patient_states))
     patient_states_by_id = {
-        str(item.get("case_id", item.get("Case_ID", ""))): dict(item)
-        for item in review_patients
-        if str(item.get("case_id", item.get("Case_ID", "")))
+        str(case_id): dict(state)
+        for case_id, state in candidate_output["patient_states_by_id"].items()
     }
+    candidate_patient_ids = {
+        str(member_id)
+        for partition in candidate_output["candidate_partitions"].values()
+        for candidate_set in partition
+        for member_id in candidate_set["member_ids"]
+    }
+    if set(patient_states_by_id) != candidate_patient_ids:
+        missing = sorted(candidate_patient_ids - set(patient_states_by_id))
+        extra = sorted(set(patient_states_by_id) - candidate_patient_ids)
+        raise ValueError(
+            "Agent patient states do not match the candidate cohort: "
+            f"missing={missing}, extra={extra}"
+        )
     review_grid = run_review_grid(
         candidate_output["candidate_partitions"],
         patient_states_by_id,

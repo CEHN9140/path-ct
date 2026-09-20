@@ -232,7 +232,9 @@ def candidate_proposer(
     return {
         "patient_states": updated_states,
         "patient_states_by_id": {
-            str(state["case_id"]): state for state in updated_states if state.get("case_id")
+            str(state["case_id"]): state
+            for state in updated_states
+            if state.get("case_id") and state.get("qc") == "success"
         },
         "candidate_partitions": candidate_partitions,
         "candidate_partition_paths": {int(k): str(path) for k, path in candidate_paths.items()},

@@ -220,8 +220,41 @@ def rna_pathway_enrichment(
     from statsmodels.stats.multitest import multipletests
     from utils.llm_utils import load_yaml_file
 
-    path = next(str(state["omics_evidence"]["rna_pathway_feature_path"]) for state in patient_states_by_id.values())
-    frame = pd.read_csv(path).set_index("case_id")
+    all_members = {
+        str(member) for item in all_cluster_states for member in item["member_ids"]
+    }
+    missing_states = sorted(all_members - set(patient_states_by_id))
+    if missing_states:
+        raise ValueError(f"RNA biological-support tool is missing patient states: {missing_states}")
+
+    rna_paths = set()
+    missing_paths = []
+    for case_id in sorted(all_members):
+        omics = dict(patient_states_by_id[case_id].get("omics_evidence", {}) or {})
+        path = str(omics.get("rna_pathway_feature_path", "") or "")
+        if path:
+            rna_paths.add(path)
+        else:
+            missing_paths.append(case_id)
+    if missing_paths:
+        raise ValueError(
+            "Candidate-cohort patient states are missing rna_pathway_feature_path: "
+            f"{missing_paths}"
+        )
+    if len(rna_paths) != 1:
+        raise ValueError(
+            "Candidate-cohort patient states must reference exactly one RNA pathway "
+            f"feature artifact, found: {sorted(rna_paths)}"
+        )
+
+    frame = pd.read_csv(next(iter(rna_paths))).set_index("case_id")
+    frame.index = frame.index.map(str)
+    missing_rna = sorted(all_members - set(frame.index))
+    if missing_rna:
+        raise ValueError(
+            "RNA pathway feature matrix does not cover the full candidate cohort: "
+            f"{missing_rna}"
+        )
     gene_settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["rna"]
     gene_sets_path = gene_settings["hallmark_gene_sets_path"]
     gene_sets = {}
@@ -231,11 +264,10 @@ def rna_pathway_enrichment(
             gene_sets[fields[0]] = set(fields[2:]) & set(frame.columns)
     min_overlap = int(gene_settings["min_pathway_overlap"])
     gene_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= min_overlap}
-    all_members = {str(member) for item in all_cluster_states for member in item["member_ids"]}
     results = {}
     for set_id in target_ids:
         members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
-        case_ids = sorted(all_members & set(frame.index))
+        case_ids = sorted(all_members)
         group = frame.loc[[case_id for case_id in case_ids if case_id in members]]
         rest = frame.loc[[case_id for case_id in case_ids if case_id not in members]]
         ranking = pd.DataFrame({
@@ -409,7 +441,6 @@ def known_label_echo(
     output_root: str,
     all_cluster_states: list[Mapping[str, Any]],
     config_dir: str,
-    data_root: str,
     scope: str,
     target_ids: list[str],
 ) -> dict[str, Any]:

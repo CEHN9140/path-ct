@@ -402,7 +402,6 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             patient_states_by_id=values["patient_states_by_id"],
             output_root=str(values["data_root"]),
             config_dir=str(values["config_dir"]),
-            data_root=str(values["data_root"]),
             all_cluster_states=current,
             scope=scope,
             target_ids=list(targets),
