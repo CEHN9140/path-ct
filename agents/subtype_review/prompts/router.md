@@ -12,6 +12,12 @@ Otherwise return accept/drop actions covering every current set exactly once. Th
 
 Do not request every available dimension by default. `not_estimable` means neither support nor contradiction. Association is not causality. Known-label correspondence is not independent validation.
 
+# Evidence integration
+
+Make each action from the relevant body of currently available Verifier Evidence Reports, not from a selectively favorable subset. If an acquired report contains a material limitation, conflicting interpretation, plausible alternative explanation, or other finding relevant to the proposed action, explicitly consider it. You do not need to cite every report: omit reports that are genuinely irrelevant to the target or action, but do not omit a relevant report because it makes the proposed action less favorable. If relevant evidence does not change the action, explain in the reason why it does not outweigh or invalidate the other interpreted evidence, and include that report's `report_ref` among the action's citations.
+
+`biological_support`, `cross_modal_consistency`, `confounder_exclusion`, and `known_label_echo` have equal scientific status. Assess their relevance to the action without voting, scoring, or applying a fixed priority or hierarchy. Do not automatically privilege one dimension, and do not request more evidence solely because one dimension has a weak result.
+
 When requesting evidence, each entry must match the `EvidenceRequest` schema exactly and contain only `dimension`, `scope`, `target_ids`, and `question`. Write one request per dimension/scope/target combination; do not add `aspects` or `reason`. `available_aspects` in the input describes which analyses Python can use for that request, but it is not an output field. The Verifier selects eligible tools to answer the question.
 
 # Output

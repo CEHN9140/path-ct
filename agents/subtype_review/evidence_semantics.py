@@ -35,8 +35,16 @@ METRIC_SEMANTICS = {
         "member_n": "Number of patients represented in the structural calculation.",
         "mean_within_affinity": "Average fused affinity among patients assigned to the same candidate set.",
         "mean_between_affinity": "Average fused affinity across the current pair boundary.",
-        "screen_candidate_k": "Algorithmic eigengap screening resolution; a triage candidate, not a split conclusion.",
-        "candidate_eigengap/eigengaps": "Eigengap magnitude and profile across candidate resolutions.",
+        "screen_candidate_k": (
+            "Algorithmic eigengap screening resolution. candidate_k=1 means the dominant gap is at the single-cluster resolution, so this screening calculation does not show a dominant multi-cluster subdivision signal. candidate_k>1 identifies a possible multi-cluster resolution for further interpretation, not evidence by itself that the set should be split."
+        ),
+        "candidate_eigengap/eigengaps": (
+            "Magnitude and profile of spectral eigengaps across candidate resolutions. "
+            "Interpret the dominant gap's location together with its magnitude. "
+            "A large leading gap at k=1 describes dominance of the single-cluster "
+            "resolution; do not describe it as evidence of internal multi-cluster "
+            "substructure."
+        ),
         "nearest_pair_targets/nearest_pair_affinities": "Relatively close candidate pairs and their between-set affinity; a pair-review entry point, not a merge conclusion.",
         "solutions[K].silhouette": "Relative separation of a feasible internal split in fused geometry.",
         "solutions[K].child_sizes": "Sizes and balance of children for a feasible split; feasibility is not scientific support.",
@@ -66,7 +74,7 @@ METRIC_SEMANTICS = {
 
 INTERPRETATION_REQUIREMENTS = {
     "biological_support": ["Integrate pathway or mutation direction, magnitude, coherence, sample availability, and multiplicity."],
-    "cross_modal_consistency": ["Distinguish geometry concordance from biological agreement; weak pair separation does not recommend merge, and feasible internal solutions do not recommend split."],
+    "cross_modal_consistency": ["Distinguish geometry concordance from biological agreement. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
     "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance."],
     "known_label_echo": ["Describe taxonomy correspondence conservatively; do not call it external validation."],
 }
