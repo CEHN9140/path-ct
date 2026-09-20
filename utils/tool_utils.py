@@ -7,7 +7,6 @@ import os
 import re
 import subprocess
 import warnings
-from multiprocessing import get_context
 from collections.abc import Mapping
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -51,41 +50,6 @@ def to_jsonable(value: Any) -> JSONValue:
     return repr(value)
 
 
-def semantic_execution_config(value: Any, key: str = "") -> JSONValue:
-    runtime_keys = {"devices", "workers_per_gpu"}
-    if isinstance(value, Mapping):
-        result = {
-            str(item_key): semantic_execution_config(item, str(item_key))
-            for item_key, item in value.items()
-            if str(item_key).lower() not in runtime_keys
-        }
-        if "devices" in value and "device" not in result:
-            devices = [str(item).strip().lower() for item in value["devices"]]
-            result["device"] = (
-                "cuda"
-                if devices and all(device.startswith(("cuda:", "gpu:")) for device in devices)
-                else semantic_execution_config(devices[0], "device")
-            )
-        return result
-    if isinstance(value, (list, tuple)):
-        item_key = "device" if key.lower() == "devices" else ""
-        return [semantic_execution_config(item, item_key) for item in value]
-    if key.lower() == "device":
-        device = str(value).strip().lower()
-        if (
-            device.isdigit()
-            or device == "gpu"
-            or re.fullmatch(r"(?:cuda|gpu):\d+", device)
-        ):
-            return "cuda"
-    return to_jsonable(value)
-
-
-def split_requests(requests: list[Any], worker_count: int) -> list[list[Any]]:
-    count = min(max(1, int(worker_count)), len(requests))
-    return [requests[index::count] for index in range(count)] if requests else []
-
-
 def split_device_requests(
     requests: list[Any], devices: list[str], *, workers_per_device: int
 ) -> tuple[list[dict[str, Any]], str | None]:
@@ -98,7 +62,14 @@ def split_device_requests(
     )
     if not cuda_devices and devices != ["cpu"]:
         raise ValueError("Devices must be CUDA devices or a single CPU device")
-    groups = split_requests(requests, len(devices) * int(workers_per_device))
+    worker_count = min(
+        max(1, len(devices) * int(workers_per_device)), len(requests)
+    )
+    groups = (
+        [requests[index::worker_count] for index in range(worker_count)]
+        if requests
+        else []
+    )
     assignments = []
     for position, group in enumerate(groups):
         device_index = position % len(devices)
@@ -142,88 +113,9 @@ def run_json_workers(
     return [int(process.wait()) for process in processes]
 
 
-def run_command(
-    command: list[str],
-    *,
-    env: Mapping[str, str] | None = None,
-    cwd: str | None = None,
-    input_text: str | None = None,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        env=dict(env) if env is not None else None,
-        cwd=cwd,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def run_function_workers(function, payloads: list[Mapping[str, Any]]) -> list[int]:
-    processes = [
-        get_context("spawn").Process(target=function, args=(payload,))
-        for payload in payloads
-    ]
-    for process in processes:
-        process.start()
-    for process in processes:
-        process.join()
-    return [int(process.exitcode or 0) for process in processes]
-
-
 def safe_identifier(value: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
     return safe or "artifact"
-
-
-def compact_metrics(metrics: dict[str, Any]) -> dict[str, JSONValue]:
-    compacted: dict[str, JSONValue] = {}
-    for key, value in metrics.items():
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
-            compacted[str(key)] = value
-            continue
-        if isinstance(value, float) and math.isfinite(value):
-            compacted[str(key)] = value
-    return compacted
-
-
-def compact_artifacts(artifacts: dict[str, Any]) -> dict[str, JSONValue]:
-    compacted: dict[str, JSONValue] = {}
-    for key, value in artifacts.items():
-        if isinstance(value, Path):
-            value = str(value)
-        if isinstance(value, str) and value.strip():
-            compacted[str(key)] = value
-    return compacted
-
-
-def compact_provenance(provenance: dict[str, Any]) -> dict[str, JSONValue]:
-    compacted: dict[str, JSONValue] = {}
-    for key, value in provenance.items():
-        if value is None:
-            continue
-        if isinstance(value, Path):
-            value = str(value)
-        if isinstance(value, (str, int, float, bool)):
-            if isinstance(value, str) and not value.strip():
-                continue
-            compacted[str(key)] = to_jsonable(value)
-    return compacted
-
-
-def compact_errors(errors: list[str] | None) -> list[str]:
-    compacted: list[str] = []
-    seen: set[str] = set()
-    for item in errors or []:
-        message = str(item).strip()
-        if not message or message in seen:
-            continue
-        seen.add(message)
-        compacted.append(message)
-    return compacted
 
 
 def save_snapshot(
@@ -254,13 +146,42 @@ def make_tool_result(
     normalized_status: ToolStatus = (
         "success" if str(status).strip().lower() == "success" else "failure"
     )
+    compacted_metrics = {
+        str(key): value
+        for key, value in metrics.items()
+        if not isinstance(value, bool)
+        and (
+            isinstance(value, int)
+            or (isinstance(value, float) and math.isfinite(value))
+        )
+    }
+    compacted_artifacts = {}
+    for key, value in artifacts.items():
+        value = str(value) if isinstance(value, Path) else value
+        if isinstance(value, str) and value.strip():
+            compacted_artifacts[str(key)] = value
+    compacted_provenance = {}
+    for key, value in provenance.items():
+        value = str(value) if isinstance(value, Path) else value
+        if value is None or not isinstance(value, (str, int, float, bool)):
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        compacted_provenance[str(key)] = to_jsonable(value)
+    compacted_errors = []
+    seen_errors = set()
+    for item in errors or []:
+        message = str(item).strip()
+        if message and message not in seen_errors:
+            seen_errors.add(message)
+            compacted_errors.append(message)
     result: ToolResult = {
         "tool_name": tool_name,
         "status": normalized_status,
-        "metrics": compact_metrics(metrics),
-        "artifacts": compact_artifacts(artifacts),
-        "provenance": compact_provenance(provenance),
-        "errors": compact_errors(errors),
+        "metrics": compacted_metrics,
+        "artifacts": compacted_artifacts,
+        "provenance": compacted_provenance,
+        "errors": compacted_errors,
     }
     saved_output_path = str(
         Path(output_root) / tool_name / f"{safe_identifier(identifier)}.json"

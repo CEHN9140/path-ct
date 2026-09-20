@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 EVIDENCE_DIMENSIONS = (
-    "biological_support",
     "cross_modal_consistency",
-    "confounder_exclusion",
+    "biological_support",
     "known_label_echo",
+    "confounder_exclusion",
 )
 
 
@@ -28,7 +27,7 @@ class EvidenceReport(BaseModel):
         "confounder_exclusion",
         "known_label_echo",
     ]
-    scope: Literal["set_identity", "partition"]
+    scope: Literal["set", "pair", "partition"]
     target_ids: list[str] = Field(default_factory=list)
     observations: list[EvidenceObservation] = Field(default_factory=list)
     statistical_interpretation: str = ""
@@ -36,6 +35,13 @@ class EvidenceReport(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     tool_refs: list[str] = Field(default_factory=list)
     metric_refs: list[str] = Field(default_factory=list)
+    internal_structure_assessment: Literal[
+        "supports_retention", "supports_subdivision", "uncertain"
+    ] | None = None
+    pair_boundary_assessment: Literal[
+        "well_separated", "insufficiently_separated", "uncertain"
+    ] | None = None
+    suggested_k: int | None = Field(default=None, ge=2)
 
     @field_validator("target_ids", "tool_refs", "metric_refs")
     @classmethod
@@ -44,10 +50,9 @@ class EvidenceReport(BaseModel):
 
     @model_validator(mode="after")
     def valid_scope(self) -> "EvidenceReport":
-        if self.scope == "partition" and self.target_ids:
-            raise ValueError("partition reports cannot target sets")
-        if self.scope == "set_identity" and not self.target_ids:
-            raise ValueError("set reports require target_ids")
+        expected = {"set": 1, "pair": 2, "partition": 0}[self.scope]
+        if len(self.target_ids) != expected:
+            raise ValueError(f"{self.scope} reports require exactly {expected} target_ids")
         return self
 
 
@@ -66,6 +71,7 @@ class EvidenceRequest(BaseModel):
         "confounder_exclusion",
         "known_label_echo",
     ]
+    scope: Literal["set", "pair", "partition"]
     target_ids: list[str] = Field(default_factory=list)
     question: str
 
@@ -81,6 +87,13 @@ class EvidenceRequest(BaseModel):
     @classmethod
     def unique_targets(cls, values: list[str]) -> list[str]:
         return sorted({str(value) for value in values if str(value)})
+
+    @model_validator(mode="after")
+    def valid_scope(self) -> "EvidenceRequest":
+        expected = {"set": 1, "pair": 2, "partition": 0}[self.scope]
+        if len(self.target_ids) != expected:
+            raise ValueError(f"{self.scope} requests require exactly {expected} target_ids")
+        return self
 
 
 class RouterDecisionState(BaseModel):
@@ -99,6 +112,7 @@ class RouterAction(BaseModel):
 
     action: Literal["accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
+    n_children: int | None = Field(default=None, ge=2)
     decision_state: RouterDecisionState
     reason: str = ""
 
@@ -113,6 +127,8 @@ class RouterAction(BaseModel):
             raise ValueError(f"{self.action} requires one target")
         if self.action == "merge" and len(self.target_ids) != 2:
             raise ValueError("merge requires exactly two targets")
+        if (self.action == "split") != (self.n_children is not None):
+            raise ValueError("n_children is required only for split actions")
         return self
 
 
@@ -169,10 +185,8 @@ class RevisionPlan(BaseModel):
 class ReviewContext(TypedDict, total=False):
     patient_states_by_id: dict[str, dict[str, Any]]
     data_root: str
-    artifact_root: str
     config_dir: str
     tool_registry: dict[str, dict[str, Any]]
-    active_modalities: tuple[str, ...]
     verifier_model: Any
     router_model: Any
     reviser_model: Any
@@ -180,32 +194,22 @@ class ReviewContext(TypedDict, total=False):
 
 class ReviewControl(TypedDict, total=False):
     round: int
-    failures: int
-    status: Literal["reviewing", "complete", "review_unavailable", "review_incomplete_due_to_round_budget"]
-    next: Literal["router", "verifier_acquire", "verifier_audit", "reviser", "end"]
-    error: str | None
+    status: Literal["reviewing", "complete"]
+    next: Literal["router", "verifier", "reviser", "end"]
     max_rounds: int
-    max_failures: int
     pending_evidence_requests: list[dict[str, Any]]
-    eligible_tools: dict[str, dict[str, Any]]
     trace: list[dict[str, Any]]
-    router_validation_error: str | None
-    router_correction_attempts: int
-    previous_invalid_plan: dict[str, Any] | None
-    history_index: int
-    revision_validation_error: str | None
-    failed_revision_plan_signatures: list[str]
     llm_usage: dict[str, int | float | None]
 
 
 class ReviewState(TypedDict, total=False):
-    """Sequential nodes overwrite these channels; messages are reset each evidence round."""
+    """Shared partition, evidence ledger, and run control."""
 
     partition: dict[str, Any]
     round_evidence: list[dict[str, Any]]
+    tool_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
     evidence_memory: dict[str, list[dict[str, Any]]]
-    messages: list[BaseMessage | dict[str, Any]]
     router_plan: dict[str, Any] | None
     revision_plan: dict[str, Any] | None
     revision_result: dict[str, Any] | None

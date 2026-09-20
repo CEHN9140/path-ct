@@ -23,7 +23,7 @@ from utils.tool_utils import (
     safe_identifier,
     save_snapshot,
 )
-from agents.inventory import missing_five_view_reasons
+from agents.inventory import missing_view_reasons
 
 
 WSI_EMBEDDING_RUNTIME_KEYS = {
@@ -341,8 +341,6 @@ def ct_radiomics(
     current_radiomics_config = load_yaml_file(
         Path(config_dir).expanduser() / "ct_radiomics.yaml"
     )
-    extraction_cache_config = dict(current_radiomics_config)
-    extraction_cache_config.pop("confound_correction", None)
     tumor_seg_bundle = load_tool_snapshot(
         output_root,
         "ct_tumor_seg",
@@ -352,7 +350,7 @@ def ct_radiomics(
     current_radiomics_cache_signature = hash_payload(
         {
             "cache_version": 1,
-            "semantic_config": extraction_cache_config,
+            "semantic_config": current_radiomics_config,
             "upstream": {
                 "ct_tumor_seg": str(
                     dict(tumor_seg_bundle.get("payload", {}) or {}).get(
@@ -368,24 +366,12 @@ def ct_radiomics(
             },
         }
     )
-    comparison_artifact_keys = []
-    for value in current_radiomics_config["ccc_comparison_bin_widths"]:
-        bin_width = float(value)
-        width_label = (
-            str(int(bin_width))
-            if bin_width.is_integer()
-            else str(bin_width).replace(".", "_")
-        )
-        comparison_artifact_keys.append(
-            f"features_bin_width_{width_label}_json_path"
-        )
     cached_bundle = load_tool_snapshot(
         output_root,
         "ct_radiomics",
         case_id,
         required_artifact_keys=[
             "features_json_path",
-            *comparison_artifact_keys,
         ],
     )
     cached_payload = (
@@ -463,32 +449,29 @@ def save_modality_affinity_artifacts(
     output_root: str,
     patient_ids: list[str],
     modality_affinities: Mapping[str, Any],
-    discovery_artifacts: Mapping[str, str],
     audit: Mapping[str, Any],
 ) -> dict[str, str]:
     import numpy as np
 
-    affinity_dir = Path(output_root) / "candidate_subtype"
-    affinity_dir.mkdir(parents=True, exist_ok=True)
-    (affinity_dir / "genomic_affinity.npy").unlink(missing_ok=True)
+    candidate_dir = Path(output_root) / "candidate_subtype"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    if set(modality_affinities) != {"ct", "wsi", "rna", "wxs"}:
+        raise ValueError("Candidate generation requires exactly CT, WSI, RNA, and WXS affinities")
     paths = {}
-    for modality in ("ct", "wsi", "rna"):
-        path = affinity_dir / f"{modality}_affinity.npy"
-        np.save(path, modality_affinities[modality])
+    for modality, matrix in modality_affinities.items():
+        path = candidate_dir / f"{modality}_affinity.npy"
+        np.save(path, np.asarray(matrix, dtype=float))
         paths[modality] = str(path)
-    wxs_path = Path(discovery_artifacts["wxs_affinity_path"])
-    cnv_path = Path(discovery_artifacts["cnv_affinity_path"])
-    order_path = Path(discovery_artifacts["wxs_patient_order_path"])
-    if not wxs_path.is_file() or not cnv_path.is_file() or json.loads(order_path.read_text(encoding="utf-8")) != patient_ids:
-        raise ValueError("WXS/CNV affinity artifacts do not match the evidence cohort.")
-    paths.update({"wxs": str(wxs_path), "cnv": str(cnv_path)})
-    (affinity_dir / "feature_engineering_audit.json").write_text(
+    (candidate_dir / "affinity_patient_order.json").write_text(
+        json.dumps(patient_ids, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (candidate_dir / "feature_engineering_audit.json").write_text(
         json.dumps(dict(audit), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return paths
 
 
-def filter_five_view_states(
+def filter_four_view_states(
     patient_states: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     updated_states = []
@@ -497,326 +480,152 @@ def filter_five_view_states(
         "pre_qc_count": len(patient_states),
         "ct_wsi_pass_count": sum(state.get("qc") == "success" for state in patient_states),
     }
-    for reason in (
-        "missing_ct",
-        "missing_wsi",
-        "missing_rna",
-        "missing_wxs",
-        "missing_cnv",
-        "missing_ct_feature",
-        "missing_wsi_embedding",
-        "ct_wsi_qc_failed",
-    ):
-        audit[f"excluded_{reason}"] = []
     excluded = {}
     for state in patient_states:
         updated = dict(state)
-        reasons = set(str(item) for item in list(state.get("missing_view_reason", []) or []))
+        reasons = set(map(str, state.get("missing_view_reason", [])))
         if state.get("qc") != "success":
-            if not reasons:
-                reasons.add("ct_wsi_qc_failed")
+            reasons.add("ct_wsi_qc_failed")
         else:
-            reasons.update(missing_five_view_reasons(dict(state.get("inventory", {}) or {})))
-            if not Path(str(dict(state.get("ct_evidence", {}) or {}).get("feature_path", "") or "")).is_file():
-                reasons.add("missing_ct_feature")
-            if not Path(str(dict(state.get("wsi_evidence", {}) or {}).get("feature_path", "") or "")).is_file():
-                reasons.add("missing_wsi_embedding")
+            reasons.update(missing_view_reasons(dict(state.get("inventory", {}) or {})))
+            for bucket, reason in (
+                ("ct_evidence", "missing_ct_feature"),
+                ("wsi_evidence", "missing_wsi_embedding"),
+            ):
+                if not Path(str(dict(state.get(bucket, {}) or {}).get("feature_path", ""))).is_file():
+                    reasons.add(reason)
         if reasons:
-            reason_list = sorted(reasons)
             updated["qc"] = "fail"
-            updated["missing_view_reason"] = reason_list
-            case_id = str(updated.get("case_id", "") or dict(updated.get("inventory", {}) or {}).get("Case_ID", ""))
-            for reason in reason_list:
+            updated["missing_view_reason"] = sorted(reasons)
+            case_id = str(updated.get("case_id", ""))
+            for reason in reasons:
                 excluded.setdefault(reason, []).append(case_id)
         else:
+            updated["missing_view_reason"] = []
             complete_states.append(updated)
         updated_states.append(updated)
-    audit.update(
-        {
-            "five_view_complete_count": len(complete_states),
-            **{f"excluded_{reason}": sorted(case_ids) for reason, case_ids in excluded.items()},
-        }
-    )
+    audit.update({
+        "four_view_complete_count": len(complete_states),
+        **{f"excluded_{reason}": sorted(case_ids) for reason, case_ids in excluded.items()},
+    })
     return updated_states, complete_states, audit
 
 
 def build_evidence_states(
     patient_states: list[dict[str, Any]], *, output_root: str, config_dir: str = ""
 ) -> list[dict[str, Any]]:
-    from tools.rna import (
-        build_rna_cohort_cache,
-        rna_signature_extra,
-        run_case_rna_features,
-    )
-    from tools.wxs import (
-        build_cnv_cohort_cache,
-        build_wxs_cnv_artifacts,
-        build_wxs_cohort_cache,
-        run_case_cnv_features,
-    )
+    from tools.rna import build_rna_cohort_cache, rna_signature_extra
+    from tools.wxs import build_wxs_artifacts, build_wxs_cohort_cache
+    from utils.cache_utils import file_identity, hash_payload
+    from utils.llm_utils import load_candidate_proposer_config
+    from utils.omics_utils import build_cohort_signature, collect_case_file_paths
 
-    patient_states, complete_states, cohort_audit = filter_five_view_states(patient_states)
+    updated_states, eligible_states, audit = filter_four_view_states(patient_states)
     Path(output_root).mkdir(parents=True, exist_ok=True)
-    (Path(output_root) / "five_view_cohort_audit.json").write_text(
-        json.dumps(cohort_audit, ensure_ascii=False, indent=2), encoding="utf-8"
+    (Path(output_root) / "four_view_cohort_audit.json").write_text(
+        json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if not eligible_states:
+        raise ValueError("No patients passed four-view QC and feature availability")
     cohort_cases = []
-    for patient_state in complete_states:
-        inventory = dict(patient_state.get("inventory", {}) or {})
-        cohort_cases.append(
-            {
-                "Case_ID": str(
-                    patient_state.get("case_id", "") or inventory.get("Case_ID", "")
-                ),
-                "RNA_Seq": list(inventory.get("RNA_Seq") or []),
-                "WXS": list(inventory.get("WXS") or []),
-                "CNV": list(inventory.get("CNV") or []),
-                "Clinical": dict(inventory.get("Clinical") or {}),
-            }
-        )
-    if not cohort_cases:
-        return [dict(patient_state) for patient_state in patient_states]
+    for state in eligible_states:
+        inventory = dict(state["inventory"])
+        cohort_cases.append({
+            "Case_ID": str(state["case_id"]),
+            "RNA_Seq": list(inventory["RNA_Seq"]),
+            "WXS": list(inventory["WXS"]),
+        })
 
-    build_rna_cohort_cache(cohort_cases, output_root=output_root, config_dir=config_dir)
-    wxs_cache = build_wxs_cohort_cache(
-        cohort_cases, output_root=output_root
-    )
-    cnv_cache = build_cnv_cohort_cache(
+    rna_cache = build_rna_cohort_cache(
         cohort_cases, output_root=output_root, config_dir=config_dir
     )
-    discovery_artifacts = build_wxs_cnv_artifacts(
-        wxs_cache,
-        cnv_cache,
-        cohort_cases,
-        output_root=output_root,
-        config_dir=config_dir,
+    wxs_cache = build_wxs_cohort_cache(cohort_cases, output_root=output_root)
+    wxs_artifacts = build_wxs_artifacts(
+        wxs_cache, cohort_cases, output_root=output_root, config_dir=config_dir
     )
     rna_signature = build_cohort_signature(
         collect_case_file_paths(cohort_cases, "RNA_Seq"),
         extra=rna_signature_extra(config_dir),
     )
-    cnv_signature = str(cnv_cache.get("signature", "") or "")
-    updated_states = []
-    for patient_state in patient_states:
-        updated = dict(patient_state)
-        if updated.get("qc") != "success":
-            updated_states.append(updated)
-            continue
-        case_id = str(updated.get("case_id", "") or "unknown_case")
-        cached_rna = load_tool_snapshot(
-            output_root,
-            "rna",
-            case_id,
-            required_artifact_keys=[
-                "case_features_path",
-                "pathway_features_path",
-                "top_genes_path",
-                "manifest_path",
-            ],
-        )
-        rna_provenance = (
-            dict(
-                dict(cached_rna.get("tool_result", {}) or {}).get("provenance", {})
-                or {}
-            )
-            if cached_rna is not None
-            else {}
-        )
-        if str(rna_provenance.get("signature", "") or "") == rna_signature:
-            announce_tool_action(
-                "evidence_builder", case_id, "Reuse cached tool `rna`."
-            )
-            rna_bundle = cached_rna
-        else:
-            announce_tool_action("evidence_builder", case_id, "Call tool `rna`.")
-            rna_bundle = run_case_rna_features(
-                case_id=case_id,
-                cohort_cases=cohort_cases,
-                output_root=output_root,
-                config_dir=config_dir,
-            )
-        updated = add_omics_result(
-            updated,
-            evidence_key="rna_seq",
-            result_bundle=rna_bundle,
-            node="evidence_builder",
-        )
-
-        updated.setdefault("omics_evidence", {})
-        updated["omics_evidence"].update(discovery_artifacts)
-        cached_cnv = load_tool_snapshot(
-            output_root,
-            "cnv",
-            case_id,
-            required_artifact_keys=["case_features_path", "manifest_path"],
-        )
-        cnv_provenance = (
-            dict(
-                dict(cached_cnv.get("tool_result", {}) or {}).get("provenance", {})
-                or {}
-            )
-            if cached_cnv is not None
-            else {}
-        )
-        if str(cnv_provenance.get("signature", "") or "") == cnv_signature:
-            announce_tool_action(
-                "evidence_builder", case_id, "Reuse cached tool `cnv`."
-            )
-            cnv_bundle = cached_cnv
-        else:
-            announce_tool_action("evidence_builder", case_id, "Call tool `cnv`.")
-            cnv_bundle = run_case_cnv_features(
-                case_id=case_id,
-                cohort_cases=cohort_cases,
-                output_root=output_root,
-                config_dir=config_dir,
-            )
-        updated_states.append(
-            add_omics_result(
-                updated,
-                evidence_key="cnv",
-                result_bundle=cnv_bundle,
-                node="evidence_builder",
-            )
-        )
-    eligible_states = [state for state in updated_states if state.get("qc") == "success"]
-    if not eligible_states:
-        return updated_states
-    patient_ids = [str(state.get("case_id", "")) for state in eligible_states]
-    affinity_dir = Path(output_root) / "candidate_subtype"
-    affinity_manifest_path = affinity_dir / "affinity_cache.json"
-    config_path = Path(config_dir).expanduser() if config_dir else Path("configs")
-    snf_config = load_candidate_proposer_config(config_path)["snf"]
-    ct_radiomics_config = load_yaml_file(config_path / "ct_radiomics.yaml")
-    correction_config = dict(
-        ct_radiomics_config.get("confound_correction", {}) or {}
-    )
-    confound_fields = (
-        list(correction_config.get("fields") or [])
-        if bool(correction_config.get("enabled", True))
-        else []
-    )
-    from tools.confound import confounder_values
-
-    current_confounders = confounder_values(
-        {
-            str(state.get("case_id", "")): state
-            for state in eligible_states
-        },
-        output_root,
-    )
-    ct_confounders = {
-        case_id: {
-            field: dict(current_confounders.get(case_id, {}) or {}).get(field, "")
-            for field in confound_fields
-        }
-        for case_id in patient_ids
-    }
-    upstream_inputs = []
     for state in eligible_states:
-        for bucket_name in ("ct_evidence", "wsi_evidence", "omics_evidence"):
-            for key, value in dict(state.get(bucket_name, {}) or {}).items():
-                candidates = value.values() if isinstance(value, Mapping) else [value]
-                for candidate in candidates:
-                    if not isinstance(candidate, str) or not candidate:
-                        continue
-                    path = Path(candidate)
-                    if path.is_file():
-                        upstream_inputs.append(
-                            {
-                                "case_id": str(state.get("case_id", "")),
-                                "bucket": bucket_name,
-                                "key": key,
-                                "file": file_identity(candidate),
-                            }
-                        )
-    for key, value in discovery_artifacts.items():
-        if not isinstance(value, str) or not value:
-            continue
-        path = Path(value)
-        if path.is_file():
-            upstream_inputs.append({"key": key, "file": file_identity(value)})
-    affinity_cache_signature = hash_payload(
-        {
-            "cache_version": 4,
-            "patient_ids": patient_ids,
-            "semantic_config": {
-                "snf": snf_config,
-                "ct_affinity": {
-                    "ccc_threshold": ct_radiomics_config["ccc_threshold"],
-                    "ccc_comparison_bin_widths": ct_radiomics_config[
-                        "ccc_comparison_bin_widths"
-                    ],
-                    "confound_correction": correction_config,
-                },
-                "candidate_views": ["ct", "wsi", "rna", "wxs", "cnv"],
-            },
-            "ct_confounders": ct_confounders,
-            "code": {
-                name: file_identity(str(Path(__file__).resolve().parent.parent / "tools" / name))
-                for name in (
-                    "evidence_features.py",
-                    "ct_radiomics.py",
-                    "rna.py",
-                    "wsi_affinity.py",
-                    "wxs.py",
-                )
-            },
-            "upstream_inputs": sorted(
-                upstream_inputs, key=lambda item: json.dumps(item, sort_keys=True)
-            ),
-        }
-    )
-    affinity_paths = {}
-    affinity_manifest = {}
-    if affinity_manifest_path.is_file():
-        affinity_manifest = json.loads(
-            affinity_manifest_path.read_text(encoding="utf-8")
-        )
-    cached_paths = dict(affinity_manifest.get("paths", {}) or {})
-    if (
-        affinity_manifest.get("cache_signature") == affinity_cache_signature
-        and set(cached_paths) == {"ct", "wsi", "rna", "wxs", "cnv"}
-        and all(Path(path).is_file() for path in cached_paths.values())
-        and (affinity_dir / "feature_engineering_audit.json").is_file()
-    ):
-        affinity_paths = cached_paths
-    else:
-        from tools.evidence_features import build_modality_affinity_artifacts
+        state.setdefault("omics_evidence", {}).update({
+            "rna_feature_path": rna_cache["case_features_path"],
+            "rna_pathway_feature_path": rna_cache["pathway_features_path"],
+            "wxs_discovery_feature_path": wxs_artifacts["wxs_discovery_feature_path"],
+            "wxs_validation_feature_path": wxs_artifacts["wxs_validation_feature_path"],
+            "wxs_discovery_audit_path": wxs_artifacts["wxs_discovery_audit_path"],
+            "wxs_patient_order_path": wxs_artifacts["wxs_patient_order_path"],
+        })
 
-        feature_payload = build_modality_affinity_artifacts(
+    patient_ids = [str(state["case_id"]) for state in eligible_states]
+    candidate_dir = Path(output_root) / "candidate_subtype"
+    manifest_path = candidate_dir / "affinity_cache.json"
+    config_path = Path(config_dir or "configs")
+    proposer_config = load_candidate_proposer_config(config_path)
+    input_files = []
+    for state in eligible_states:
+        for bucket in ("ct_evidence", "wsi_evidence"):
+            input_files.append(file_identity(str(state[bucket]["feature_path"])))
+    for _, path in collect_case_file_paths(cohort_cases, "RNA_Seq"):
+        input_files.append(file_identity(path))
+    input_files.extend(
+        file_identity(row["file_path"])
+        for row in wxs_cache["manifest"]["input_cases"]
+    )
+    signature = hash_payload({
+        "cache_version": 7,
+        "patient_ids": patient_ids,
+        "input_files": input_files,
+        "rna_signature": rna_signature,
+        "wxs_signature": wxs_cache["signature"],
+        "wxs_affinity": file_identity(wxs_artifacts["wxs_affinity_path"]),
+        "snf": proposer_config["snf"],
+        "candidate_views": ["ct", "wsi", "rna", "wxs"],
+        "code": {
+            "evidence_builder.py": file_identity(__file__),
+            **{
+                name: file_identity(str(Path(__file__).resolve().parent.parent / "tools" / name))
+                for name in ("evidence_features.py", "ct_radiomics.py", "rna.py", "wsi_affinity.py", "wxs.py")
+            },
+        },
+    })
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+    paths = dict(manifest.get("paths", {}))
+    if (
+        manifest.get("cache_signature") != signature
+        or manifest.get("patient_ids") != patient_ids
+        or set(paths) != {"ct", "wsi", "rna", "wxs"}
+        or not all(Path(path).is_file() for path in paths.values())
+        or not (candidate_dir / "feature_engineering_audit.json").is_file()
+    ):
+        features = build_modality_affinity_artifacts(
             eligible_states,
-            config_dir=config_dir,
             output_root=output_root,
-            discovery_artifacts=discovery_artifacts,
+            config_dir=config_dir,
+            discovery_artifacts=wxs_artifacts,
         )
-        affinity_paths = save_modality_affinity_artifacts(
+        paths = save_modality_affinity_artifacts(
             output_root=output_root,
             patient_ids=patient_ids,
-            modality_affinities=feature_payload["modality_affinities"],
-            discovery_artifacts=discovery_artifacts,
-            audit=feature_payload.get("audit", {}),
+            modality_affinities=features["modality_affinities"],
+            audit=features["audit"],
         )
-        affinity_manifest = {
-            "cache_version": 4,
-            "cache_signature": affinity_cache_signature,
+        manifest = {
+            "cache_version": 7,
+            "cache_signature": signature,
             "patient_ids": patient_ids,
-            "paths": affinity_paths,
+            "paths": paths,
         }
-        affinity_manifest_path.write_text(
-            json.dumps(affinity_manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-    affinity_dir = Path(output_root) / "candidate_subtype"
-    audit_path = affinity_dir / "feature_engineering_audit.json"
-    patient_order_path = Path(discovery_artifacts["wxs_patient_order_path"])
+
     for state in updated_states:
         if state.get("qc") == "success":
             state.setdefault("omics_evidence", {}).update({
-                "modality_affinity_paths": affinity_paths,
-                "multimodal_audit_path": str(audit_path),
-                "modality_affinity_patient_order_path": str(patient_order_path),
-                "modality_affinity_cache_signature": affinity_cache_signature,
-                "modality_affinity_cache_path": str(affinity_manifest_path),
+                "modality_affinity_paths": paths,
+                "modality_affinity_cache_signature": signature,
+                "modality_affinity_patient_order_path": str(candidate_dir / "affinity_patient_order.json"),
+                "multimodal_audit_path": str(candidate_dir / "feature_engineering_audit.json"),
             })
     return updated_states

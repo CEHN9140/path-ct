@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 import json
+import os
+from multiprocessing import get_context
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -9,7 +10,6 @@ import yaml
 
 from utils.tool_utils import (
     make_tool_result,
-    run_function_workers,
     safe_identifier,
     split_device_requests,
 )
@@ -162,7 +162,15 @@ def run_ct_tumor_seg_cohort(
         }
         for assignment in assignments
     ]
-    exit_codes = run_function_workers(run_nnunet_cohort_worker, payloads)
+    processes = [
+        get_context("spawn").Process(target=run_nnunet_cohort_worker, args=(payload,))
+        for payload in payloads
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join()
+    exit_codes = [int(process.exitcode) for process in processes]
     if any(exit_codes):
         raise RuntimeError(f"nnUNet cohort workers failed: exit_codes={exit_codes}")
 

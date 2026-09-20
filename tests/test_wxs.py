@@ -8,19 +8,18 @@ import pytest
 from tools.wxs import (
     binary_mutation_distance,
     collect_wxs_file_paths,
-    load_complete_cnv_matrix,
     read_wxs_mutations,
 )
 from utils.omics_utils import collect_case_file_paths
 
 
-def test_binary_mutation_distance_uses_zero_for_two_empty_vectors():
-    distance = binary_mutation_distance(np.array([[0, 0, 0], [0, 0, 0]]), 0.0)
-    assert distance[0, 1] == 0.0
+def test_binary_mutation_distance_uses_configured_distance_for_two_empty_vectors():
+    distance = binary_mutation_distance(np.array([[0, 0, 0], [0, 0, 0]]), 1.0)
+    assert distance[0, 1] == 1.0
 
 
 def test_binary_mutation_distance_keeps_standard_jaccard_for_nonempty_pairs():
-    distance = binary_mutation_distance(np.array([[1, 0, 0], [0, 0, 0], [1, 1, 0]]), 0.0)
+    distance = binary_mutation_distance(np.array([[1, 0, 0], [0, 0, 0], [1, 1, 0]]), 1.0)
     assert distance[0, 1] == 1.0
     assert distance[0, 2] == 0.5
 
@@ -36,22 +35,6 @@ def test_wxs_manifest_must_cover_every_target_patient(tmp_path):
 
     with pytest.raises(ValueError, match="missing target patients: B"):
         read_wxs_mutations(manifest, ["A", "B"])
-
-
-def test_cnv_matrix_must_cover_every_target_patient(tmp_path):
-    path = tmp_path / "cnv.csv"
-    pd.DataFrame([{"case_id": "A", "feature": 0.1}]).to_csv(path, index=False)
-
-    with pytest.raises(ValueError, match="missing target patients: B"):
-        load_complete_cnv_matrix(path, ["A", "B"])
-
-
-def test_cnv_matrix_rejects_nonfinite_values(tmp_path):
-    path = tmp_path / "cnv.csv"
-    pd.DataFrame([{"case_id": "A", "feature": np.nan}]).to_csv(path, index=False)
-
-    with pytest.raises(ValueError, match="non-finite"):
-        load_complete_cnv_matrix(path, ["A"])
 
 
 def test_wxs_selects_highest_depth_aliquot(tmp_path):

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
-from functools import cached_property
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
-
-from langchain_core.messages import AIMessage, convert_to_openai_messages
 
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
@@ -16,11 +14,6 @@ from agents.subtype_review.schemas import (
     RouterPlan,
 )
 from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
-from utils.llm_utils import (
-    LocalLLMClient,
-    extract_json_object,
-    resolve_api_key,
-)
 
 
 class LLMOutputLengthError(RuntimeError):
@@ -162,66 +155,14 @@ def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path)
 def parse_json_content(content: Any) -> dict[str, Any]:
     if isinstance(content, Mapping):
         return dict(content)
-    parsed = extract_json_object(str(content or ""))
-    if not isinstance(parsed, dict) or parsed.get("_parse_error"):
-        raise RuntimeError("LLM returned invalid JSON object")
-    return parsed
-
-
-def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return [
-        dict(message) if isinstance(message, Mapping) else convert_to_openai_messages(message)
-        for message in [
-            *(payload.get("message_history", []) or []),
-            *(payload.get("tool_messages", []) or []),
-        ]
-    ]
-
-
-def audit_tool_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    payloads = []
-    for message in messages:
-        normalized = dict(message) if isinstance(message, Mapping) else convert_to_openai_messages(message)
-        if normalized.get("role") != "tool":
-            continue
-        content = normalized.get("content", {})
-        payload = content if isinstance(content, Mapping) else json.loads(str(content))
-        if not isinstance(payload, Mapping):
-            raise ValueError("ToolMessage content must be a JSON object")
-        payloads.append(dict(payload))
-    return payloads
-
-
-def verifier_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep scientific values intact; local provenance is attached/validated by Python."""
-    request = dict(payload)
-    for key in ("current_evidence", "prior_reports"):
-        if key in request:
-            request[key] = [{k: v for k, v in row.items() if k != "metric_refs"}
-                            for row in request[key]]
-    if request.get("mode") == "audit":
-        rows = [{k: v for k, v in row.items()
-                 if k not in {"metric_refs", "artifact_paths", "partition_signature"}}
-                for row in request.get("round_evidence", [])]
-        request["round_evidence"] = sorted(rows, key=lambda row: (
-            row.get("tool_name", ""), tuple(row.get("target_ids", []))
-        ))
-        messages = audit_tool_messages(list(request.pop("tool_messages", []) or []))
-        # Drop a tool message only when every field is already in canonical evidence.
-        unique_messages = [msg for msg in messages if not any(
-            all(key in row and row[key] == value for key, value in msg.items()) for row in rows
-        )]
-        if unique_messages:
-            request["tool_messages"] = unique_messages
-        request.pop("message_history", None)
-    return request
+    return json.loads(str(content))
 
 
 def serialize_llm_payload(payload: Mapping[str, Any]) -> str:
     """Stable data precedes changing instructions; list order and values are preserved."""
     stable = (
-        "partition", "round_evidence", "raw_structural_metrics", "available_metric_refs",
-        "structural_index", "evidence_reports", "current_evidence", "prior_reports",
+        "partition", "round_evidence", "available_metric_refs", "evidence_reports",
+        "current_evidence", "prior_reports",
     )
     keys = [key for key in stable if key in payload] + sorted(set(payload) - set(stable))
     return "{" + ",".join(
@@ -244,25 +185,28 @@ class JsonStructuredModel:
             f"{system_prompt.rstrip()}\n\nReturn exactly one valid JSON object."
         )
         self.usage_tracker = usage_tracker
-
-    @cached_property
-    def client(self) -> Any:
+        api_key_env = str(self.config.get("api_key_env", "") or "").strip()
+        if not api_key_env:
+            raise ValueError(
+                "llm.api_key_env must name the API key environment variable"
+            )
+        api_key = str(os.environ.get(api_key_env, "") or "").strip()
+        if not api_key:
+            raise RuntimeError(
+                f"Required API key environment variable is unset: {api_key_env}"
+            )
         from openai import OpenAI
-
-        return OpenAI(
-            api_key=resolve_api_key(self.config),
+        self.client = OpenAI(
+            api_key=api_key,
             base_url=str(self.config["base_url"]),
             timeout=float(self.config.get("timeout", 120)),
         )
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-        client = self.client
         messages = [
             {"role": "system", "content": self.prompt},
             {"role": "user", "content": serialize_llm_payload(payload)},
         ]
-        attempts = int(self.config.get("json_retries", 1) or 1) + 1
-        last_error = ""
         request = {
             "model": str(self.config["model_name"]),
             "messages": messages,
@@ -273,65 +217,15 @@ class JsonStructuredModel:
         extra_body = api_extra_body(self.config)
         if extra_body:
             request["extra_body"] = extra_body
-        for _ in range(attempts):
-            content = None
-            if self.usage_tracker:
-                self.usage_tracker.before_request(
-                    role={RouterPlan: "router", RevisionPlan: "reviser", EvidenceReportBatch: "verifier_audit"}.get(self.schema, "structured"),
-                    model=str(self.config["model_name"]), messages=messages,
-                )
-            try:
-                response = client.chat.completions.create(**request)
-                if self.usage_tracker:
-                    self.usage_tracker.record_response(response)
-                if getattr(response.choices[0], "finish_reason", None) == "length":
-                    raise LLMOutputLengthError(
-                        "LLM output reached max_new_tokens before completing JSON"
-                    )
-                content = response.choices[0].message.content
-                return self.schema.model_validate(parse_json_content(content)).model_dump()
-            except LLMOutputLengthError:
-                raise
-            except Exception as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                if content is not None:
-                    messages.extend(
-                        [
-                            {"role": "assistant", "content": str(content)},
-                            {
-                                "role": "user",
-                                "content": f"Return corrected JSON only. Error: {last_error[:2000]}",
-                            },
-                        ]
-                    )
-        raise RuntimeError(last_error)
-
-
-class LocalStructuredModel:
-    def __init__(
-        self,
-        config: dict[str, Any],
-        schema: type,
-        system_prompt: str,
-        usage_tracker: LLMUsageTracker | None = None,
-    ):
-        self.client = LocalLLMClient({**config, "api_key": resolve_api_key(config)})
-        self.schema = schema
-        self.prompt = system_prompt
-        self.usage_tracker = usage_tracker
-
-    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self.usage_tracker:
-            self.usage_tracker.before_request()
-        response = self.client.chat(
-            [
-                {"role": "system", "content": self.prompt},
-                {"role": "user", "content": serialize_llm_payload(payload)},
-            ]
-        )
+            role = {RouterPlan: "router", RevisionPlan: "reviser", EvidenceReportBatch: "verifier_audit"}.get(self.schema, "structured")
+            self.usage_tracker.before_request(role=role, model=str(self.config["model_name"]), messages=messages)
+        response = self.client.chat.completions.create(**request)
         if self.usage_tracker:
             self.usage_tracker.record_response(response)
-        return self.schema.model_validate(parse_json_content(response.get("content"))).model_dump()
+        if getattr(response.choices[0], "finish_reason", None) == "length":
+            raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
+        return self.schema.model_validate(parse_json_content(response.choices[0].message.content)).model_dump()
 
 
 class VerifierChatModel:
@@ -350,21 +244,16 @@ class VerifierChatModel:
         self.usage_tracker = usage_tracker
 
     def invoke(self, payload: dict[str, Any]) -> Any:
-        request = verifier_payload(payload)
-        mode = str(request.get("mode", "audit"))
+        mode = payload["mode"]
         if mode == "acquire":
-            history = message_history(request)
-            request.pop("message_history", None)
-            request.pop("tool_messages", None)
-            tool_names = [str(name) for name in request.get("eligible_tools", {})]
+            tool_names = sorted(payload["eligible_tools"])
             model = self.acquire_model.bind_tools(
-                [self.tools[name] for name in sorted(set(tool_names))],
+                [self.tools[name] for name in tool_names],
                 tool_choice="auto",
             )
             messages = [
                 {"role": "system", "content": self.system_prompt},
-                *history,
-                {"role": "user", "content": serialize_llm_payload(request)},
+                {"role": "user", "content": serialize_llm_payload(payload)},
             ]
             if self.usage_tracker:
                 self.usage_tracker.before_request(
@@ -374,74 +263,20 @@ class VerifierChatModel:
             if self.usage_tracker:
                 self.usage_tracker.record_response(response)
             return response
-        return self.audit_model.invoke(request)
-
-
-class LocalVerifierModel:
-    def __init__(
-        self,
-        config: dict[str, Any],
-        system_prompt: str,
-        tools: list[Any],
-        usage_tracker: LLMUsageTracker | None = None,
-    ):
-        self.client = LocalLLMClient({**config, "api_key": resolve_api_key(config)})
-        self.system_prompt = system_prompt
-        self.tools = {str(item.name): item for item in tools}
-        self.retries = int(config.get("json_retries", 1) or 1)
-        self.usage_tracker = usage_tracker
-
-    def invoke(self, payload: dict[str, Any]) -> Any:
-        mode = str(payload.get("mode", "audit"))
-        request = dict(payload)
-        history = message_history(request)
-        request.pop("message_history", None)
-        request.pop("tool_messages", None)
-        tools = None
-        if mode == "acquire":
-            tools = []
-            for name in dict.fromkeys(str(name) for name in request.get("eligible_tools", {})):
-                tool = self.tools[name]
-                tools.append(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "description": tool.description,
-                            "parameters": tool.args_schema.model_json_schema(),
-                        },
-                    }
-                )
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            *history,
-            {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
-        ]
-        for attempt in range(self.retries + 1):
-            if self.usage_tracker:
-                self.usage_tracker.before_request()
-            response = self.client.chat(messages, tools=tools)
-            if self.usage_tracker:
-                self.usage_tracker.record_response(response)
-            if mode == "acquire":
-                return AIMessage(content=response["content"], tool_calls=[
-                    {"name": call["name"], "id": call["id"], "args": call["arguments"]}
-                    for call in response["tool_calls"]
-                ])
-            try:
-                return EvidenceReportBatch.model_validate(parse_json_content(response["content"])).model_dump()
-            except Exception as exc:
-                if attempt == self.retries:
-                    raise RuntimeError("Verifier report failed schema validation") from exc
-                messages = [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": json.dumps({
-                        **request,
-                        "proposed_report": response.get("content"),
-                        "validation_error": f"{type(exc).__name__}: {exc}",
-                        "instruction": "Return corrected EvidenceReportBatch JSON only.",
-                    }, ensure_ascii=False)},
-                ]
+        if mode == "audit":
+            request = dict(payload)
+            request["round_evidence"] = sorted(
+                [{key: value for key, value in row.items()
+                  if key not in {"metric_refs", "artifact_paths", "partition_signature"}}
+                 for row in request["round_evidence"]],
+                key=lambda row: (row.get("tool_name", ""), tuple(row.get("target_ids", []))),
+            )
+            request["prior_reports"] = [
+                {key: value for key, value in row.items() if key != "metric_refs"}
+                for row in request.get("prior_reports", [])
+            ]
+            return self.audit_model.invoke(request)
+        raise ValueError(f"Unknown verifier mode: {mode}")
 
 
 def build_default_verifier(
@@ -453,14 +288,22 @@ def build_default_verifier(
     cfg = dict(config["llm"])
     prompt = (prompt_dir(config, config_dir) / "verifier.md").read_text(encoding="utf-8")
     tools = build_validation_tools()
-    if str(cfg.get("structured_output", "json_object")) == "json_prompt":
-        return LocalVerifierModel(cfg, prompt, tools, usage_tracker)
     from langchain_openai import ChatOpenAI
 
+    api_key_env = str(cfg.get("api_key_env", "") or "").strip()
+    if not api_key_env:
+        raise ValueError(
+            "llm.api_key_env must name the API key environment variable"
+        )
+    api_key = str(os.environ.get(api_key_env, "") or "").strip()
+    if not api_key:
+        raise RuntimeError(
+            f"Required API key environment variable is unset: {api_key_env}"
+        )
     model_kwargs = {
         "model": str(cfg["model_name"]),
         "base_url": str(cfg["base_url"]),
-        "api_key": resolve_api_key(cfg),
+        "api_key": api_key,
         "temperature": float(cfg.get("temperature", 0.0)),
         "timeout": float(cfg.get("timeout", 120)),
     }
@@ -481,9 +324,8 @@ def build_default_router(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    model = LocalStructuredModel if cfg.get("structured_output") == "json_prompt" else JsonStructuredModel
     prompt = (prompt_dir(config, config_dir) / "router.md").read_text(encoding="utf-8")
-    return model(cfg, RouterPlan, prompt, usage_tracker)
+    return JsonStructuredModel(cfg, RouterPlan, prompt, usage_tracker)
 
 
 def build_default_reviser(
@@ -493,9 +335,8 @@ def build_default_reviser(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    model = LocalStructuredModel if cfg.get("structured_output") == "json_prompt" else JsonStructuredModel
     prompt = (prompt_dir(config, config_dir) / "reviser.md").read_text(encoding="utf-8")
-    return model(cfg, RevisionPlan, prompt, usage_tracker)
+    return JsonStructuredModel(cfg, RevisionPlan, prompt, usage_tracker)
 
 
 def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -509,6 +350,9 @@ def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
             "medical_interpretation": row.get("medical_interpretation", ""),
             "limitations": list(row.get("limitations", []) or []),
             "tool_refs": list(row.get("tool_refs", []) or []),
+            "internal_structure_assessment": row.get("internal_structure_assessment"),
+            "pair_boundary_assessment": row.get("pair_boundary_assessment"),
+            "suggested_k": row.get("suggested_k"),
         }
         for row in reports
     ]

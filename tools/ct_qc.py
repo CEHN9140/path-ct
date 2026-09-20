@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,7 +18,7 @@ import yaml
 from tqdm.auto import tqdm
 
 from utils.cache_utils import file_identity, hash_payload, semantic_config
-from utils.tool_utils import safe_identifier, run_command, split_device_requests, to_jsonable
+from utils.tool_utils import safe_identifier, split_device_requests, to_jsonable
 
 
 PHASE_PRIORITY = {
@@ -276,7 +277,7 @@ def convert_dicom_series(series_path: Path, output_dir: Path, config: Mapping[st
     existing_nifti = {path.resolve() for path in output_dir.glob("*.nii.gz")}
     existing_json = {path.resolve() for path in output_dir.glob("*.json")}
     command = [str(config["bin"]), "-z", str(config["gzip_output"]), "-b", str(config["bids_sidecar"]), "-ba", str(config["anonymize_bids"]), "-f", str(config["filename"]), "-o", str(output_dir), str(series_path)]
-    completed = run_command(command)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         return "", [completed.stderr.strip() or completed.stdout.strip() or "dcm2niix conversion failed"], [], []
     generated_nifti = [path for path in output_dir.glob("*.nii.gz") if path.resolve() not in existing_nifti]

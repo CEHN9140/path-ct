@@ -1,92 +1,48 @@
-# Logic-V-Sub V2 Scaffold
+# Path-CT four-view subtype discovery
 
-当前工程已进一步按 `logic_v_sub_agent_build_guide_v2.md` 调整为“单入口 Python coordinator + 工具节点”的结构：
+Production uses four patient-level views only: CT, WSI, RNA, and WXS. CNV is not loaded as a required view, fused, or exposed to the subtype-review Agent.
 
-- `main.py` 内联 patient / cluster / coordinator 的 LangGraph 定义和主流程
-- `tools/` 只保留各个工具节点及其必要后端
-- `utils/` 收纳状态 schema、存储、聚类流程和通用辅助代码
-
-## 当前结构
+## Production flow
 
 ```text
-.
-├── configs/
-├── data/
-├── main.py
-├── output/
-├── tools/
-    ├── ct_qc.py
-    ├── ct_radiomics.py
-    ├── ct_tumor_seg.py
-    ├── rna.py
-    ├── wsi_embeddings.py
-    ├── wsi_patch.py
-    ├── wsi_qc.py
-    ├── wxs.py
-    ├── pathology_qc/
-    ├── nnUNet/
-    └── prov-gigapath/
-└── utils/
-    ├── cluster_flow.py
-    ├── patient_flow.py
-    └── ...
+inventory/QC
+  → CT, WSI, RNA, WXS feature engineering and affinities
+  → SNF
+  → 80% patient resampling × 500
+  → hierarchical + spectral + k-medoids co-association consensus for K=2…8
+  → requested K × repeat Agent reviews
+  → after all K=2…8 × repeats 1…3 complete:
+      accepted co-membership → recurrent cores → merged states
 ```
 
-## 设计原则
+CT discovery features use cached PyRadiomics values, constant/near-constant feature removal, absolute Pearson-correlation pruning above 0.95, feature-wise z-scoring, Euclidean distance, and affinity conversion. WSI uses normalized GigaPath slide embeddings and cosine distance. RNA candidate features use the filtered/log-transformed, top-2000-MAD expression matrix; the full filtered log2 expression matrix is kept separately for Hallmark GSEA. WXS uses nonsynonymous binary mutation features with prevalence ≥5%, Jaccard distance, and `empty_mutation_distance=1`; curated drivers are not forced into candidate-generation features.
 
-- 真实可执行工具节点保留在 `tools/`。
-- 主流程是一个 main graph，固定工作流提出候选亚型簇后进入 subtype review agent。
-- QC 与模态流水线保持确定性，不让 LLM 主观决定质控结果。
-- `patient_flow / cluster_flow` 等非工具执行逻辑已收口到 `utils/`。
-- `router / text / verifier_explainer / report` 的模型位点已预留，但默认不启用 LLM。
-- `tools/pathology_qc/`、`tools/nnUNet/`、`tools/prov-gigapath/` 是工具后端依赖，继续保留在 `tools/`。
+The Agent graph has three nodes: Router requests evidence or chooses an action; Verifier selects one of the seven scientific tools and interprets results; Reviser executes one Router-approved split or merge. Evidence uses a single ledger with `set`, `pair`, and `partition` scopes. Structural revision is one operation per round; terminal accept/drop actions cover the full current partition. LLMs do not choose K.
 
-## 统一项目 State
+## Run
 
-`main_graph` 和 `subtype_review_graph` 统一使用同一个 `ProjectState`。跨节点和跨阶段流转只保留这 8 个顶层字段：
-
-```text
-case_id
-inventory
-qc
-ct_evidence
-wsi_evidence
-text_evidence
-omics_evidence
-candidate_cluster_ids
-```
-
-其中 `inventory` 只记录输入数据里的原始病例信息，不写入 `has_clinical`、`wsi_records`、`selected_ct` 这类派生清单；`qc` 只取 `success` / `fail`；`ct_evidence`、`wsi_evidence` 记录对应工具产物；`text_evidence` 暂时为空；`omics_evidence` 记录 RNA、CNV 与 genomic affinity 的产物路径。WXS 不再保存一套未参与聚类的逐患者高维二元向量。
-
-## 当前执行顺序
-
-1. `main_graph` 执行 inventory、quality gate、evidence builder、candidate proposer
-2. `subtype_review_agent` 对每个候选亚型簇调用 `subtype_review_graph`
-3. 汇总 `cluster_reports` 和最终输出
-
-## 运行
+Run a single review while reusing the candidate-generation cache:
 
 ```bash
-python main.py \
-  --data-json-path /data/qijun/path-ct/data/data_test.json \
-  --config-dir /data/qijun/path-ct/configs
+python main.py --initial-k 2 --repeat 1
 ```
 
-## 配置
+Run K=4 three times:
 
-工具配置文件放在 `configs/`，入口通过 `--config-dir` 指定配置目录。配置里的相对路径会按 `config_dir` 的上一级目录解析。
+```bash
+python main.py --initial-k 4 --repeat 1 --repeat 2 --repeat 3
+```
 
-- 例如 `--config-dir /data/qijun/path-ct/configs`
-- `tools/prov-gigapath` 会解析为 `/data/qijun/path-ct/tools/prov-gigapath`
-- `candidate_proposer.yaml` 统一控制候选 K 选择、候选簇生成和 SNF 融合；各模态距离度量由代码固定为 CT 欧氏、WSI 余弦、RNA Spearman、WXS Jaccard。
+With no K/repeat arguments, the default is the complete K=2…8 × repeat=1…3 grid. Pass `--force` to replace the requested Agent-run directories. It does not erase the output root or force regeneration of valid feature/candidate caches.
 
-## 输出
+## Outputs
 
-- 如果环境安装了 `langgraph`，`main_graph` 和 `subtype_review_graph` 会用 `draw_mermaid_png()` 保存 PNG 到 `output/graphs/`
-- 单病例状态会写到 `output/storage/patient_states/`
-- 初始候选亚型簇会写到 `output/candidate_subtype/`
-- 各算法候选划分会按算法写到 `output/candidate_subtype/hierarchical/`、`spectral/`、`pam/`
-- 共识聚类矩阵、最佳 K、CDF 图、delta area 图和一致性热图会写到 `output/candidate_subtype/consensus_cluster/`
-- 簇级复核状态会写到 `output/storage/cluster_states/`
-- 最终输出会写到 `output/storage/reports/final_output.json`
-- WSI / CT 的真实 QC 结果仍沿用原有 `output/wsi_qc/` 与 `output/ct_qc/`
+The default output root is `output_kirc/` and can be changed with `--output-root`.
+
+- `candidate_subtype/`: four affinity matrices, SNF fused similarity, patient order, feature audit, K=2…8 candidate partitions, per-algorithm and equal-weight consensus matrices.
+- `subtype_review/runs/K{k}/repeat{r}/`: individual Agent run evidence, reports, history, and accepted sets.
+- `subtype_review/multi_k/`: generated only after all 21 runs are complete and match the current input signature; contains accepted co-membership, recurrent cores, core-to-state mapping, and final patient-state membership.
+
+The configured 2/3 acceptance/co-membership thresholds and minimum core size of five are analysis operating parameters, not universal clinical cutoffs.
+
+The `scripts_*` directories contain historical/independent analyses and are not imported by the production pipeline.

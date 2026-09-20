@@ -35,7 +35,6 @@ def case_from_state(state: Mapping[str, Any]) -> dict[str, Any]:
         "CT": list(inventory.get("CT") or inventory.get("ct_records", []) or []),
         "RNA_Seq": list(inventory.get("RNA_Seq") or inventory.get("rna_seq_records", []) or []),
         "WXS": list(inventory.get("WXS") or inventory.get("wxs_records", []) or []),
-        "CNV": list(inventory.get("CNV") or inventory.get("cnv_records", []) or []),
         "Clinical": dict(inventory.get("Clinical") or inventory.get("clinical", {}) or {}),
     }
 
@@ -207,18 +206,9 @@ def add_tool_result(
     artifacts = dict(tool_result.get("artifacts", {}) or {})
     if bucket_name == "ct_evidence" and evidence_key == "radiomics":
         feature_path = str(artifacts.get("features_json_path", "") or "")
-        ccc_feature_paths = {
-            key.removeprefix("features_bin_width_").removesuffix(
-                "_json_path"
-            ): str(value)
-            for key, value in artifacts.items()
-            if key.startswith("features_bin_width_")
-            and key.endswith("_json_path")
-        }
         evidence = {
             "features": to_jsonable(read_json_feature_map(feature_path)),
             "feature_path": feature_path,
-            "ccc_feature_paths": ccc_feature_paths,
         }
     elif bucket_name == "wsi_evidence" and evidence_key == "embeddings":
         feature_path = str(artifacts.get("slide_embedding_npy_path", "") or artifacts.get("slide_embedding_path", "") or "")
@@ -255,8 +245,6 @@ def add_omics_result(
         omics_evidence["rna_pathway_feature_path"] = str(
             artifacts.get("pathway_features_path", "") or ""
         )
-    if normalized_key == "cnv":
-        omics_evidence["cnv_feature_names"] = list(payload.get("feature_names", []) or [])
     updated["omics_evidence"] = omics_evidence
     announce_tool_result_path(node, case_id, tool_result)
     return updated

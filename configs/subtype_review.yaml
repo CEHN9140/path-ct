@@ -5,39 +5,35 @@ llm:
   temperature: 0
   max_new_tokens: 32768
   timeout: 120
-  structured_output: json_object
-  json_retries: 1
 
 prompt_dir: agents/subtype_review/prompts
 
 budget:
   max_rounds: 10
-  max_failures: 3
 
 cross_modal:
-  permanova_permutations: 999
-  permdisp_permutations: 999
-  lowest_support_patients_to_report: 5
-  structure:
-    resampling_fraction: 0.8
-    resampling_iterations: 200
-    pac_lower: 0.1
-    pac_upper: 0.9
-    random_seed: 0
-
-confounder:
-  alpha: 0.05
-  categorical_cramers_v_warning: 0.50
-  sparse_permutations: 999
-
-known_label_echo:
-  assessable_labels:
-    - stage
-    - grade
-
-cnv:
-  alteration_threshold: 0.2
+  grv_permutations: 999
+  structural:
+    max_children: 4
+    min_child_size: 4
+    nearest_merge_neighbors: 2
 
 rna:
+  hallmark_gene_sets_path: /data/qijun/path-ct/tools/msigdb/h.all.v2026.1.Hs.symbols.gmt
+  reactome_gene_sets_path: /data/qijun/path-ct/tools/msigdb/c2.cp.reactome.v2026.1.Hs.symbols.gmt
+  kegg_medicus_gene_sets_path: /data/qijun/path-ct/tools/msigdb/c2.cp.kegg_medicus.v2026.1.Hs.symbols.gmt
   min_pathway_overlap: 15
-  pathway_gene_sets_path: "/data/qijun/path-ct/tools/msigdb/h.all.v2026.1.Hs.symbols.gmt"
+
+known_label_echo:
+  mrna_m1_m4_path: /data/qijun/path-ct/data/tcga_kirc_mrna_m1_m4.csv
+  clearcode34_path: /data/qijun/path-ct/data/tcga_kirc_clearcode34.csv
+  permutations: 999
+
+confounder:
+  permutations: 999
+
+multi_k:
+  coassignment_threshold: 0.6666666666666666
+  acceptance_threshold: 0.6666666666666666
+  min_core_size: 5
+  max_states: 6

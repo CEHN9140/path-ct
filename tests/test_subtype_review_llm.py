@@ -1,55 +1,27 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 from agents.subtype_review.llm import (
     JsonStructuredModel,
     LLMOutputLengthError,
     LLMUsageTracker,
-    LocalVerifierModel,
     VerifierChatModel,
     build_default_verifier,
     build_default_reviser,
     build_default_router,
 )
 from agents.subtype_review.schemas import EvidenceReportBatch, RevisionPlan, RouterPlan
-from utils.llm_utils import LocalLLMClient, load_yaml_file, resolve_api_key
+from utils.llm_utils import load_yaml_file
 
 
 def test_subtype_review_config_declares_project_generation_limit():
     config = load_yaml_file("configs/subtype_review.yaml")
     assert config["llm"]["max_new_tokens"] == 32768
-
-
-def test_local_openai_compatible_client_maps_project_limit_to_max_tokens(monkeypatch):
-    captured = {}
-
-    class Completions:
-        def create(self, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="{}", tool_calls=[]))]
-            )
-
-    monkeypatch.setattr("utils.llm_utils.local_llm_server_available", lambda url: True)
-    monkeypatch.setattr(
-        "openai.OpenAI",
-        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
-    )
-    client = LocalLLMClient({
-        "base_url": "http://local",
-        "model_name": "hf-chat",
-        "api_key": "test",
-        "temperature": 0,
-        "max_new_tokens": 32768,
-    })
-    client.chat([{"role": "user", "content": "test"}])
-    assert captured["max_tokens"] == 32768
 
 
 def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(monkeypatch):
@@ -80,6 +52,22 @@ def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(m
     )
     model.invoke({})
     assert captured["max_tokens"] == 32768
+
+
+def test_structured_model_requires_api_key_environment(monkeypatch):
+    config = {
+        "base_url": "http://test",
+        "model_name": "model",
+        "temperature": 0,
+        "max_new_tokens": 10,
+    }
+    with pytest.raises(ValueError, match="api_key_env"):
+        JsonStructuredModel(config, RouterPlan, "prompt")
+
+    config["api_key_env"] = "MISSING_REVIEW_KEY"
+    monkeypatch.delenv("MISSING_REVIEW_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="MISSING_REVIEW_KEY"):
+        JsonStructuredModel(config, RouterPlan, "prompt")
 
 
 def test_default_verifier_separates_acquire_and_audit_backends(monkeypatch):
@@ -232,13 +220,6 @@ def test_usage_tracker_is_statistics_only():
     }
 
 
-def test_api_key_must_come_from_configured_environment(monkeypatch):
-    monkeypatch.setenv("REVIEW_KEY", "secret")
-    assert resolve_api_key({"api_key_env": "REVIEW_KEY"}) == "secret"
-    with pytest.raises(ValueError):
-        resolve_api_key({"api_key": "inline"})
-
-
 def test_verifier_acquisition_binds_only_eligible_real_tools():
     model = BoundModel(["unused"])
     first = SimpleNamespace(name="multimodal_consistency_check")
@@ -259,82 +240,8 @@ def test_verifier_acquisition_binds_only_eligible_real_tools():
 
 def test_verifier_audit_accepts_report_batch_without_status():
     verifier = VerifierChatModel(BoundModel(["unused"]), AuditModel(), "prompt", [])
-    response = verifier.invoke({"mode": "audit", "reports": []})
+    response = verifier.invoke({"mode": "audit", "round_evidence": [], "prior_reports": []})
     assert response == {"reports": []}
-
-
-def test_verifier_chat_audit_serializes_tool_history_without_dropping_evidence():
-    audit = AuditModel()
-    verifier = VerifierChatModel(BoundModel(["unused"]), audit, "prompt", [])
-    verifier.invoke({
-        "mode": "audit",
-        "round_evidence": [{"tool_name": "pathway_enrichment", "status": "success"}],
-        "tool_messages": [
-            AIMessage(content="", tool_calls=[{
-                "name": "pathway_enrichment", "args": {}, "id": "call-1", "type": "tool_call"
-            }]),
-            ToolMessage(content=json.dumps({
-                "tool_name": "pathway_enrichment",
-                "dimension": "biological_support",
-                "scope": "set_identity",
-                "target_ids": ["C1"],
-                "status": "success",
-                "metrics": {"smd": 1.2},
-                "warnings": [],
-                "missing_reason": None,
-                "errors": [],
-            }), tool_call_id="call-1"),
-        ],
-    })
-    request = audit.payloads[0]
-    assert request["round_evidence"][0]["tool_name"] == "pathway_enrichment"
-    assert request["tool_messages"] == [{
-        "tool_name": "pathway_enrichment",
-        "dimension": "biological_support",
-        "scope": "set_identity",
-        "target_ids": ["C1"],
-        "status": "success",
-        "metrics": {"smd": 1.2},
-        "warnings": [],
-        "missing_reason": None,
-        "errors": [],
-    }]
-
-
-def test_local_verifier_audit_serializes_tool_history_without_dropping_evidence(monkeypatch):
-    monkeypatch.setattr("agents.subtype_review.llm.resolve_api_key", lambda config: "test")
-    verifier = LocalVerifierModel(
-        {
-            "base_url": "http://local",
-            "model_name": "local",
-            "temperature": 0,
-            "max_new_tokens": 256,
-            "json_retries": 1,
-        },
-        "prompt",
-        [],
-    )
-    requests = []
-
-    def chat(messages, tools=None):
-        requests.append(messages)
-        return {"content": json.dumps({"reports": []})}
-
-    verifier.client.chat = chat
-    verifier.invoke({
-        "mode": "audit",
-        "round_evidence": [{"tool_name": "pathway_enrichment", "status": "success"}],
-        "tool_messages": [
-            AIMessage(content="assistant tool call"),
-            ToolMessage(content="tool result", tool_call_id="call-1"),
-        ],
-    })
-    history = requests[0]
-    assert history[1]["role"] == "assistant"
-    assert history[2]["role"] == "tool"
-    request = json.loads(history[3]["content"])
-    assert request["round_evidence"][0]["status"] == "success"
-    assert "tool_messages" not in request
 
 
 def test_default_agent_prompts_use_new_contracts(monkeypatch):

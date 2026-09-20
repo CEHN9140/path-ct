@@ -6,25 +6,24 @@ from agents.inventory import inventory_case
 def complete_case(tmp_path: Path) -> dict:
     tmp_path.mkdir(parents=True, exist_ok=True)
     paths = {}
-    for modality in ("CT", "WSI", "RNA_Seq", "WXS", "CNV"):
+    for modality in ("CT", "WSI", "RNA_Seq", "WXS"):
         path = tmp_path / modality
         path.touch()
         paths[modality] = [{"File Path": str(path)}]
     return {"Case_ID": "A", **paths}
 
 
-def test_inventory_marks_missing_wxs_as_failed(tmp_path):
+def test_inventory_does_not_require_cnv(tmp_path):
     case = complete_case(tmp_path)
-    case["WXS"] = []
 
     state = inventory_case(case)
 
-    assert state["qc"] == "fail"
-    assert state["missing_view_reason"] == ["missing_wxs"]
+    assert state["qc"] == "success"
+    assert state["missing_view_reason"] == []
 
 
-def test_five_view_filter_excludes_missing_omics_before_downstream_builders(tmp_path):
-    from agents.evidence_builder import filter_five_view_states
+def test_four_view_filter_excludes_missing_omics_before_downstream_builders(tmp_path):
+    from agents.evidence_builder import filter_four_view_states
 
     complete = complete_case(tmp_path / "complete")
     missing = complete_case(tmp_path / "missing")
@@ -46,13 +45,12 @@ def test_five_view_filter_excludes_missing_omics_before_downstream_builders(tmp_
         },
     ]
 
-    updated, eligible, audit = filter_five_view_states(states)
+    updated, eligible, audit = filter_four_view_states(states)
 
     assert [state["case_id"] for state in eligible] == ["A"]
     assert updated[1]["qc"] == "fail"
     assert updated[1]["missing_view_reason"] == ["missing_wxs"]
     assert audit["pre_qc_count"] == 2
     assert audit["ct_wsi_pass_count"] == 2
-    assert audit["five_view_complete_count"] == 1
-    assert audit["excluded_missing_rna"] == []
+    assert audit["four_view_complete_count"] == 1
     assert audit["excluded_missing_wxs"] == ["B"]

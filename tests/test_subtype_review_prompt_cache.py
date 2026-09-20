@@ -3,9 +3,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
-from agents.subtype_review.graph import initial_review_state, partition_signature, verifier_node
 from agents.subtype_review.llm import JsonStructuredModel, LLMUsageTracker, VerifierChatModel
 from agents.subtype_review.schemas import EvidenceReportBatch
 
@@ -49,10 +48,6 @@ def audit_payload(run):
                             "partition_signature": "local-provenance"}],
         "prior_reports": [{"observations": [{"finding": "retain this"}],
                            "tool_refs": ["multimodal_consistency_check"], "metric_refs": ["ref"] * 200}],
-        "tool_messages": [
-            AIMessage(content="", tool_calls=[{"name": evidence["tool_name"], "args": {}, "id": f"call-{run}"}]),
-            ToolMessage(content=json.dumps(evidence), tool_call_id=f"call-{run}"),
-        ],
         "round": 1,
     }
 
@@ -72,50 +67,10 @@ def test_audit_wire_deduplicates_without_losing_scientific_evidence(monkeypatch)
     assert row["metrics"] == original["round_evidence"][0]["metrics"]
     assert row["full_metrics"] == original["round_evidence"][0]["full_metrics"]
     assert not {"artifact_paths", "metric_refs", "partition_signature"} & row.keys()
-    assert not payload.get("tool_messages")  # exact duplicate, including warnings/status
     assert payload["prior_reports"][0]["tool_refs"] == ["multimodal_consistency_check"]
     assert "metric_refs" not in payload["prior_reports"][0]
     assert original == before  # local provenance remains intact
     assert len(requests) == 2  # repeats must still invoke the model independently
-
-
-def test_audit_keeps_tool_only_information(monkeypatch):
-    audit, requests = capture_requests(monkeypatch)
-    payload = audit_payload(1)
-    payload["tool_messages"][-1] = ToolMessage(
-        content=json.dumps({"tool_name": "multimodal_consistency_check", "warnings": ["extra warning"]}),
-        tool_call_id="call-1",
-    )
-    VerifierChatModel(None, audit, "prompt", []).invoke(payload)
-    sent = json.loads(requests[0]["messages"][1]["content"])
-    assert sent["tool_messages"][0]["warnings"] == ["extra warning"]
-
-
-def test_graph_restores_provenance_after_compact_wire_request(monkeypatch):
-    report = {
-        "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"],
-        "observations": [], "statistical_interpretation": "No evidence of enrichment.",
-        "medical_interpretation": "Inconclusive.", "limitations": [], "tool_refs": [], "metric_refs": [],
-    }
-    audit, requests = capture_requests(monkeypatch, reports=[report])
-    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
-    signature = partition_signature(state["partition"]["sets"])
-    ref = "tool_results.pathway_enrichment.metrics.sets.C1.q"
-    state["round_evidence"] = [{
-        "tool_name": "pathway_enrichment", "dimension": "biological_support",
-        "scope": "set_identity", "target_ids": ["C1"], "status": "success",
-        "metrics": {"sets": {"C1": {"q": 0.3}}}, "metric_refs": [ref],
-        "partition_signature": signature,
-    }]
-    state["control"]["next"] = "verifier_audit"
-    state.update(verifier_node(state, {"verifier_model": VerifierChatModel(None, audit, "prompt", [])}))
-    sent = json.loads(requests[0]["messages"][1]["content"])
-    assert "metric_refs" not in sent["round_evidence"][0]
-    assert state["control"]["next"] == "router", state["control"]
-    assert state["round_evidence"][0]["metric_refs"] == [ref]
-    assert state["reports"][0]["metric_refs"] == [ref]
-    assert state["reports"][0]["tool_refs"] == ["pathway_enrichment"]
-    assert state["evidence_memory"][signature] == state["reports"]
 
 
 def test_audit_tool_order_does_not_change_wire_payload(monkeypatch):

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from utils.cache_utils import artifacts_valid, file_identity, hash_payload
+from utils.cache_utils import file_identity, hash_payload
 
 
 def collect_case_file_paths(
@@ -60,6 +60,6 @@ def load_manifest_if_valid(
         return None
     if str(manifest.get("signature", "")) != signature:
         return None
-    if not artifacts_valid(required_paths):
+    if any(not path.expanduser().exists() for path in required_paths if str(path)):
         return None
     return manifest

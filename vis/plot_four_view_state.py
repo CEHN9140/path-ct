@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,12 +20,10 @@ mpl.rcParams.update({
 })
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts_2026_9_14"))
-from four_view_state_common import DEFAULT_INPUT, load_states, load_table  # noqa: E402
+DEFAULT_INPUT = ROOT / "output_kirc_v14/11_four_view_no_cnv/inputs/four_view_no_cnv"
 from tools.ct_radiomics import build_ct_discovery_feature_matrix  # noqa: E402
-from tools.pathway_enrichment import ssgsea_scores  # noqa: E402
-from tools.subtype_review_common import clinical_table, read_gmt_gene_sets, tool_parameters  # noqa: E402
 from tools import post_discovery_characterization as stats  # noqa: E402
+from utils.llm_utils import load_yaml_file  # noqa: E402
 
 INPUT = ROOT / "output_kirc_v14/11_four_view_no_cnv/inputs/four_view_no_cnv"
 STATE = ROOT / "output_kirc_v14/12_four_view_core_to_macro_state_audit/final_macro_state_membership.csv"
@@ -95,6 +92,10 @@ def consensus_heatmap(matrix, labels, out):
 
 def read_csv(path):
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
+
+
+def load_table(path):
+    return pd.read_csv(path).set_index("case_id")
 
 
 def representative_cases(similarity, case_ids, state_by_case, per_state=3):
@@ -344,7 +345,13 @@ def run(output_dir=Path("vis/figs")):
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.05)
     membership = pd.read_csv(STATE, dtype=str)
     state_by_case = membership.set_index("case_id")["state_id"].to_dict()
-    states = load_states(INPUT)
+    with (INPUT / "storage/patient_states/patient_states.jsonl").open(encoding="utf-8") as handle:
+        states = {
+            str(state["case_id"]): state
+            for line in handle if line.strip()
+            for state in [json.loads(line)]
+            if state.get("qc") == "success"
+        }
     order = json.loads((INPUT / "candidate_subtype/affinity_patient_order.json").read_text())
     fused = np.load(INPUT / "candidate_subtype/fused_similarity.npy")
     state_rank = {state: i for i, state in enumerate(["STATE_A", "STATE_B", "STATE_C", "STATE_D"])}
@@ -410,11 +417,20 @@ def run(output_dir=Path("vis/figs")):
     selected = rna_omnibus.sort_values(["q_value", "epsilon_squared"], ascending=[True, False]).head(15).feature.tolist()
     if selected:
         rna_genes = load_table(INPUT / "rna/case_pathway_features.csv").reindex(core_order)
-        gmt = tool_parameters(str(ROOT / "configs"), "rna")["pathway_gene_sets_path"]
-        gene_sets, _ = read_gmt_gene_sets(gmt)
+        gmt = load_yaml_file(ROOT / "configs/subtype_review.yaml")["rna"]["hallmark_gene_sets_path"]
+        gene_sets = {}
+        for line in Path(gmt).read_text(encoding="utf-8").splitlines():
+            fields = line.split("\t")
+            if len(fields) > 2:
+                gene_sets[fields[0]] = sorted(set(fields[2:]) & set(rna_genes.columns))
         gene_sets = {name: [g for g in genes if g in rna_genes.columns] for name, genes in gene_sets.items()}
         gene_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= 15}
-        scores = ssgsea_scores(rna_genes, gene_sets, 15)[selected].apply(pd.to_numeric, errors="coerce")
+        from gseapy import ssgsea
+        enrichment = ssgsea(
+            data=rna_genes.transpose(), gene_sets=gene_sets, outdir=None, no_plot=True,
+            threads=1, min_size=15, verbose=False, seed=123,
+        ).res2d
+        scores = enrichment.pivot(index="Name", columns="Term", values="NES")[selected].apply(pd.to_numeric, errors="coerce")
         state_means = pd.DataFrame({state: scores[[x == state for x in labels]].mean() for state in ["STATE_A", "STATE_B", "STATE_C", "STATE_D"]})
 
         # Patient-level pathway heatmap, matching the common subtype-figure
@@ -675,7 +691,32 @@ def run(output_dir=Path("vis/figs")):
         heatmap(cc, out, "figure_clearcode34_mapping", "ClearCode34 composition by macro-state", cmap="YlGnBu", center=None, vmin=0, fmt=".0f")
 
     # Figure 3: clinical and modality dependency.
-    clinical = clinical_table(states)
+    clinical = {}
+    for case_id, patient_state in states.items():
+        inventory = dict(patient_state.get("inventory", {}) or {})
+        record = dict(inventory.get("Clinical", {}) or {})
+        diagnoses = [dict(row) for row in record.get("diagnoses", [])]
+        primary = [row for row in diagnoses if str(row.get("diagnosis_is_primary_disease", "")).lower() == "true"]
+        diagnosis = (primary or diagnoses or [{}])[0]
+        demographic = dict(record.get("demographic", {}) or {})
+        days_to_death = pd.to_numeric(demographic.get("days_to_death"), errors="coerce")
+        followup = pd.to_numeric(diagnosis.get("days_to_last_follow_up"), errors="coerce")
+        if pd.isna(followup):
+            followup_days = [pd.to_numeric(row.get("days_to_follow_up"), errors="coerce") for row in record.get("follow_ups", [])]
+            followup_days = [value for value in followup_days if pd.notna(value)]
+            followup = max(followup_days) if followup_days else np.nan
+        vital_status = str(demographic.get("vital_status", "") or "")
+        event = int(vital_status.strip().lower() in {"dead", "deceased", "1", "true", "yes"})
+        os_time = days_to_death if event else followup
+        stage_text = str(diagnosis.get("ajcc_pathologic_stage", "") or "")
+        stage_group = next((stage for stage in ("IV", "III", "II", "I") if f"Stage {stage}" in stage_text or stage_text == stage), stage_text)
+        clinical[case_id] = {
+            "os_time": os_time,
+            "os_event": event if pd.notna(os_time) else np.nan,
+            "age": pd.to_numeric(demographic.get("age_at_index"), errors="coerce"),
+            "stage_group": stage_group,
+            "m_stage": str(diagnosis.get("ajcc_pathologic_m", "") or ""),
+        }
     fig, ax = plt.subplots(figsize=(7.0, 5.0))
     try:
         from lifelines import KaplanMeierFitter

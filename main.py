@@ -14,10 +14,9 @@ from agents.evidence_builder import (
 )
 from agents.inventory import inventory_case
 from agents.quality_control import ct_qc, wsi_qc
-from agents.subtype_review.graph import save_review_outputs
-from agents.subtype_review.runner import run_subtype_review
+from agents.subtype_review.runner import run_review_grid
 from utils.patient_store import save_patient_states
-from utils.report_store import save_final_output
+from utils.io import write_json
 from utils.tool_utils import safe_identifier, to_jsonable
 
 DEFAULT_DATA_JSON_PATH = "/data/qijun/path-ct/data/tcga_kirc_data.json"
@@ -33,7 +32,6 @@ CASE_TOOL_OUTPUTS = {
     "wsi_embeddings",
     "rna",
     "wxs",
-    "cnv",
 }
 
 
@@ -109,8 +107,8 @@ def run_pipeline(
         config_dir=args.config_dir,
     )
     print(
-        f"[candidate_cluster_generator] Generated "
-        f"{len(candidate_output.get('candidate_clusters', []))} candidate clusters.",
+        f"[candidate_cluster_generator] Generated candidate partitions for "
+        f"K={','.join(map(str, sorted(candidate_output['candidate_partitions'])))}.",
         flush=True,
     )
 
@@ -120,30 +118,60 @@ def run_pipeline(
         for item in review_patients
         if str(item.get("case_id", item.get("Case_ID", "")))
     }
-    final_state = run_subtype_review(
-        list(candidate_output.get("candidate_clusters", [])),
+    review_grid = run_review_grid(
+        candidate_output["candidate_partitions"],
         patient_states_by_id,
         str(args.output_root),
         str(args.config_dir),
+        tuple(args.initial_ks),
+        tuple(args.repeats),
+        candidate_output["candidate_signature"],
+        force=args.force,
     )
-    final_review_summary = save_review_outputs(final_state, args.output_root)
-    save_final_output(args.output_root, {"final_review_summary": final_review_summary})
-    return {"final_review_summary": final_review_summary}
+    if review_grid["multi_k_ready"]:
+        from agents.subtype_review.multi_k import run_multi_k_aggregation
+        from utils.llm_utils import load_yaml_file
+
+        multi_k_summary = run_multi_k_aggregation(
+            str(args.output_root),
+            load_yaml_file(Path(args.config_dir) / "subtype_review.yaml"),
+            review_grid["input_signature"],
+        )
+    else:
+        multi_k_root = Path(args.output_root) / "subtype_review" / "multi_k"
+        if multi_k_root.exists():
+            shutil.rmtree(multi_k_root)
+        multi_k_summary = "not_ready"
+    result = {
+        "agent_run_count": len(review_grid["runs"]),
+        "agent_runs_root": review_grid["run_root"],
+        "multi_k_analysis": multi_k_summary,
+    }
+    write_json(
+        Path(args.output_root) / "storage" / "reports" / "final_output.json",
+        result,
+    )
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Logic-V-Sub V3 pipeline with LLM K-selection and global subtype review."
+        description="Four-view patient-resampled multi-K subtype review pipeline."
     )
     parser.add_argument("--data-json-path", type=str, default=DEFAULT_DATA_JSON_PATH)
     parser.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--config-dir", type=str, default=DEFAULT_CONFIG_DIR)
+    parser.add_argument("--initial-k", dest="initial_ks", type=int, choices=range(2, 9), action="append")
+    parser.add_argument("--repeat", dest="repeats", type=int, choices=(1, 2, 3), action="append")
+    parser.add_argument("--force", action="store_true")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     args.config_dir = str(Path(args.config_dir).expanduser().resolve())
+    args.initial_ks = sorted(set(args.initial_ks or range(2, 9)))
+    args.repeats = sorted(set(args.repeats or (1, 2, 3)))
     case = json.loads(Path(args.data_json_path).read_text(encoding="utf-8"))
     if not isinstance(case, list):
         raise TypeError("data json must contain a JSON list.")

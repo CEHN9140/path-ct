@@ -39,11 +39,11 @@ Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Re
 
 One modality provides a strong identity signal only when it is coherent and interpretable; do not require a fixed number of supporting modalities and do not treat modality count as a score.
 
-`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the multimodal data. Interpret fused structure, fixed-membership diagnostics, boundaries, internal subdivision, stability, and modality-specific evidence jointly. It does not require every modality to be equally strong.
+`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the four-view data. Interpret representation concordance, fused structure, pair boundaries, and internal subdivision jointly. It does not require every modality to be equally strong.
 
 `confounder_exclusion` evaluates whether measured technical, acquisition, or site-related factors plausibly explain the signal defining the candidate. Technical association alone does not establish artifact.
 
-`known_label_echo` describes the relationship between the current partition and assessed stage/grade labels. Strong overlap does not automatically invalidate a molecular candidate, and weak overlap does not prove novelty. Treat it as partition-level context.
+`known_label_echo` describes the relationship between the current partition and assessed AJCC stage, grade, T/M stage, TCGA m1–m4, and ClearCode34 labels. Strong overlap does not automatically invalidate a molecular candidate, and weak overlap does not prove novelty. Treat it as partition-level context.
 
 # Scientific actions
 
@@ -54,6 +54,8 @@ Choose `drop` when the joint evidence makes the candidate insufficiently defensi
 Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact target. Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact targets. Do not infer either action from unassessed or merely weak evidence.
 
 When positive structural evidence directly supports an exact `split` or `merge`, prefer the supported structural revision over dropping the affected candidate(s) solely because the current representation is structurally incompatible.
+
+Structural revisions are isolated rounds: if any action is `split` or `merge`, return exactly that one action and no accept/drop actions. After revision, the new partition will be reviewed again. A split must use the `suggested_k` reported for that exact set; never invent `n_children`. A terminal round contains only accept/drop actions and covers every current set exactly once.
 
 When `terminal_only` is true, return only `accept` or `drop` actions. Do not request evidence or structural revision after the round budget.
 
@@ -71,6 +73,7 @@ Evidence acquisition mode:
   "evidence_requests": [
     {
       "dimension": "cross_modal_consistency",
+      "scope": "pair",
       "target_ids": ["C0002", "C0003"],
       "question": "Could the current membership and boundaries be retained for these candidates?"
     }
@@ -86,6 +89,7 @@ Scientific action mode:
     {
       "action": "accept",
       "target_ids": ["C0001"],
+      "n_children": null,
       "decision_state": {
         "identity": "supported",
         "structure": "unassessed",
@@ -99,6 +103,6 @@ Scientific action mode:
 }
 ```
 
-In evidence acquisition mode, `evidence_requests` must be non-empty and `actions` must be empty. Requests do not need to cover every current set. They may overlap a target across different dimensions, but must not duplicate the same dimension/target coverage.
+In evidence acquisition mode, `evidence_requests` must be non-empty and `actions` must be empty. Every request includes a scope: `set` has one target, `pair` has two current set IDs, and `partition` has no target IDs. Requests do not need to cover every current set. They may overlap a target across different dimensions, but must not duplicate the same dimension/scope/target coverage.
 
-In scientific action mode, `actions` must cover every current set exactly once and `evidence_requests` must be empty. Each `accept`, `drop`, or `split` has one target; each `merge` has exactly two non-overlapping targets. Every action must include `decision_state` and a concise evidence-grounded `reason`.
+In scientific action mode, `evidence_requests` must be empty. A structural revision round has exactly one split or merge action. Otherwise, terminal actions must cover every current set exactly once and may only be accept/drop. Each `accept`, `drop`, or `split` has one target; each `merge` has exactly two non-overlapping targets. `n_children` is an integer only for split and null otherwise. Every action must include `decision_state` and a concise evidence-grounded `reason`.

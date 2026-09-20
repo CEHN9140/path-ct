@@ -1,23 +1,12 @@
-k_selector:
-  llm:
-    provider: deepseek
-    model_name: deepseek-v4-flash
-    base_url: https://api.deepseek.com
-    api_key_env: DEEPSEEK_API_KEY
-    temperature: 0.0
-    max_new_tokens: 2048
-    json_retries: 1
-  prompt_path: agents/prompts/candidate_k_selector.md
+candidate_ks: [2, 3, 4, 5, 6, 7, 8]
+
+patient_resampling:
+  fraction: 0.80
+  count: 500
+  random_seed: 20260921
 
 clustering:
-  repeat_count: 100
-  max_clusters: 8
-  consensus_linkage: average
-  pac_lower: 0.1
-  pac_upper: 0.9
-  selection_method: llm_consensus_review
-  random_seed: 20260614
-  min_cluster_size: 10
+  final_linkage: average
   algorithms:
     hierarchical:
       linkage_options: [average, complete]
@@ -31,5 +20,4 @@ snf:
   iterations: 20
   mu: 0.5
   alpha: 1.0
-  ct_low_variance_threshold: 1.0e-8
   ct_high_correlation_threshold: 0.95

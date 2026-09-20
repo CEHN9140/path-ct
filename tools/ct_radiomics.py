@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import sys
 import time
@@ -13,174 +12,97 @@ if __package__ in (None, ""):
 from utils.tool_utils import quiet_tool_logs
 
 
-def ct_feature_filter_audit(
-    *,
-    original_names: Sequence[str],
-    ccc_names: Sequence[str],
-    correlation_names: Sequence[str],
-    corrected_names: Sequence[str],
-    confound_metrics: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "original_feature_count": len(original_names),
-        "original_features": list(original_names),
-        "ccc_retained_feature_count": len(ccc_names),
-        "ccc_retained_features": list(ccc_names),
-        "correlation_retained_feature_count": len(correlation_names),
-        "correlation_retained_features": list(correlation_names),
-        "corrected_feature_count": len(corrected_names),
-        "corrected_features": list(corrected_names),
-        "confound_metrics": dict(confound_metrics),
-    }
-
-
 def build_ct_discovery_feature_matrix(
     patient_states: Sequence[Mapping[str, Any]],
     *,
     config_dir: str = "",
     output_root: str = "",
 ) -> dict[str, Any]:
-    """Build the CT network from cached radiomics and record every filter step."""
     import json
     import numpy as np
-    import pandas as pd
-    from tools.confound import confounder_values
-    from utils.llm_utils import load_candidate_proposer_config, load_yaml_file
+    from utils.llm_utils import load_candidate_proposer_config
 
-    config_path = Path(config_dir or "configs")
-    ct_config = load_yaml_file(config_path / "ct_radiomics.yaml")
-    snf_config = load_candidate_proposer_config(config_path)["snf"]
-    ccc_threshold = float(ct_config["ccc_threshold"])
-    widths = [float(value) for value in ct_config["ccc_comparison_bin_widths"]]
-    labels = [str(int(value)) if value.is_integer() else str(value).replace(".", "_") for value in widths]
-    low_variance = float(snf_config["ct_low_variance_threshold"])
-    high_correlation = float(snf_config["ct_high_correlation_threshold"])
+    snf_config = load_candidate_proposer_config(config_dir or "configs")["snf"]
+    correlation_threshold = float(snf_config.get("ct_high_correlation_threshold", 0.95))
     states = [dict(state) for state in patient_states if state.get("qc") == "success"]
-    case_ids = [str(state.get("case_id", "")) for state in states]
-    vectors, names = [], []
-    comparison = {label: [] for label in labels}
+    patient_ids = [str(state.get("case_id", "")) for state in states]
+    vectors = []
+    feature_names = []
     for state in states:
         evidence = dict(state.get("ct_evidence", {}) or {})
-        feature_path = Path(str(evidence.get("feature_path", "") or ""))
-        payload = json.loads(feature_path.read_text(encoding="utf-8"))
-        feature_names = [str(name) for name in payload]
-        vectors.append([float(payload[name]) for name in feature_names])
-        names.append(feature_names)
-        for label in labels:
-            path = Path(str(dict(evidence.get("ccc_feature_paths", {}) or {}).get(label, "") or ""))
-            values = json.loads(path.read_text(encoding="utf-8"))
-            if list(values) != feature_names:
-                raise ValueError(f"CT CCC feature names mismatch for {state.get('case_id')}, binWidth={label}")
-            comparison[label].append([float(values[name]) for name in feature_names])
-    if not vectors:
-        return {"matrix": np.empty((0, 0)), "patient_ids": [], "feature_names": [], "audit": {}}
-    if any(current != names[0] for current in names[1:]):
-        raise ValueError("CT feature names differ across patients")
-    matrix = np.asarray(vectors, dtype=float)
-    feature_names = names[0]
-    keep = np.var(matrix, axis=0) > low_variance
-    matrix = matrix[:, keep]
-    feature_names = [name for name, value in zip(feature_names, keep) if value]
-    comparison = {label: np.asarray(values, dtype=float)[:, keep] for label, values in comparison.items()}
-    ccc_keep = np.ones(matrix.shape[1], dtype=bool)
-    ccc_scores = {}
-    for index, name in enumerate(feature_names):
-        scores = {}
-        reference = matrix[:, index]
-        for label, values in comparison.items():
-            current = values[:, index]
-            x_mean, y_mean = reference.mean(), current.mean()
-            covariance = np.mean((reference - x_mean) * (current - y_mean))
-            denominator = np.var(reference) + np.var(current) + (x_mean - y_mean) ** 2
-            scores[label] = float(2 * covariance / denominator) if denominator else 0.0
-        ccc_scores[name] = scores
-        ccc_keep[index] = all(score >= ccc_threshold for score in scores.values())
-    matrix = matrix[:, ccc_keep]
-    feature_names = [name for name, value in zip(feature_names, ccc_keep) if value]
-    ccc_feature_names = list(feature_names)
-    corr_keep = np.ones(matrix.shape[1], dtype=bool)
-    if matrix.shape[1] > 1:
-        corr = np.nan_to_num(np.corrcoef(matrix, rowvar=False), nan=0.0)
-        for index in range(matrix.shape[1]):
-            if np.any(np.abs(corr[index, :index][corr_keep[:index]]) > high_correlation):
-                corr_keep[index] = False
-    matrix = matrix[:, corr_keep]
-    feature_names = [name for name, value in zip(feature_names, corr_keep) if value]
-    correlation_feature_names = list(feature_names)
+        values = json.loads(Path(str(evidence["feature_path"])).read_text(encoding="utf-8"))
+        names = list(values)
+        if feature_names and names != feature_names:
+            raise ValueError(f"CT feature names differ for {state['case_id']}")
+        feature_names = names
+        vectors.append([float(values[name]) for name in names])
 
-    values = confounder_values({case_id: state for case_id, state in zip(case_ids, states)}, output_root)
-    correction_config = dict(ct_config.get("confound_correction", {}) or {})
-    fields = list(correction_config.get("fields") or [
-        "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel", "ct_slice_thickness"
-    ]) if bool(correction_config.get("enabled", True)) else []
-    design_parts = []
-    design_audit = {}
-    for field in fields:
-        raw = [dict(values.get(case_id, {}) or {}).get(field, "") for case_id in case_ids]
-        if field == "ct_slice_thickness":
-            numeric = pd.to_numeric(pd.Series(raw), errors="coerce")
-            missing_count = int(numeric.isna().sum())
-            numeric = numeric.fillna(float(numeric.median()) if numeric.notna().any() else 0.0)
-            design_parts.append(numeric.to_numpy(float)[:, None])
-            design_audit[field] = {"type": "numeric", "missing_count": missing_count}
-        else:
-            missing_count = sum(not str(item or "").strip() for item in raw)
-            series = pd.Series([str(item or "missing") for item in raw])
-            encoded = pd.get_dummies(series, dtype=float)
-            design_parts.append(encoded.to_numpy(float))
-            counts = series.value_counts().sort_index().to_dict()
-            design_audit[field] = {
-                "type": "categorical",
-                "levels": sorted(series.unique().tolist()),
-                "level_counts": {str(key): int(value) for key, value in counts.items()},
-                "singleton_levels": [str(key) for key, value in counts.items() if value == 1],
-                "rare_levels": [str(key) for key, value in counts.items() if value < 5],
-                "missing_count": missing_count,
-            }
-    design = np.column_stack([np.ones(len(case_ids)), *design_parts]) if design_parts else np.ones((len(case_ids), 1))
-    design_rank = int(np.linalg.matrix_rank(design))
-    original_matrix = matrix.copy()
-    coefficients = np.linalg.lstsq(design, matrix, rcond=None)[0]
-    corrected = matrix - design @ coefficients
-    corrected_std = corrected.std(axis=0)
-    corrected_keep = corrected_std > low_variance
-    corrected = corrected[:, corrected_keep]
-    corrected_names = [name for name, value in zip(feature_names, corrected_keep) if value]
-    def explained_variance(data: np.ndarray) -> dict[str, float | None]:
-        if data.shape[1] == 0:
-            return {"median_r2": None, "q90_r2": None, "max_r2": None}
-        total = np.var(data, axis=0)
-        fitted = design @ np.linalg.lstsq(design, data, rcond=None)[0]
-        r2 = np.divide(np.var(fitted, axis=0), total, out=np.zeros_like(total), where=total > 0)
-        return {"median_r2": float(np.median(r2)), "q90_r2": float(np.quantile(r2, .9)), "max_r2": float(np.max(r2))}
-    confound_metrics = {
-        "fields": design_audit,
-        "design_shape": [int(value) for value in design.shape],
-        "design_rank": design_rank,
-        "residual_df": max(len(case_ids) - design_rank, 0),
-        "technical_r2_before": explained_variance(original_matrix),
-        "technical_r2_after": explained_variance(corrected),
-        "correction": "least_squares_residualization_with_intercept",
+    matrix = np.asarray(vectors, dtype=float)
+    if not patient_ids or not feature_names or not np.isfinite(matrix).all():
+        raise ValueError("CT feature matrix must contain finite features for every eligible patient")
+
+    scale = np.maximum(1.0, np.max(np.abs(matrix), axis=0))
+    constant = matrix.std(axis=0) <= np.finfo(float).eps * scale * 16
+    constant_removed = [name for name, drop in zip(feature_names, constant) if drop]
+    matrix = matrix[:, ~constant]
+    names = [name for name, drop in zip(feature_names, constant) if not drop]
+    if not names:
+        raise ValueError("CT radiomics has no non-constant features")
+
+    correlation_pruned = []
+    if len(names) > 1:
+        absolute = np.nan_to_num(np.abs(np.corrcoef(matrix, rowvar=False)), nan=0.0)
+        np.fill_diagonal(absolute, 0.0)
+        edges = sorted(
+            (
+                (absolute[left, right], names[left], names[right], left, right)
+                for left in range(len(names))
+                for right in range(left + 1, len(names))
+                if absolute[left, right] > correlation_threshold
+            ),
+            key=lambda edge: (-edge[0], edge[1], edge[2]),
+        )
+        active = np.ones(len(names), dtype=bool)
+        row_sums = absolute.sum(axis=1)
+        active_count = len(names)
+        for _, _, _, left, right in edges:
+            if active[left] and active[right]:
+                drop = max(
+                    (left, right),
+                    key=lambda index: (row_sums[index] / max(active_count - 1, 1), names[index]),
+                )
+                active[drop] = False
+                row_sums -= absolute[:, drop]
+                active_count -= 1
+                correlation_pruned.append(names[drop])
+        matrix = matrix[:, active]
+        names = [name for name, keep in zip(names, active) if keep]
+
+    mean = matrix.mean(axis=0, keepdims=True)
+    std = matrix.std(axis=0, keepdims=True)
+    matrix = (matrix - mean) / std
+    return {
+        "matrix": matrix,
+        "patient_ids": patient_ids,
+        "feature_names": names,
+        "audit": {
+            "case_count": len(patient_ids),
+            "raw_feature_count": len(feature_names),
+            "constant_removed": constant_removed,
+            "correlation_threshold": correlation_threshold,
+            "correlation_pruned": correlation_pruned,
+            "retained_features": names,
+            "technical_residualization": False,
+            "ccc_filter": False,
+            "steps": [
+                "cached PyRadiomics extraction",
+                "constant and near-constant feature removal",
+                "order-independent absolute Pearson correlation pruning",
+                "feature-wise z-score",
+                "Euclidean distance",
+            ],
+        },
     }
-    means = corrected.mean(axis=0, keepdims=True)
-    stds = corrected.std(axis=0, keepdims=True)
-    corrected = np.divide(corrected - means, stds, out=np.zeros_like(corrected), where=stds > 0)
-    audit = ct_feature_filter_audit(
-        original_names=names[0],
-        ccc_names=ccc_feature_names,
-        correlation_names=correlation_feature_names,
-        corrected_names=corrected_names,
-        confound_metrics=confound_metrics,
-    )
-    audit.update({
-        "case_count": len(case_ids),
-        "ccc_threshold": ccc_threshold,
-        "high_correlation_threshold": high_correlation,
-        "ccc_scores": ccc_scores,
-        "confound_correction_enabled": bool(correction_config.get("enabled", True)),
-        "confound_fields": fields,
-    })
-    return {"matrix": corrected, "patient_ids": case_ids, "feature_names": corrected_names, "audit": audit}
 
 
 def build_ct_affinity(
@@ -189,8 +111,6 @@ def build_ct_affinity(
     config_dir: str = "",
     output_root: str = "",
 ) -> dict[str, Any]:
-    """Build the production CT affinity from the shared discovery matrix."""
-    import numpy as np
     from scipy.spatial.distance import cdist
     from tools.evidence_features import distance_to_affinity
     from utils.llm_utils import load_candidate_proposer_config
@@ -198,15 +118,9 @@ def build_ct_affinity(
     payload = build_ct_discovery_feature_matrix(
         patient_states, config_dir=config_dir, output_root=output_root
     )
-    snf_config = load_candidate_proposer_config(config_dir or "configs")["snf"]
-    matrix = payload["matrix"]
-    distance = cdist(matrix, matrix, metric="euclidean")
-    affinity = (
-        np.ones((1, 1), dtype=float)
-        if len(payload["patient_ids"]) == 1
-        else distance_to_affinity(distance, snf_config)
-    )
-    return {**payload, "affinity": np.asarray(affinity, dtype=float)}
+    config = load_candidate_proposer_config(config_dir or "configs")["snf"]
+    distance = cdist(payload["matrix"], payload["matrix"], metric="euclidean")
+    return {**payload, "affinity": distance_to_affinity(distance, config)}
 
 
 def run_ct_radiomics(
@@ -238,11 +152,6 @@ def run_ct_radiomics(
     label = int(tool_config["label"])
     remove_diagnostics = bool(tool_config["remove_diagnostics"])
     extractor = dict(tool_config["extractor"])
-    reference_bin_width = float(extractor["setting"]["binWidth"])
-    comparison_bin_widths = [
-        float(value) for value in tool_config["ccc_comparison_bin_widths"]
-    ]
-
     hu_clip_range = [float(value) for value in tool_config["hu_clip_range"]]
     if len(hu_clip_range) != 2:
         raise ValueError("hu_clip_range must contain [lower, upper].")
@@ -263,15 +172,6 @@ def run_ct_radiomics(
     artifacts = {
         "features_json_path": str(case_output_dir / "radiomics_features.json"),
     }
-    for bin_width in comparison_bin_widths:
-        width_label = (
-            str(int(bin_width))
-            if bin_width.is_integer()
-            else str(bin_width).replace(".", "_")
-        )
-        artifacts[f"features_bin_width_{width_label}_json_path"] = str(
-            case_output_dir / f"radiomics_features_bin_width_{width_label}.json"
-        )
     provenance = {"backend": "pyradiomics", "case_id": case_id}
     input_payload = {
         "case_id": case_id,
@@ -318,21 +218,11 @@ def run_ct_radiomics(
         clamp_filter.SetUpperBound(hu_upper)
         clipped_ct_image = clamp_filter.Execute(ct_image)
 
-        raw_features_by_width: dict[float, dict[str, Any]] = {}
-        for bin_width in [reference_bin_width, *comparison_bin_widths]:
-            width_extractor = copy.deepcopy(extractor)
-            width_extractor["setting"]["binWidth"] = bin_width
-            with quiet_tool_logs():
-                radiomics_extractor = featureextractor.RadiomicsFeatureExtractor(
-                    width_extractor
-                )
-                raw_features_by_width[bin_width] = dict(
-                    radiomics_extractor.execute(
-                        clipped_ct_image, mask_image, label=label
-                    )
-                )
-
-        raw_features = raw_features_by_width[reference_bin_width]
+        with quiet_tool_logs():
+            radiomics_extractor = featureextractor.RadiomicsFeatureExtractor(extractor)
+            raw_features = dict(
+                radiomics_extractor.execute(clipped_ct_image, mask_image, label=label)
+            )
 
         def json_value(value: Any) -> Any:
             if value is None or isinstance(value, (str, int, float, bool)):
@@ -374,21 +264,6 @@ def run_ct_radiomics(
             json.dumps(selected_features, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        for bin_width in comparison_bin_widths:
-            width_label = (
-                str(int(bin_width))
-                if bin_width.is_integer()
-                else str(bin_width).replace(".", "_")
-            )
-            comparison_features = {
-                str(key): json_value(value)
-                for key, value in raw_features_by_width[bin_width].items()
-                if (not remove_diagnostics) or not str(key).startswith("diagnostics_")
-            }
-            Path(artifacts[f"features_bin_width_{width_label}_json_path"]).write_text(
-                json.dumps(comparison_features, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
         metrics_payload = {
             "case_id": case_id,
             "ct_path": str(ct_file_path),
@@ -417,8 +292,6 @@ def run_ct_radiomics(
                 extractor.get("setting", {}).get("resampledPixelSpacing", [])
             ),
             "bin_width": float(extractor.get("setting", {}).get("binWidth")),
-            "ccc_comparison_bin_widths": comparison_bin_widths,
-            "ccc_threshold": float(tool_config["ccc_threshold"]),
             "issues": [],
         }
     except Exception as exc:

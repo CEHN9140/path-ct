@@ -40,7 +40,3 @@ def hash_payload(payload: Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(content).hexdigest()
-
-
-def artifacts_valid(paths: Iterable[str | Path]) -> bool:
-    return all(Path(path).expanduser().exists() for path in paths if str(path))
