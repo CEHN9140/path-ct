@@ -238,6 +238,7 @@ class ReviewContext(TypedDict, total=False):
     verifier_model: Any
     router_model: Any
     reviser_model: Any
+    runtime_trace_path: str
 
 
 class ReviewControl(TypedDict, total=False):

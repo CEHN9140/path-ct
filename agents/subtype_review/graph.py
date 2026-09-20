@@ -23,6 +23,7 @@ from agents.subtype_review.schemas import (
     RouterPlan,
     set_id,
 )
+from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
 from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import to_jsonable
@@ -265,6 +266,20 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "round": control["round"],
         "budget_exhausted": budget_exhausted,
     }
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="router",
+        event="router_context",
+        round_id=control["round"],
+        payload={
+            "partition": partition_snapshot(current),
+            "evidence_reports": payload["evidence_reports"],
+            "evidence_coverage": coverage,
+            "available_evidence_requests": request_options,
+            "budget_exhausted": budget_exhausted,
+        },
+    )
+    plan_source = "llm_router" if partition_screen_done else "protocol_mandatory_partition_screen"
     if partition_screen_done:
         plan = RouterPlan.model_validate(parse_json_content(values["router_model"].invoke(payload)))
     else:
@@ -276,6 +291,17 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             target_ids=[],
             question="Screen the current partition for unsupported internal splits and weak pair boundaries.",
         )])
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="router",
+        event="router_plan",
+        round_id=control["round"],
+        payload={
+            "partition": partition_snapshot(current),
+            "plan_source": plan_source,
+            "plan": plan.model_dump(),
+        },
+    )
     validate_router_plan(plan, state, available)
 
     state["router_plan"] = plan.model_dump()
@@ -369,6 +395,17 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         "round": state["control"]["round"],
     })
     calls = acquisition.get("tool_calls", []) if isinstance(acquisition, Mapping) else acquisition.tool_calls
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="verifier",
+        event="tool_calls_selected",
+        round_id=state["control"]["round"],
+        payload={
+            "evidence_requests": [item.model_dump() for item in requests],
+            "eligible_tools": eligible,
+            "tool_calls": [{"name": call["name"], "args": call["args"]} for call in calls],
+        },
+    )
     if not calls:
         raise RuntimeError(
             "Verifier acquire returned no tool calls for pending EvidenceRequests; "
@@ -398,15 +435,44 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         if call_key in called or call_key in completed:
             raise ValueError(f"Verifier repeated a tool call: {name} {scope} {targets}")
         called.add(call_key)
-        raw = metadata["function"](
-            patient_states_by_id=values["patient_states_by_id"],
-            output_root=str(values["data_root"]),
-            config_dir=str(values["config_dir"]),
-            all_cluster_states=current,
-            scope=scope,
-            target_ids=list(targets),
-        )
+        try:
+            raw = metadata["function"](
+                patient_states_by_id=values["patient_states_by_id"],
+                output_root=str(values["data_root"]),
+                config_dir=str(values["config_dir"]),
+                all_cluster_states=current,
+                scope=scope,
+                target_ids=list(targets),
+            )
+        except Exception as exc:
+            append_runtime_trace(
+                values.get("runtime_trace_path"),
+                node="verifier",
+                event="tool_failed",
+                round_id=state["control"]["round"],
+                payload={
+                    "tool_name": name,
+                    "scope": scope,
+                    "target_ids": list(targets),
+                    "partition": partition_snapshot(current),
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+            raise
         row = compact_tool_result(raw, name)
+        append_runtime_trace(
+            values.get("runtime_trace_path"),
+            node="verifier",
+            event="tool_result",
+            round_id=state["control"]["round"],
+            payload={
+                "tool_name": name,
+                "scope": scope,
+                "target_ids": list(targets),
+                "result": row,
+            },
+        )
         if row["status"] == "runtime_failure":
             raise RuntimeError(f"Scientific tool {name} failed: {row['errors']}")
         aspect = metadata.get("aspect", name)
@@ -485,6 +551,14 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         if report.pair_boundary_assessment == "insufficiently_separated" and "structural_diagnostics" not in report.tool_refs:
             raise ValueError("Verifier cannot report a weak boundary without pair structural diagnostics")
 
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="verifier",
+        event="evidence_reports",
+        round_id=state["control"]["round"],
+        payload={"reports": [report.model_dump() for report in reports_by_key.values()]},
+    )
+
     merged = {
         (row["dimension"], row["aspect"], row["scope"], tuple(row["target_ids"])): row
         for row in state["reports"]
@@ -531,11 +605,29 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         ref for row in tool_rows for ref in row["metric_refs"]
         if ref.startswith(prefix + ".") or ref.startswith(prefix + "[")
     })
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="reviser",
+        event="reviser_context",
+        round_id=state["control"]["round"],
+        payload={
+            "partition": partition_snapshot(current),
+            "router_action": action.model_dump(),
+            "available_metric_refs": available_refs,
+        },
+    )
     plan = RevisionPlan.model_validate(parse_json_content(values["reviser_model"].invoke({
         "partition": state["partition"],
         "router_action": action.model_dump(),
         "available_metric_refs": available_refs,
     })))
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="reviser",
+        event="revision_plan",
+        round_id=state["control"]["round"],
+        payload={"plan": plan.model_dump()},
+    )
     if action.action == "split":
         if (len(plan.split_plans) != 1 or plan.merge_plans
                 or plan.split_plans[0].target_id != action.target_ids[0]
@@ -609,6 +701,18 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         "new_set_ids": [set_id(item) for item in new_sets if set_id(item) not in by_id],
         "metric_refs": sorted({ref for item in plans for ref in item.metric_refs}),
     }
+    append_runtime_trace(
+        values.get("runtime_trace_path"),
+        node="reviser",
+        event="revision_applied",
+        round_id=state["control"]["round"],
+        payload={
+            "operation": action.action,
+            "old_partition": partition_snapshot(current),
+            "new_partition": partition_snapshot(new_sets),
+            "revision_result": result,
+        },
+    )
     state["partition"] = {"sets": new_sets}
     state["reports"] = copy.deepcopy(state["evidence_memory"].get(new_signature, []))
     state["revision_plan"] = plan.model_dump()

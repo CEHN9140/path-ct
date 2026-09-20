@@ -13,6 +13,7 @@ from agents.subtype_review.llm import (
     build_default_verifier,
     review_signature_manifest,
 )
+from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
 from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.cache_utils import file_identity, hash_payload
 from utils.io import write_json
@@ -25,6 +26,7 @@ def run_subtype_review(
     data_root: str,
     config_dir: str,
     artifact_root: str,
+    runtime_trace_path: str | None = None,
 ) -> dict[str, Any]:
     review_config = load_yaml_file(Path(config_dir) / "subtype_review.yaml")
     budget = review_config["budget"]
@@ -37,6 +39,7 @@ def run_subtype_review(
         "verifier_model": build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker),
         "router_model": build_default_router(review_config, config_dir, usage_tracker=usage_tracker),
         "reviser_model": build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker),
+        "runtime_trace_path": runtime_trace_path,
     }
     state = initial_review_state(candidate_sets)
     state["control"]["max_rounds"] = int(budget["max_rounds"])
@@ -115,33 +118,76 @@ def run_review_grid(
                 shutil.rmtree(run_root)
 
             run_root.mkdir(parents=True)
+            trace_path = run_root / "runtime_trace.jsonl"
+            trace_path.write_text("", encoding="utf-8")
+            append_runtime_trace(
+                trace_path,
+                node="runner",
+                event="run_started",
+                round_id=0,
+                payload={
+                    "initial_k": k,
+                    "repeat": repeat,
+                    "input_signature": input_signature,
+                    "candidate_signature": candidate_signature,
+                    "initial_partition": partition_snapshot(candidate_partitions[k]),
+                },
+            )
+            metadata = {
+                "initial_k": k,
+                "repeat": repeat,
+                "input_signature": input_signature,
+                "candidate_signature": candidate_signature,
+                "runtime_trace_path": str(trace_path),
+            }
             write_json(metadata_path, {
                 "status": "running",
-                "initial_k": k,
-                "repeat": repeat,
-                "input_signature": input_signature,
-                "candidate_signature": candidate_signature,
+                **metadata,
             })
-            final_state = run_subtype_review(
-                candidate_partitions[k],
-                patient_states_by_id,
-                output_root,
-                config_dir,
-                str(run_root),
-            )
-            summary = save_review_outputs(final_state, str(run_root), direct=True)
-            complete = (
-                (run_root / "final_subtype_sets.json").is_file()
-                and summary["raw_control_status"] == "complete"
-                and summary["status"] == "review_complete"
-            )
-            write_json(metadata_path, {
-                "status": "complete" if complete else "incomplete",
-                "initial_k": k,
-                "repeat": repeat,
-                "input_signature": input_signature,
-                "candidate_signature": candidate_signature,
-            })
+            try:
+                final_state = run_subtype_review(
+                    candidate_partitions[k],
+                    patient_states_by_id,
+                    output_root,
+                    config_dir,
+                    str(run_root),
+                    runtime_trace_path=str(trace_path),
+                )
+                summary = save_review_outputs(final_state, str(run_root), direct=True)
+                complete = (
+                    (run_root / "final_subtype_sets.json").is_file()
+                    and summary["raw_control_status"] == "complete"
+                    and summary["status"] == "review_complete"
+                )
+                status = "complete" if complete else "incomplete"
+                append_runtime_trace(
+                    trace_path,
+                    node="runner",
+                    event="run_completed",
+                    payload={
+                        "status": summary["status"],
+                        "raw_control_status": summary["raw_control_status"],
+                        "rounds_used": summary["rounds_used"],
+                    },
+                )
+                write_json(metadata_path, {"status": status, **metadata})
+            except Exception as exc:
+                append_runtime_trace(
+                    trace_path,
+                    node="runner",
+                    event="run_failed",
+                    payload={
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
+                )
+                write_json(metadata_path, {
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    **metadata,
+                })
+                raise
             run_summaries.append(summary)
 
     multi_k = review_config["multi_k"]
