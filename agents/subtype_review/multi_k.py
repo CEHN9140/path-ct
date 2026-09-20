@@ -31,9 +31,10 @@ def run_multi_k_aggregation(
     if len(patient_index) != len(patient_ids):
         raise ValueError("Candidate patient order contains duplicate IDs")
 
+    params = config["multi_k"]
     run_files = []
-    for k in range(2, 9):
-        for repeat in (1, 2, 3):
+    for k in params["initial_ks"]:
+        for repeat in params["repeats"]:
             run_root = runs_root / f"K{k}" / f"repeat{repeat}"
             metadata_path = run_root / "run_metadata.json"
             summary_path = run_root / "final_review_summary.json"
@@ -71,7 +72,6 @@ def run_multi_k_aggregation(
     coassignment /= run_count
     np.fill_diagonal(coassignment, acceptance)
 
-    params = config["multi_k"]
     accepted_indices = np.flatnonzero(acceptance >= float(params["acceptance_threshold"]))
     if not len(accepted_indices):
         raise ValueError("No patients meet the configured accepted-run frequency threshold")

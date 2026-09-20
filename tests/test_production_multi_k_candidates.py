@@ -100,6 +100,9 @@ def test_partial_review_grid_uses_k_then_repeat_directories(tmp_path, monkeypatc
         (tmp_path / filename).write_text("reference_status,reference_subtype\n", encoding="utf-8")
     (config_dir / "subtype_review.yaml").write_text(
         f"""budget: {{max_rounds: 10}}
+multi_k:
+  initial_ks: [2]
+  repeats: [1, 2]
 known_label_echo:
   mrna_m1_m4_path: {tmp_path / 'm1_m4.csv'}
   clearcode34_path: {tmp_path / 'clearcode.csv'}
@@ -148,6 +151,7 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
         f"known_label_echo:\n  mrna_m1_m4_path: {tmp_path / 'm1_m4.csv'}\n"
         f"  clearcode34_path: {tmp_path / 'clearcode.csv'}\n"
         f"rna:\n  hallmark_gene_sets_path: {tmp_path / 'hallmark.gmt'}\n"
+        "multi_k:\n  initial_ks: [2, 3]\n  repeats: [1, 2]\n"
         f"prompt_dir: {prompt_dir}\n"
     )
     (config_dir / "subtype_review.yaml").write_text(config_text, encoding="utf-8")
@@ -162,19 +166,63 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
         return summary
 
     monkeypatch.setattr(runner, "save_review_outputs", save_summary)
-    partitions = {k: [{"set_id": f"K{k}_C1", "member_ids": ["P1"]}] for k in range(2, 9)}
+    partitions = {k: [{"set_id": f"K{k}_C1", "member_ids": ["P1"]}] for k in (2, 3)}
     output_root = str(tmp_path / "output")
     result = runner.run_review_grid(
         partitions, {"P1": {}}, output_root, str(config_dir),
-        tuple(range(2, 9)), (1, 2, 3), "candidate-signature",
+        (2, 3), (1, 2), "candidate-signature",
     )
     assert result["multi_k_ready"] is True
-    assert len(reviewed) == 21
+    assert len(reviewed) == 4
 
-    (Path(result["run_root"]) / "K8" / "repeat3" / "final_subtype_sets.json").unlink()
+    (Path(result["run_root"]) / "K3" / "repeat2" / "final_subtype_sets.json").unlink()
     partial = runner.run_review_grid(
         partitions, {"P1": {}}, output_root, str(config_dir),
         (2,), (1,), "candidate-signature",
     )
     assert partial["multi_k_ready"] is False
-    assert len(reviewed) == 21
+    assert len(reviewed) == 4
+
+
+def test_changing_only_configured_grid_reuses_existing_agent_run(tmp_path, monkeypatch):
+    import agents.subtype_review.runner as runner
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    for name in ("m1_m4.csv", "clearcode.csv", "hallmark.gmt"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    prompt_dir = Path(__file__).resolve().parents[1] / "agents/subtype_review/prompts"
+    config_path = config_dir / "subtype_review.yaml"
+
+    def write_config(repeats):
+        config_path.write_text(
+            f"known_label_echo:\n  mrna_m1_m4_path: {tmp_path / 'm1_m4.csv'}\n"
+            f"  clearcode34_path: {tmp_path / 'clearcode.csv'}\n"
+            f"rna:\n  hallmark_gene_sets_path: {tmp_path / 'hallmark.gmt'}\n"
+            f"multi_k:\n  initial_ks: [2]\n  repeats: {repeats}\n"
+            f"prompt_dir: {prompt_dir}\n",
+            encoding="utf-8",
+        )
+
+    write_config("[1]")
+    reviewed = []
+    monkeypatch.setattr(runner, "run_subtype_review", lambda *args: reviewed.append(args) or {})
+
+    def save_summary(_state, run_root, direct=True):
+        summary = {"status": "review_complete", "raw_control_status": "complete"}
+        run_path = Path(run_root)
+        (run_path / "final_subtype_sets.json").write_text("[]", encoding="utf-8")
+        (run_path / "final_review_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        return summary
+
+    monkeypatch.setattr(runner, "save_review_outputs", save_summary)
+    args = (
+        {2: [{"set_id": "K2_C1", "member_ids": ["P1"]}]},
+        {"P1": {}}, str(tmp_path / "output"), str(config_dir), (2,), (1,), "candidate-signature",
+    )
+    runner.run_review_grid(*args)
+    write_config("[1, 2]")
+    result = runner.run_review_grid(*args)
+
+    assert len(reviewed) == 1
+    assert result["multi_k_ready"] is False

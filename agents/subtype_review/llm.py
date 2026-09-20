@@ -136,6 +136,11 @@ def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path)
     review_config = dict(config)
     for key in ("prompt_dir", "repeat", "output_root", "experiment_root"):
         review_config.pop(key, None)
+    review_config["multi_k"] = {
+        key: value
+        for key, value in dict(review_config.get("multi_k", {}) or {}).items()
+        if key not in {"initial_ks", "repeats"}
+    }
     review_config["llm"] = {
         key: value
         for key, value in dict(review_config.get("llm", {}) or {}).items()

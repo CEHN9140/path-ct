@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
+import os
 import shutil
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -79,14 +82,49 @@ def run_pipeline(
         config_dir=args.config_dir,
     )
     save_patient_states(args.output_root, patient_states)
-    for index, patient_state in enumerate(patient_states):
-        if patient_state.get("qc") == "success":
-            patient_state = evidence_builder(
-                patient_state,
-                output_root=args.output_root,
-                config_dir=args.config_dir,
+    from utils.llm_utils import load_yaml_file
+
+    radiomics_workers = int(
+        load_yaml_file(Path(args.config_dir) / "ct_radiomics.yaml")["num_workers"]
+    )
+    case_indices = [
+        index
+        for index, state in enumerate(patient_states)
+        if state.get("qc") == "success"
+    ]
+    if radiomics_workers == 1:
+        for index in case_indices:
+            patient_states[index] = dict(
+                evidence_builder(
+                    patient_states[index],
+                    output_root=args.output_root,
+                    config_dir=args.config_dir,
+                )
             )
-        patient_states[index] = dict(patient_state)
+    else:
+        previous_itk_threads = os.environ.get("ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS")
+        os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = "1"
+        try:
+            with ProcessPoolExecutor(
+                max_workers=radiomics_workers,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as executor:
+                futures = {
+                    index: executor.submit(
+                        evidence_builder,
+                        patient_states[index],
+                        output_root=args.output_root,
+                        config_dir=args.config_dir,
+                    )
+                    for index in case_indices
+                }
+                for index, future in futures.items():
+                    patient_states[index] = dict(future.result())
+        finally:
+            if previous_itk_threads is None:
+                os.environ.pop("ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS", None)
+            else:
+                os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = previous_itk_threads
     save_patient_states(args.output_root, patient_states)
     patient_states = build_wsi_embeddings_cohort(
         patient_states,
@@ -161,8 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-json-path", type=str, default=DEFAULT_DATA_JSON_PATH)
     parser.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--config-dir", type=str, default=DEFAULT_CONFIG_DIR)
-    parser.add_argument("--initial-k", dest="initial_ks", type=int, choices=range(2, 9), action="append")
-    parser.add_argument("--repeat", dest="repeats", type=int, choices=(1, 2, 3), action="append")
+    parser.add_argument("--initial-k", dest="initial_ks", type=int, action="append")
+    parser.add_argument("--repeat", dest="repeats", type=int, action="append")
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -170,8 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     args.config_dir = str(Path(args.config_dir).expanduser().resolve())
-    args.initial_ks = sorted(set(args.initial_ks or range(2, 9)))
-    args.repeats = sorted(set(args.repeats or (1, 2, 3)))
+    from utils.llm_utils import load_yaml_file
+
+    multi_k = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")["multi_k"]
+    args.initial_ks = sorted(set(args.initial_ks or multi_k["initial_ks"]))
+    args.repeats = sorted(set(args.repeats or multi_k["repeats"]))
     case = json.loads(Path(args.data_json_path).read_text(encoding="utf-8"))
     if not isinstance(case, list):
         raise TypeError("data json must contain a JSON list.")

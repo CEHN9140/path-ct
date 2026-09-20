@@ -74,7 +74,6 @@ def run_review_grid(
     )
     input_signature = hash_payload({
         "candidate_signature": candidate_signature,
-        "review_config": file_identity(str(config_path)),
         "review_signature": review_signature_manifest(review_config, config_dir),
         "evidence_inputs": {path: file_identity(path) for path in sorted(evidence_paths)},
         "technical_metadata": {path: file_identity(path) for path in technical_metadata},
@@ -145,15 +144,18 @@ def run_review_grid(
             })
             run_summaries.append(summary)
 
-    full_grid = True
-    for k in range(2, 9):
-        for repeat in (1, 2, 3):
+    multi_k = review_config["multi_k"]
+    configured_ks = tuple(sorted(set(int(k) for k in multi_k["initial_ks"])))
+    configured_repeats = tuple(sorted(set(int(repeat) for repeat in multi_k["repeats"])))
+    grid_ready = True
+    for k in configured_ks:
+        for repeat in configured_repeats:
             run_root = root / f"K{k}" / f"repeat{repeat}"
             metadata_path = run_root / "run_metadata.json"
             summary_path = run_root / "final_review_summary.json"
             sets_path = run_root / "final_subtype_sets.json"
             if not metadata_path.is_file() or not summary_path.is_file() or not sets_path.is_file():
-                full_grid = False
+                grid_ready = False
                 break
             metadata = json.loads(metadata_path.read_text())
             summary = json.loads(summary_path.read_text())
@@ -163,13 +165,13 @@ def run_review_grid(
                 or summary.get("raw_control_status") != "complete"
                 or summary.get("status") != "review_complete"
             ):
-                full_grid = False
+                grid_ready = False
                 break
-        if not full_grid:
+        if not grid_ready:
             break
     return {
         "runs": run_summaries,
         "run_root": str(root),
         "input_signature": input_signature,
-        "multi_k_ready": full_grid,
+        "multi_k_ready": grid_ready,
     }

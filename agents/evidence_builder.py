@@ -35,6 +35,7 @@ WSI_EMBEDDING_RUNTIME_KEYS = {
     "workers_per_gpu",
     "devices",
 }
+CT_RADIOMICS_RUNTIME_KEYS = {"num_workers"}
 
 
 def wsi_embedding_cache_signature(
@@ -350,7 +351,9 @@ def ct_radiomics(
     current_radiomics_cache_signature = hash_payload(
         {
             "cache_version": 1,
-            "semantic_config": current_radiomics_config,
+            "semantic_config": semantic_config(
+                current_radiomics_config, CT_RADIOMICS_RUNTIME_KEYS
+            ),
             "upstream": {
                 "ct_tumor_seg": str(
                     dict(tumor_seg_bundle.get("payload", {}) or {}).get(

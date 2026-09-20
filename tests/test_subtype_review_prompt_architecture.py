@@ -41,6 +41,11 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
         },
         "prompt_dir": "agents/subtype_review/prompts",
         "cross_modal": {"permanova_permutations": 999},
+        "multi_k": {
+            "initial_ks": [2, 3],
+            "repeats": [1, 2],
+            "acceptance_threshold": 2 / 3,
+        },
     }
     base = review_signature_manifest(config, "/data/qijun/path-ct/configs")
     assert set(base) == {
@@ -52,6 +57,12 @@ def test_review_signature_changes_with_prompt_or_scientific_config_only(tmp_path
 
     execution_only = {**config, "repeat": 3, "output_root": str(tmp_path / "run3")}
     assert review_signature_manifest(execution_only, "/data/qijun/path-ct/configs")["review_signature"] == base["review_signature"]
+
+    changed_grid = {**config, "multi_k": {**config["multi_k"], "initial_ks": [4], "repeats": [3]}}
+    assert review_signature_manifest(changed_grid, "/data/qijun/path-ct/configs")["review_signature"] == base["review_signature"]
+
+    changed_multi_k_analysis = {**config, "multi_k": {**config["multi_k"], "acceptance_threshold": 0.7}}
+    assert review_signature_manifest(changed_multi_k_analysis, "/data/qijun/path-ct/configs")["review_signature"] != base["review_signature"]
 
     changed_prompt = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
     (tmp_path / "prompts").mkdir()

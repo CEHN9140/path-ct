@@ -4,11 +4,13 @@ import numpy as np
 import pandas as pd
 
 
-def test_multi_k_aggregation_requires_all_21_complete_runs(tmp_path):
+def test_multi_k_aggregation_uses_configured_grid(tmp_path):
     from agents.subtype_review.multi_k import run_multi_k_aggregation
 
     config = {
         "multi_k": {
+            "initial_ks": [2, 3, 4, 5, 6, 7, 8],
+            "repeats": [1, 2, 3],
             "coassignment_threshold": 2 / 3,
             "acceptance_threshold": 2 / 3,
             "min_core_size": 4,
@@ -21,8 +23,8 @@ def test_multi_k_aggregation_requires_all_21_complete_runs(tmp_path):
     (tmp_path / "candidate_subtype" / "affinity_patient_order.json").write_text(
         json.dumps(patient_ids), encoding="utf-8"
     )
-    for k in range(2, 9):
-        for repeat in range(1, 4):
+    for k in config["multi_k"]["initial_ks"]:
+        for repeat in config["multi_k"]["repeats"]:
             run_root = runs / f"K{k}" / f"repeat{repeat}"
             run_root.mkdir(parents=True)
             (run_root / "run_metadata.json").write_text(json.dumps({
@@ -69,3 +71,19 @@ def test_multi_k_aggregation_does_not_start_for_incomplete_grid(tmp_path):
     else:
         raise AssertionError("incomplete multi-K grid must fail before aggregation")
     assert not (tmp_path / "subtype_review/multi_k").exists()
+
+
+def test_multi_k_aggregation_loads_only_configured_k_and_repeats(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate_dir = tmp_path / "candidate_subtype"
+    candidate_dir.mkdir()
+    (candidate_dir / "affinity_patient_order.json").write_text('["P1"]', encoding="utf-8")
+    config = {"multi_k": {"initial_ks": [3], "repeats": [2]}}
+
+    try:
+        run_multi_k_aggregation(str(tmp_path), config, "signature")
+    except FileNotFoundError as exc:
+        assert "K3/repeat2" in str(exc)
+    else:
+        raise AssertionError("aggregation must load the configured grid")
