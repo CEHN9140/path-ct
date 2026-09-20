@@ -111,3 +111,12 @@ def test_verifier_does_not_call_nonsignificant_trends_corroboration():
 
     assert "nonsignificant finding may be described as a directionally consistent trend" in verifier
     assert "direction alone must not be described as affirmative corroboration" in verifier
+
+
+def test_router_and_verifier_respect_evidence_aspects_and_marginal_silhouettes():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
+
+    assert "available_aspects" in router
+    assert "positive but near-zero silhouette is ambiguous" in verifier
+    assert "do not invent a universal numeric cutoff" in verifier

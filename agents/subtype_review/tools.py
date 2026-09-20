@@ -584,21 +584,31 @@ def confounder_representation_effect(
     scope: str,
     target_ids: list[str],
 ) -> dict[str, Any]:
+    from statsmodels.stats.multitest import multipletests
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = affinity_matrices(output_root)
+    index = {case_id: position for position, case_id in enumerate(patient_ids)}
     factors = technical_values(patient_states_by_id, output_root)
     settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["confounder"]
     permutations = int(settings["permutations"])
     categorical_factors = ("tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel")
+    continuous_factors = ("ct_slice_thickness", "ct_pixel_spacing", "ct_z_spacing", "study_year")
     results = {}
     for factor in categorical_factors:
         available = [case_id for case_id in patient_ids if factors.get(case_id, {}).get(factor) not in (None, "")]
         labels = np.asarray([str(factors[case_id][factor]) for case_id in available])
         if len(np.unique(labels)) < 2:
+            results[factor] = {
+                "modality": "fused" if factor == "tissue_source_site" else "ct",
+                "variable_type": "categorical", "test": "not_estimable",
+                "n": len(labels), "levels": int(len(np.unique(labels))),
+                "permutation_p": None, "q_value": None,
+            }
             continue
         modality = "fused" if factor in {"tissue_source_site"} else "ct"
-        affinity = matrices[modality][np.ix_([patient_ids.index(item) for item in available], [patient_ids.index(item) for item in available])]
+        positions = [index[item] for item in available]
+        affinity = matrices[modality][np.ix_(positions, positions)]
         distance = np.clip(1 - affinity, 0, 1)
         kernel = distance_kernel(distance)
         n = len(labels)
@@ -617,11 +627,60 @@ def confounder_representation_effect(
         exceed = sum(pseudo_f(rng.permutation(labels))[1] >= observed for _ in range(permutations))
         results[factor] = {
             "modality": modality,
+            "variable_type": "categorical",
+            "test": "permutation_permanova",
             "n": n,
             "levels": int(len(levels)),
             "r_squared": float(r2),
             "permutation_p": (exceed + 1) / (permutations + 1),
         }
+    for factor in continuous_factors:
+        available = [
+            case_id for case_id in patient_ids
+            if factors.get(case_id, {}).get(factor) is not None
+            and np.isfinite(factors[case_id][factor])
+        ]
+        values = np.asarray([float(factors[case_id][factor]) for case_id in available])
+        if len(values) < 3 or len(np.unique(values)) < 2:
+            results[factor] = {
+                "modality": "ct", "variable_type": "continuous", "test": "not_estimable",
+                "n": len(values), "permutation_p": None, "q_value": None,
+            }
+            continue
+        positions = [index[item] for item in available]
+        affinity = matrices["ct"][np.ix_(positions, positions)]
+        kernel = distance_kernel(np.clip(1 - affinity, 0, 1))
+        centered = values - values.mean()
+        total = float(np.trace(kernel))
+        if total <= 0:
+            results[factor] = {
+                "modality": "ct", "variable_type": "continuous", "test": "not_estimable",
+                "n": len(values), "permutation_p": None, "q_value": None,
+            }
+            continue
+        model_ss = float(centered @ kernel @ centered / (centered @ centered))
+        residual_ss = total - model_ss
+        observed = np.inf if residual_ss <= 0 else model_ss / (residual_ss / (len(values) - 2))
+        rng = np.random.default_rng(20260920)
+        exceed = 0
+        for _ in range(permutations):
+            shuffled = rng.permutation(centered)
+            permuted_ss = float(shuffled @ kernel @ shuffled / (shuffled @ shuffled))
+            permuted_residual_ss = total - permuted_ss
+            permuted_f = np.inf if permuted_residual_ss <= 0 else permuted_ss / (permuted_residual_ss / (len(values) - 2))
+            exceed += permuted_f >= observed
+        results[factor] = {
+            "modality": "ct",
+            "variable_type": "continuous",
+            "test": "permutation_distance_based_regression",
+            "n": len(values),
+            "r_squared": model_ss / total,
+            "permutation_p": (exceed + 1) / (permutations + 1),
+        }
+    tested = [row for row in results.values() if row["permutation_p"] is not None]
+    if tested:
+        for row, q_value in zip(tested, multipletests([row["permutation_p"] for row in tested], method="fdr_bh")[1]):
+            row["q_value"] = float(q_value)
     return tool_result("confounder_representation_effect", {"partition": results})
 
 
@@ -665,7 +724,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "confounder_representation_effect": {
         "aspect": "confounder_representation_effect",
         "dimension": "confounder_exclusion", "scopes": ("partition",),
-        "description": "Estimate PERMANOVA variance explained by measured technical factors in the related affinity representation.",
+        "description": "Estimate permutation-based distance-model variance explained by measured technical factors in the related affinity representation.",
         "function": confounder_representation_effect,
     },
 }

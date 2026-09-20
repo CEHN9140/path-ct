@@ -189,8 +189,20 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         for row in state["tool_evidence"] if row["partition_signature"] == signature
     }
     partition_screen_done = ("structural_diagnostics", "partition", ()) in completed
+    screen = next((row for row in state["tool_evidence"]
+                   if row["partition_signature"] == signature
+                   and row["tool_name"] == "structural_diagnostics"
+                   and row["scope"] == "partition"), None)
+    screen_metrics = (screen or {}).get("metrics", {}).get("partition", {})
+    structural_sets = {
+        target for target, metrics in screen_metrics.get("internal_structure", {}).items()
+        if int(metrics.get("candidate_k") or 1) > 1
+    }
+    structural_pairs = {
+        tuple(sorted(pair)) for pair in screen_metrics.get("merge_candidates", [])
+    }
     set_ids = [set_id(item) for item in current]
-    available = set()
+    available_aspects = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
         dimension = metadata["dimension"]
         for scope in metadata["scopes"]:
@@ -201,13 +213,22 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             else:
                 targets = list(combinations(set_ids, 2))
             for target_ids in targets:
+                if name == "structural_diagnostics" and (
+                    (scope == "partition" and partition_screen_done)
+                    or (scope == "set" and target_ids[0] not in structural_sets)
+                    or (scope == "pair" and tuple(sorted(target_ids)) not in structural_pairs)
+                ):
+                    continue
                 key = (name, scope, tuple(target_ids))
                 if key not in completed:
-                    available.add((dimension, scope, tuple(target_ids)))
+                    request_key = (dimension, scope, tuple(target_ids))
+                    available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
 
+    available = set(available_aspects)
     request_options = [
-        {"dimension": dimension, "scope": scope, "target_ids": list(target_ids)}
-        for dimension, scope, target_ids in sorted(available)
+        {"dimension": dimension, "scope": scope, "target_ids": list(target_ids),
+         "available_aspects": sorted(aspects)}
+        for (dimension, scope, target_ids), aspects in sorted(available_aspects.items())
     ]
     coverage = {
         "set": {item: {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS} for item in set_ids},
@@ -220,6 +241,19 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             report["target_ids"][0] if scope == "set" else "partition"
         )
         coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
+    pending_structural_sets = sorted(
+        target for target in structural_sets
+        if ("structural_diagnostics", "set", (target,)) not in completed
+    )
+    if control["round"] >= control["max_rounds"] and pending_structural_sets:
+        control["status"] = "incomplete_due_to_round_budget"
+        control["next"] = "end"
+        control["pending_evidence_requests"] = []
+        control["trace"].append({
+            "round": control["round"], "node": "router", "event": "round_budget_exhausted",
+            "pending_structural_sets": pending_structural_sets,
+        })
+        return {"control": control}
     terminal_only = control["round"] >= control["max_rounds"] and partition_screen_done
     if not terminal_only:
         control["round"] += 1
@@ -234,7 +268,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     if partition_screen_done:
         plan = RouterPlan.model_validate(parse_json_content(values["router_model"].invoke(payload)))
     else:
-        if ("cross_modal_consistency", "partition", ()) not in available:
+        if ("cross_modal_consistency", "partition", ()) not in available_aspects:
             raise ValueError("Structural diagnostics must support a partition-level screen")
         plan = RouterPlan(evidence_requests=[EvidenceRequest(
             dimension="cross_modal_consistency",
@@ -280,6 +314,18 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         (row["tool_name"], row["scope"], tuple(row["target_ids"]))
         for row in state["tool_evidence"] if row["partition_signature"] == signature
     }
+    screen = next((row for row in state["tool_evidence"]
+                   if row["partition_signature"] == signature
+                   and row["tool_name"] == "structural_diagnostics"
+                   and row["scope"] == "partition"), None)
+    screen_metrics = (screen or {}).get("metrics", {}).get("partition", {})
+    structural_sets = {
+        target for target, metrics in screen_metrics.get("internal_structure", {}).items()
+        if int(metrics.get("candidate_k") or 1) > 1
+    }
+    structural_pairs = {
+        tuple(sorted(pair)) for pair in screen_metrics.get("merge_candidates", [])
+    }
     eligible = {}
     for name, metadata in registry.items():
         allowed = []
@@ -287,7 +333,12 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             targets = tuple(request.target_ids)
             if (metadata["dimension"] == request.dimension
                     and request.scope in metadata["scopes"]
-                    and (name, request.scope, targets) not in completed):
+                    and (name, request.scope, targets) not in completed
+                    and not (name == "structural_diagnostics" and (
+                        (request.scope == "partition" and screen is not None)
+                        or (request.scope == "set" and targets[0] not in structural_sets)
+                        or (request.scope == "pair" and targets not in structural_pairs)
+                    ))):
                 allowed.append({"scope": request.scope, "target_ids": list(targets)})
         if allowed:
             eligible[name] = {"description": metadata["description"], "allowed_requests": allowed}

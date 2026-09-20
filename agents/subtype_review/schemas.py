@@ -195,7 +195,7 @@ class ReviewContext(TypedDict, total=False):
 
 class ReviewControl(TypedDict, total=False):
     round: int
-    status: Literal["reviewing", "complete"]
+    status: Literal["reviewing", "complete", "incomplete_due_to_round_budget"]
     next: Literal["router", "verifier", "reviser", "end"]
     max_rounds: int
     pending_evidence_requests: list[dict[str, Any]]

@@ -200,9 +200,14 @@ def test_terminal_requires_targeted_split_diagnostic_when_partition_screen_sugge
 
 
 def test_verifier_keeps_same_target_reports_separate_by_aspect(tmp_path):
-    from agents.subtype_review.graph import verifier_node
+    from agents.subtype_review.graph import partition_signature, verifier_node
 
     state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+        "metrics": {"partition": {"internal_structure": {"C1": {"candidate_k": 2}}, "merge_candidates": []}},
+    }]
     state["control"]["pending_evidence_requests"] = [EvidenceRequest(
         dimension="cross_modal_consistency", scope="set", target_ids=["C1"], question="Assess evidence."
     ).model_dump()]
@@ -301,6 +306,160 @@ def test_verifier_rejects_batched_set_tool_calls(tmp_path):
 
     with pytest.raises(ValueError, match="exactly one set target"):
         verifier_node(state, context)
+
+
+def test_structural_tool_eligibility_is_limited_to_partition_screen_candidates(tmp_path):
+    from agents.subtype_review.graph import partition_signature, router_node, verifier_node
+
+    sets = [
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+        {"set_id": "C3", "member_ids": ["P5", "P6"]},
+    ]
+    state = initial_review_state(sets)
+    signature = partition_signature(state["partition"]["sets"])
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": signature,
+        "metrics": {"partition": {
+            "internal_structure": {
+                "C1": {"candidate_k": 1}, "C2": {"candidate_k": 2}, "C3": {"candidate_k": 1},
+            },
+            "merge_candidates": [["C1", "C2"]],
+        }},
+    }]
+    state["control"]["pending_evidence_requests"] = [
+        EvidenceRequest(dimension="cross_modal_consistency", scope="set", target_ids=[set_id], question="Check geometry.").model_dump()
+        for set_id in ("C1", "C2")
+    ] + [
+        EvidenceRequest(dimension="cross_modal_consistency", scope="pair", target_ids=pair, question="Check boundary.").model_dump()
+        for pair in (["C1", "C2"], ["C1", "C3"])
+    ]
+    captured = {}
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                captured.update(payload["eligible_tools"])
+                return {"tool_calls": [
+                    {"name": "representation_concordance", "args": request}
+                    for request in payload["eligible_tools"]["representation_concordance"]["allowed_requests"]
+                ]}
+            return {"reports": [
+                {**required, "observations": []}
+                for required in payload["required_reports"]
+            ]}
+
+    def geometry(**kwargs):
+        target = "|".join(kwargs["target_ids"]) if kwargs["scope"] == "pair" else kwargs["target_ids"][0]
+        return {"status": "success", "metrics": {kwargs["scope"]: {target: {"grv": 0.2}}}}
+
+    context = {
+        "patient_states_by_id": {f"P{i}": {} for i in range(1, 7)},
+        "data_root": str(tmp_path), "config_dir": str(tmp_path),
+        "tool_registry": {
+            "representation_concordance": {
+                "dimension": "cross_modal_consistency", "aspect": "affinity_geometry_concordance",
+                "scopes": ("set", "pair"), "description": "Network geometry.", "function": geometry,
+            },
+            "structural_diagnostics": {
+                "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+                "scopes": ("set", "pair"), "description": "Structural screen.", "function": geometry,
+            },
+        },
+        "verifier_model": Verifier(),
+    }
+
+    router_payload = {}
+
+    class Router:
+        def invoke(self, payload):
+            router_payload.update(payload)
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "cross_modal_consistency", "scope": "set",
+                "target_ids": ["C1"], "question": "Compare its affinity geometry.",
+            }]}
+
+    router_node(state, {"router_model": Router(), "tool_registry": context["tool_registry"]})
+    options = {
+        (row["scope"], tuple(row["target_ids"])): row["available_aspects"]
+        for row in router_payload["available_evidence_requests"]
+    }
+    assert "structural_diagnostics" not in options[("set", ("C1",))]
+    assert "structural_diagnostics" in options[("set", ("C2",))]
+    assert "structural_diagnostics" in options[("pair", ("C1", "C2"))]
+    assert "structural_diagnostics" not in options[("pair", ("C1", "C3"))]
+
+    verifier_node(state, context)
+
+    assert captured["structural_diagnostics"]["allowed_requests"] == [
+        {"scope": "set", "target_ids": ["C2"]},
+        {"scope": "pair", "target_ids": ["C1", "C2"]},
+    ]
+
+
+def test_round_budget_exhaustion_with_pending_structural_check_is_incomplete():
+    from agents.subtype_review.graph import partition_signature, router_node
+
+    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2", "P3", "P4"]}])
+    signature = partition_signature(state["partition"]["sets"])
+    state["control"].update({"round": 2, "max_rounds": 2})
+    state["reports"] = [{
+        "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+        "scope": "partition", "target_ids": [],
+    }]
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": signature,
+        "metrics": {"partition": {"internal_structure": {"C1": {"candidate_k": 2}}}},
+    }]
+
+    class Router:
+        def invoke(self, _):
+            raise AssertionError("Router must not terminally decide with mandatory structure evidence pending")
+
+    updated = router_node(state, {
+        "router_model": Router(),
+        "tool_registry": {"structural_diagnostics": {
+            "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+            "scopes": ("partition", "set"), "description": "Structure.",
+        }},
+    })
+
+    assert updated["control"]["status"] == "incomplete_due_to_round_budget"
+    assert updated["control"]["next"] == "end"
+
+
+def test_representation_confounder_effect_includes_continuous_metadata(tmp_path, monkeypatch):
+    import json
+
+    import numpy as np
+
+    import agents.subtype_review.tools as review_tools
+
+    patient_ids = [f"P{i}" for i in range(8)]
+    x = np.array([0.0, 0.1, 0.2, 0.3, 1.0, 1.1, 1.2, 1.3])
+    affinity = np.exp(-np.abs(x[:, None] - x[None, :]))
+    candidate_dir = tmp_path / "candidate_subtype"
+    candidate_dir.mkdir()
+    (candidate_dir / "affinity_patient_order.json").write_text(json.dumps(patient_ids))
+    for name in ("ct", "wsi", "rna", "wxs", "fused"):
+        np.save(candidate_dir / f"{name}_affinity.npy" if name != "fused" else candidate_dir / "fused_similarity.npy", affinity)
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "subtype_review.yaml").write_text("confounder:\n  permutations: 99\n")
+    monkeypatch.setattr(review_tools, "technical_values", lambda *_: {
+        patient_id: {"ct_slice_thickness": float(value), "ct_phase": str(value >= 1)}
+        for patient_id, value in zip(patient_ids, x)
+    })
+
+    result = review_tools.confounder_representation_effect(
+        {}, str(tmp_path), str(config_dir), [], "partition", [],
+    )
+    row = result["metrics"]["partition"]["ct_slice_thickness"]
+    assert row["variable_type"] == "continuous"
+    assert row["q_value"] is not None
+    assert result["metrics"]["partition"]["ct_phase"]["q_value"] is not None
 
 
 def test_split_uses_verifier_suggested_child_count_and_is_the_only_revision_action():
@@ -550,7 +709,7 @@ def test_split_invalidates_partition_reports_and_reacquires_for_new_sets(tmp_pat
                 "status": "success",
                 "metrics": {"partition": {
                     "internal_structure": {
-                        item["set_id"]: {"candidate_k": 1}
+                        item["set_id"]: {"candidate_k": 2}
                         for item in kwargs["all_cluster_states"]
                     },
                     "merge_candidates": [],
