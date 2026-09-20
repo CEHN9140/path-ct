@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from collections.abc import Mapping
 from itertools import combinations
@@ -24,6 +25,7 @@ from agents.subtype_review.schemas import (
     set_id,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
+from agents.subtype_review.evidence_semantics import guidance_for
 from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import to_jsonable
@@ -39,6 +41,13 @@ def partition_signature(sets: list[dict[str, Any]]) -> str:
 
 def current_sets(state: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(state["partition"]["sets"], key=set_id)
+
+
+def evidence_report_ref(signature: str, dimension: str, aspect: str, scope: str,
+                        targets: tuple[str, ...]) -> str:
+    partition_hash = hashlib.sha256(signature.encode("utf-8")).hexdigest()[:12]
+    target_hash = hashlib.sha256("\0".join(targets).encode("utf-8")).hexdigest()[:10]
+    return f"ER:{partition_hash}:{dimension}:{aspect}:{scope}:{target_hash}"
 
 
 def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
@@ -92,33 +101,43 @@ def validate_router_plan(
             seen.add(key)
         return
 
+    reports = {row["report_ref"]: row for row in state["reports"]}
     structural = [action for action in plan.actions if action.action in {"split", "merge"}]
+    for action in plan.actions:
+        if not set(action.target_ids).issubset(current):
+            raise ValueError("Action targets must be current sets")
+        cited = [reports.get(ref) for ref in action.evidence_report_refs]
+        if any(row is None for row in cited):
+            raise ValueError("Action cites an unknown or non-current Evidence Report")
+        if any(not (row["scope"] == "partition" or set(action.target_ids) & set(row["target_ids"])) for row in cited):
+            raise ValueError("Action cites an Evidence Report unrelated to its targets")
     if structural:
         if len(plan.actions) != 1 or len(structural) != 1:
             raise ValueError("A revision round must contain exactly one split or merge")
         action = structural[0]
-        if not set(action.target_ids).issubset(current):
-            raise ValueError("Structural action targets must be current sets")
-        if action.decision_state.structure != "incompatible":
-            raise ValueError("Structural revision requires structure=incompatible")
         if action.action == "split":
             target = action.target_ids[0]
-            report = next((row for row in reversed(state["reports"])
-                           if row["dimension"] == "cross_modal_consistency"
-                           and row["aspect"] == "structural_diagnostics"
-                           and row["scope"] == "set" and row["target_ids"] == [target]), None)
-            if (report is None
-                    or report.get("internal_structure_assessment") != "supports_subdivision"
-                    or report.get("suggested_k") != action.n_children):
-                raise ValueError("Split child count must match the Verifier's supported suggested_k")
+            report = next((row for row in cited if row["dimension"] == "cross_modal_consistency"
+                           and row["aspect"] == "structural_diagnostics" and row["scope"] == "set"
+                           and row["target_ids"] == [target]), None)
+            if report is None:
+                raise ValueError("Split requires its exact-set structural Evidence Report")
+            structural_result = next((row for row in state["tool_evidence"]
+                if row["partition_signature"] == partition_signature(current_sets(state))
+                and row["tool_name"] == "structural_diagnostics" and row["scope"] == "set"
+                and row["target_ids"] == [target]), None)
+            solutions = structural_result["metrics"].get("set", {}).get(target, {}).get("solutions", {}) if structural_result else {}
+            if str(action.n_children) not in solutions:
+                raise ValueError("Split child count must be a feasible structural solution")
         else:
             targets = sorted(action.target_ids)
-            report = next((row for row in reversed(state["reports"])
-                           if row["dimension"] == "cross_modal_consistency"
-                           and row["aspect"] == "structural_diagnostics"
-                           and row["scope"] == "pair" and row["target_ids"] == targets), None)
-            if report is None or report.get("pair_boundary_assessment") != "insufficiently_separated":
-                raise ValueError("Merge requires Verifier evidence of an insufficiently separated pair")
+            report = next((row for row in cited if row["dimension"] == "cross_modal_consistency"
+                           and row["aspect"] == "structural_diagnostics" and row["scope"] == "pair"
+                           and row["target_ids"] == targets), None)
+            if report is None:
+                raise ValueError("Merge requires its exact-pair structural Evidence Report")
+            if len(current) - 1 < 2:
+                raise ValueError("Merge cannot collapse the subtype partition to a single whole-cohort set")
         return
 
     targets = [target for action in plan.actions for target in action.target_ids]
@@ -136,73 +155,8 @@ def validate_router_plan(
         raise ValueError("Terminal disposition requires a partition structural screen")
 
     for action in plan.actions:
-        target = action.target_ids[0]
-        reports = state["reports"]
-        decision = action.decision_state
-        if action.action == "accept" and (
-            decision.identity != "supported"
-            or decision.structure != "compatible"
-            or decision.uncertainty != "no"
-            or decision.alternative_explanation == "concerning"
-        ):
-            raise ValueError(
-                "Accept requires supported identity, compatible structure, no material uncertainty, "
-                "and no concerning alternative explanation"
-            )
-        if action.action == "drop":
-            supported_split = next(
-                (
-                    row for row in reports
-                    if row["dimension"] == "cross_modal_consistency"
-                    and row["aspect"] == "structural_diagnostics"
-                    and row["scope"] == "set"
-                    and row["target_ids"] == [target]
-                    and row.get("internal_structure_assessment") == "supports_subdivision"
-                    and row.get("suggested_k") is not None
-                ),
-                None,
-            )
-            supported_merge = next(
-                (
-                    row for row in reports
-                    if row["dimension"] == "cross_modal_consistency"
-                    and row["aspect"] == "structural_diagnostics"
-                    and row["scope"] == "pair"
-                    and target in row["target_ids"]
-                    and row.get("pair_boundary_assessment") == "insufficiently_separated"
-                ),
-                None,
-            )
-            if supported_split or supported_merge:
-                raise ValueError(
-                    f"Drop cannot override supported structural revision evidence for {target}; "
-                    "Router must issue the corresponding exact split or merge"
-                )
-            negative_evidence = (
-                decision.identity == "unsupported"
-                or decision.structure == "incompatible"
-                or decision.alternative_explanation == "concerning"
-            )
-            if not negative_evidence and decision.uncertainty != "yes":
-                raise ValueError("Drop requires negative evidence or unresolved insufficient support")
-        if decision.structure == "unassessed":
-            raise ValueError("Terminal structure must be assessed after the partition structural screen")
-        requirements = (
-            (decision.identity, "biological_support", {"set"}),
-            (decision.structure, "cross_modal_consistency", {"set", "pair", "partition"}),
-            (decision.alternative_explanation, "confounder_exclusion", {"set", "partition"}),
-        )
-        for value, dimension, scopes in requirements:
-            if value == "unassessed":
-                continue
-            assessed = any(
-                row["dimension"] == dimension
-                and row["scope"] in scopes
-                and (row["scope"] == "partition" or target in row["target_ids"])
-                for row in reports
-            )
-            if not assessed:
-                raise ValueError(f"{dimension} cannot be asserted without related evidence for {target}")
+        if not action.evidence_report_refs:
+            raise ValueError("Every terminal action must cite at least one Evidence Report")
 
 
 def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
@@ -502,7 +456,8 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         "partition": {"sets": [{"set_id": set_id(item), "member_n": len(item["member_ids"])} for item in current]},
         "required_reports": [
             {"dimension": dimension, "aspect": aspect, "scope": scope,
-             "target_ids": list(targets), "tool_refs": sorted(names)}
+             "target_ids": list(targets), "tool_refs": sorted(names),
+             "evidence_guidance": guidance_for(dimension, aspect)}
             for (dimension, aspect, scope, targets), names in sorted(expected_reports.items())
         ],
         "prior_reports": summarize_reports(state["reports"]),
@@ -532,31 +487,18 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 if scope == "partition" or ref.startswith(prefix + ".") or ref.startswith(prefix + "[")
             )
         report.metric_refs = sorted(metric_refs)
-        if report.internal_structure_assessment == "supports_subdivision":
-            structural_result = next(
-                (
-                    row for row in new_rows
-                    if row["tool_name"] == "structural_diagnostics"
-                    and row["scope"] == "set"
-                    and row["target_ids"] == [report_target]
-                ),
-                None,
-            )
-            solutions = (
-                structural_result["metrics"].get("set", {}).get(report_target, {}).get("solutions", {})
-                if structural_result else {}
-            )
-            if str(report.suggested_k) not in solutions:
-                raise ValueError("Verifier suggested_k must name a feasible structural solution")
-        if report.pair_boundary_assessment == "insufficiently_separated" and "structural_diagnostics" not in report.tool_refs:
-            raise ValueError("Verifier cannot report a weak boundary without pair structural diagnostics")
+        if aspect == "structural_diagnostics" and "structural_diagnostics" not in report.tool_refs:
+            raise ValueError("Structural Evidence Reports require structural_diagnostics tool provenance")
+        report_row = report.model_dump()
+        report_row["report_ref"] = evidence_report_ref(signature, dimension, aspect, scope, targets)
+        reports_by_key[key] = report_row
 
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="verifier",
         event="evidence_reports",
         round_id=state["control"]["round"],
-        payload={"reports": [report.model_dump() for report in reports_by_key.values()]},
+        payload={"reports": list(reports_by_key.values())},
     )
 
     merged = {
@@ -565,12 +507,13 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
     }
     for key, report in reports_by_key.items():
         previous = merged.get(key)
-        row = report.model_dump()
+        row = report
         if previous:
             row["observations"] = previous["observations"] + row["observations"]
             row["limitations"] = sorted(set(previous["limitations"] + row["limitations"]))
             row["tool_refs"] = sorted(set(previous["tool_refs"] + row["tool_refs"]))
             row["metric_refs"] = sorted(set(previous["metric_refs"] + row["metric_refs"]))
+            row["cross_evidence_context"] = row["cross_evidence_context"] or previous["cross_evidence_context"]
         merged[key] = row
     state["reports"] = list(merged.values())
     state["evidence_memory"][signature] = copy.deepcopy(state["reports"])
@@ -595,6 +538,8 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
     router_plan = RouterPlan.model_validate(state["router_plan"])
     action = router_plan.actions[0]
     current = current_sets(state)
+    if action.action == "merge" and len(current) - 1 < 2:
+        raise ValueError("Merge cannot collapse the subtype partition to a single whole-cohort set")
     signature = partition_signature(current)
     tool_rows = [row for row in state["tool_evidence"]
                  if row["partition_signature"] == signature and row["tool_name"] == "structural_diagnostics"]
@@ -613,12 +558,16 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         payload={
             "partition": partition_snapshot(current),
             "router_action": action.model_dump(),
+            "referenced_reports": [row for row in state["reports"]
+                                   if row["report_ref"] in action.evidence_report_refs],
             "available_metric_refs": available_refs,
         },
     )
     plan = RevisionPlan.model_validate(parse_json_content(values["reviser_model"].invoke({
         "partition": state["partition"],
         "router_action": action.model_dump(),
+        "referenced_reports": [row for row in state["reports"]
+                               if row["report_ref"] in action.evidence_report_refs],
         "available_metric_refs": available_refs,
     })))
     append_runtime_trace(

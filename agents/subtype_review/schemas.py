@@ -14,8 +14,12 @@ EVIDENCE_DIMENSIONS = (
 
 
 class EvidenceObservation(BaseModel):
-    metric: str
-    finding: str
+    model_config = ConfigDict(extra="forbid")
+
+    metric: str = Field(min_length=1)
+    value: Any
+    meaning: str = Field(min_length=1)
+    finding: str = Field(min_length=1)
 
 
 class EvidenceReport(BaseModel):
@@ -31,18 +35,11 @@ class EvidenceReport(BaseModel):
     scope: Literal["set", "pair", "partition"]
     target_ids: list[str] = Field(default_factory=list)
     observations: list[EvidenceObservation] = Field(default_factory=list)
-    statistical_interpretation: str = ""
-    medical_interpretation: str = ""
+    dimension_interpretation: str = Field(min_length=1)
+    cross_evidence_context: str = Field(min_length=1)
     limitations: list[str] = Field(default_factory=list)
     tool_refs: list[str] = Field(default_factory=list)
     metric_refs: list[str] = Field(default_factory=list)
-    internal_structure_assessment: Literal[
-        "supports_retention", "supports_subdivision", "uncertain"
-    ] | None = None
-    pair_boundary_assessment: Literal[
-        "well_separated", "insufficiently_separated", "uncertain"
-    ] | None = None
-    suggested_k: int | None = Field(default=None, ge=2)
 
     @field_validator("target_ids", "tool_refs", "metric_refs")
     @classmethod
@@ -55,39 +52,6 @@ class EvidenceReport(BaseModel):
         if len(self.target_ids) != expected:
             raise ValueError(f"{self.scope} reports require exactly {expected} target_ids")
 
-        has_structural_fields = any((
-            self.internal_structure_assessment is not None,
-            self.pair_boundary_assessment is not None,
-            self.suggested_k is not None,
-        ))
-        if self.aspect != "structural_diagnostics":
-            if has_structural_fields:
-                raise ValueError(
-                    "Structural assessment fields require the structural_diagnostics aspect"
-                )
-            return self
-        if self.dimension != "cross_modal_consistency":
-            raise ValueError("Structural diagnostics belong to cross_modal_consistency")
-
-        if self.scope == "set":
-            if (
-                self.internal_structure_assessment is None
-                or self.pair_boundary_assessment is not None
-            ):
-                raise ValueError("Set structural reports require only an internal structure assessment")
-            if (
-                self.internal_structure_assessment == "supports_subdivision"
-            ) != (self.suggested_k is not None):
-                raise ValueError("suggested_k is required only when subdivision is supported")
-        elif self.scope == "pair":
-            if (
-                self.internal_structure_assessment is not None
-                or self.pair_boundary_assessment is None
-                or self.suggested_k is not None
-            ):
-                raise ValueError("Pair structural reports require only a pair boundary assessment")
-        elif has_structural_fields:
-            raise ValueError("Partition structural reports use observations, not structural assessment fields")
         return self
 
 
@@ -131,40 +95,16 @@ class EvidenceRequest(BaseModel):
         return self
 
 
-class RouterDecisionState(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    identity: Literal["supported", "uncertain", "unsupported", "unassessed"]
-    structure: Literal["compatible", "uncertain", "incompatible", "unassessed"]
-    alternative_explanation: Literal[
-        "not_supported", "uncertain", "concerning", "unassessed"
-    ]
-    uncertainty: Literal["yes", "no"]
-
-    @model_validator(mode="after")
-    def uncertainty_matches_decision_states(self) -> "RouterDecisionState":
-        states = (self.identity, self.structure, self.alternative_explanation)
-        if self.uncertainty == "no" and "uncertain" in states:
-            raise ValueError("uncertainty must be yes when a decision state is uncertain")
-        if self.uncertainty == "yes" and not any(
-            value in {"uncertain", "unassessed"} for value in states
-        ):
-            raise ValueError(
-                "uncertainty=yes requires an uncertain or unassessed decision-critical state"
-            )
-        return self
-
-
 class RouterAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["accept", "drop", "split", "merge"]
     target_ids: list[str] = Field(min_length=1)
     n_children: int | None = Field(default=None, ge=2)
-    decision_state: RouterDecisionState
-    reason: str = ""
+    evidence_report_refs: list[str] = Field(min_length=1)
+    reason: str = Field(min_length=1)
 
-    @field_validator("target_ids")
+    @field_validator("target_ids", "evidence_report_refs")
     @classmethod
     def unique_targets(cls, values: list[str]) -> list[str]:
         return sorted({str(value) for value in values if str(value)})

@@ -435,18 +435,15 @@ def build_default_reviser(
 def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
+            "report_ref": row.get("report_ref", ""),
             "dimension": row.get("dimension", ""),
             "aspect": row.get("aspect", ""),
             "scope": row.get("scope", ""),
             "target_ids": list(row.get("target_ids", []) or []),
             "observations": list(row.get("observations", []) or []),
-            "statistical_interpretation": row.get("statistical_interpretation", ""),
-            "medical_interpretation": row.get("medical_interpretation", ""),
+            "dimension_interpretation": row.get("dimension_interpretation", ""),
+            "cross_evidence_context": row.get("cross_evidence_context", ""),
             "limitations": list(row.get("limitations", []) or []),
-            "tool_refs": list(row.get("tool_refs", []) or []),
-            "internal_structure_assessment": row.get("internal_structure_assessment"),
-            "pair_boundary_assessment": row.get("pair_boundary_assessment"),
-            "suggested_k": row.get("suggested_k"),
         }
         for row in reports
     ]

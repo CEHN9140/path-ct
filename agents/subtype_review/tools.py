@@ -270,13 +270,45 @@ def rna_pathway_enrichment(
         case_ids = sorted(all_members)
         group = frame.loc[[case_id for case_id in case_ids if case_id in members]]
         rest = frame.loc[[case_id for case_id in case_ids if case_id not in members]]
+        set_n, rest_n = len(group), len(rest)
+        if set_n < 2 or rest_n < 2:
+            results[set_id] = {
+                "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "finite_ranked_gene_n": 0,
+                "reason": "Welch t-statistics require at least two samples in both groups.",
+                "pathways": [],
+            }
+            continue
         ranking = pd.DataFrame({
             "gene": frame.columns,
             "t": [float(ttest_ind(group[gene], rest[gene], equal_var=False, nan_policy="omit").statistic) for gene in frame.columns],
         }).replace([np.inf, -np.inf], np.nan).dropna().sort_values("t", ascending=False)
+        finite_ranked_gene_n = len(ranking)
+        if finite_ranked_gene_n < 2:
+            results[set_id] = {
+                "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "finite_ranked_gene_n": finite_ranked_gene_n,
+                "reason": "Fewer than two finite gene statistics were available for preranked enrichment.",
+                "pathways": [],
+            }
+            continue
+        ranked_genes = set(ranking["gene"].astype(str))
+        eligible_gene_sets = {
+            name: sorted(genes & ranked_genes)
+            for name, genes in gene_sets.items()
+            if len(genes & ranked_genes) >= min_overlap
+        }
+        if not eligible_gene_sets:
+            results[set_id] = {
+                "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "finite_ranked_gene_n": finite_ranked_gene_n,
+                "reason": "No configured pathway met the minimum overlap with finite ranked genes.",
+                "pathways": [],
+            }
+            continue
         result = prerank(
             rnk=ranking,
-            gene_sets={name: sorted(genes) for name, genes in gene_sets.items()},
+            gene_sets=eligible_gene_sets,
             min_size=min_overlap,
             max_size=500,
             permutation_num=1000,
@@ -294,7 +326,10 @@ def rna_pathway_enrichment(
                 "leading_edge_genes": str(row.get("Lead_genes", "")),
             })
         rows.sort(key=lambda item: (item["fdr_q"], -abs(item["nes"])))
-        results[set_id] = rows[:30]
+        results[set_id] = {
+            "analysis_status": "success", "set_n": set_n, "rest_n": rest_n,
+            "finite_ranked_gene_n": finite_ranked_gene_n, "pathways": rows[:30],
+        }
     return tool_result("rna_pathway_enrichment", {"set": results})
 
 
@@ -312,6 +347,7 @@ def wxs_mutation_enrichment(
 
     path = Path(output_root) / "wxs" / "wxs_discovery_features.csv"
     frame = pd.read_csv(path).set_index("case_id")
+    frame.index = frame.index.map(str)
     features = [name for name in frame.columns if name.startswith("mutation::")]
     from utils.llm_utils import load_yaml_file
 
@@ -324,7 +360,16 @@ def wxs_mutation_enrichment(
     for set_id in target_ids:
         members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
         set_ids = sorted(members & universe & set(frame.index))
-        rest_ids = sorted(universe - members)
+        rest_ids = sorted((universe - members) & set(frame.index))
+        if not set_ids or not rest_ids:
+            rows_by_set[set_id] = {
+                "analysis_status": "not_estimable", "set_n": len(set_ids), "rest_n": len(rest_ids),
+                "reason": "Fisher enrichment requires at least one observed patient in both set and rest.",
+                "gene_enrichment": [],
+                "driver_panel": {"configured_genes": sorted(driver_genes), "available_genes": [],
+                                 "not_in_selected_features": sorted(driver_genes), "results": []},
+            }
+            continue
         rows = []
         for gene in features:
             set_positive = int(frame.loc[set_ids, gene].astype(bool).sum())
@@ -354,6 +399,7 @@ def wxs_mutation_enrichment(
         rows.sort(key=lambda item: (item["q_value"], -abs(item["odds_ratio"] - 1)))
         available_drivers = {row["gene"].upper() for row in rows} & driver_genes
         rows_by_set[set_id] = {
+            "analysis_status": "success", "set_n": len(set_ids), "rest_n": len(rest_ids),
             "gene_enrichment": rows,
             "driver_panel": {
                 "configured_genes": sorted(driver_genes),
