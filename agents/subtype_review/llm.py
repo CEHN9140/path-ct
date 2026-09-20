@@ -250,7 +250,7 @@ class VerifierChatModel:
             tool_names = sorted(payload["eligible_tools"])
             model = self.acquire_model.bind_tools(
                 [self.tools[name] for name in tool_names],
-                tool_choice="auto",
+                tool_choice="required",
             )
             messages = [
                 {"role": "system", "content": self.system_prompt},

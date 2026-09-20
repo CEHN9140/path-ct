@@ -331,6 +331,13 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                    if row["partition_signature"] == signature
                    and row["tool_name"] == "structural_diagnostics"
                    and row["scope"] == "partition"), None)
+    mandatory_partition_screen = (
+        screen is None
+        and len(requests) == 1
+        and requests[0].dimension == "cross_modal_consistency"
+        and requests[0].scope == "partition"
+        and not requests[0].target_ids
+    )
     eligible = {}
     for name, metadata in registry.items():
         allowed = []
@@ -346,6 +353,10 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 allowed.append({"scope": request.scope, "target_ids": list(targets)})
         if allowed:
             eligible[name] = {"description": metadata["description"], "allowed_requests": allowed}
+    if mandatory_partition_screen:
+        eligible = {name: item for name, item in eligible.items() if name == "structural_diagnostics"}
+        if not eligible:
+            raise ValueError("Mandatory partition structural screen requires structural_diagnostics to be eligible")
     if not eligible:
         raise ValueError("No unrun scientific tool can answer the pending EvidenceRequests")
 
@@ -358,6 +369,11 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         "round": state["control"]["round"],
     })
     calls = acquisition.get("tool_calls", []) if isinstance(acquisition, Mapping) else acquisition.tool_calls
+    if not calls:
+        raise RuntimeError(
+            "Verifier acquire returned no tool calls for pending EvidenceRequests; "
+            "at least one eligible tool is required."
+        )
     expected_reports: dict[tuple[str, str, str, tuple[str, ...]], set[str]] = {}
     new_rows = []
     called = set()
