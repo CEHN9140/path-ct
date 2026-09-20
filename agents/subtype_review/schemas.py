@@ -108,12 +108,16 @@ class RouterDecisionState(BaseModel):
     uncertainty: Literal["yes", "no"]
 
     @model_validator(mode="after")
-    def uncertain_states_require_uncertainty(self) -> "RouterDecisionState":
-        if self.uncertainty == "no" and any(
-            value == "uncertain"
-            for value in (self.identity, self.structure, self.alternative_explanation)
-        ):
+    def uncertainty_matches_decision_states(self) -> "RouterDecisionState":
+        states = (self.identity, self.structure, self.alternative_explanation)
+        if self.uncertainty == "no" and "uncertain" in states:
             raise ValueError("uncertainty must be yes when a decision state is uncertain")
+        if self.uncertainty == "yes" and not any(
+            value in {"uncertain", "unassessed"} for value in states
+        ):
+            raise ValueError(
+                "uncertainty=yes requires an uncertain or unassessed decision-critical state"
+            )
         return self
 
 
