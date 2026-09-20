@@ -303,7 +303,6 @@ def test_verifier_chat_audit_serializes_tool_history_without_dropping_evidence()
 
 def test_local_verifier_audit_serializes_tool_history_without_dropping_evidence(monkeypatch):
     monkeypatch.setattr("agents.subtype_review.llm.resolve_api_key", lambda config: "test")
-    monkeypatch.setattr("agents.subtype_review.llm.local_llm_server_available", lambda url: True)
     verifier = LocalVerifierModel(
         {
             "base_url": "http://local",
@@ -341,7 +340,7 @@ def test_local_verifier_audit_serializes_tool_history_without_dropping_evidence(
 def test_default_agent_prompts_use_new_contracts(monkeypatch):
     prompts = []
     monkeypatch.setattr(
-        "agents.subtype_review.llm.build_structured_model",
+        "agents.subtype_review.llm.JsonStructuredModel",
         lambda config, schema, prompt, usage_tracker=None: prompts.append((schema, prompt)) or prompt,
     )
     config = {"llm": {"model_name": "test"}, "prompt_dir": "agents/subtype_review/prompts"}

@@ -1,15 +1,14 @@
+from types import SimpleNamespace
+from subtype_review_cases import acquire_evidence
 import json
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 from agents.subtype_review.graph import (
-    compact_partition_for_llm,
-    eligible_tools_for_requests,
-    execute_tool_calls,
     initial_review_state,
-    required_reports_for_round,
+    verifier_node,
 )
-from agents.subtype_review.llm_summary import summarize_reports
+from agents.subtype_review.llm import summarize_reports
 from agents.subtype_review.tools import TOOL_REGISTRY
 
 
@@ -26,7 +25,6 @@ def test_tool_message_contains_only_decision_payload():
     request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
     state["control"].update({
         "pending_evidence_requests": [request],
-        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
     })
     registry = {key: {**value} for key, value in TOOL_REGISTRY.items()}
     registry["pathway_enrichment"]["function"] = lambda *args, **kwargs: {
@@ -34,7 +32,7 @@ def test_tool_message_contains_only_decision_payload():
         "results": {"decision_metrics": {"C1": {"q": 0.01}}, "metrics": {"private": 1}},
         "artifacts": {"full": "/secret"},
     }
-    execute_tool_calls(
+    acquire_evidence(
         state,
         AIMessage(content="", tool_calls=[{
             "name": "pathway_enrichment", "args": {"target_ids": ["C1"]},
@@ -77,10 +75,15 @@ def test_required_reports_follow_tools_actually_selected():
         "tool_name": "pathway_enrichment", "dimension": "biological_support",
         "scope": "set_identity", "target_ids": ["C1"], "status": "success",
     }]
-    assert required_reports_for_round(state, runtime()) == [{
+    captured = {}
+    state["control"]["next"] = "verifier_audit"
+    state.update(verifier_node(state, {**runtime(), "verifier_model": SimpleNamespace(
+        invoke=lambda payload: captured.update(payload) or {"reports": []},
+    )}))
+    assert captured["required_reports"] == [{
         "dimension": "biological_support", "scope": "set_identity",
-        "target_ids": ["C1"], "tool_names": ["pathway_enrichment"],
+        "target_ids": ["C1"],
     }]
-    assert compact_partition_for_llm(state) == {
+    assert captured["partition"] == {
         "sets": [{"set_id": "C1", "member_n": 2}, {"set_id": "C2", "member_n": 2}]
     }

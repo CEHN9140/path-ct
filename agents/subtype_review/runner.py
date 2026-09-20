@@ -53,13 +53,10 @@ def run_subtype_review(
         "tool_registry": active_tool_registry(active),
         "active_modalities": active,
     }
-    verifier_model = build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker)
-    reviser_model = build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker)
-    router_model = build_default_router(review_config, config_dir, usage_tracker=usage_tracker)
     runtime.update({
-        "verifier_model": verifier_model,
-        "router_model": router_model,
-        "reviser_model": reviser_model,
+        "verifier_model": build_default_verifier(review_config, config_dir, usage_tracker=usage_tracker),
+        "router_model": build_default_router(review_config, config_dir, usage_tracker=usage_tracker),
+        "reviser_model": build_default_reviser(review_config, config_dir, usage_tracker=usage_tracker),
     })
     graph = build_review_graph()
     state = initial_review_state(candidate_clusters)

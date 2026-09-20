@@ -108,7 +108,7 @@ def test_graph_restores_provenance_after_compact_wire_request(monkeypatch):
         "partition_signature": signature,
     }]
     state["control"]["next"] = "verifier_audit"
-    verifier_node(state, {"verifier_model": VerifierChatModel(None, audit, "prompt", [])})
+    state.update(verifier_node(state, {"verifier_model": VerifierChatModel(None, audit, "prompt", [])}))
     sent = json.loads(requests[0]["messages"][1]["content"])
     assert "metric_refs" not in sent["round_evidence"][0]
     assert state["control"]["next"] == "router", state["control"]

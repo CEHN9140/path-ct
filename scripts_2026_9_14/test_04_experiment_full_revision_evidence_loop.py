@@ -1,13 +1,23 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
-from agents.subtype_review.graph import available_revision_metric_refs, revision_plan_signature
+from agents.subtype_review.graph import reviser_node, router_node
 from agents.subtype_review.schemas import RevisionPlan
 
 SCRIPT = Path(__file__).with_name("04_experiment_full_revision_evidence_loop.py")
 SPEC = importlib.util.spec_from_file_location("full_revision_evidence_loop", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+
+def capture_reviser_refs(state, plan):
+    captured = {}
+    state["router_plan"] = plan
+    reviser_node(state, {"reviser_model": SimpleNamespace(
+        invoke=lambda payload: captured.update(payload) or {},
+    )})
+    return captured["available_metric_refs"]
 
 
 def test_revision_input_does_not_preload_post_revision_evidence(tmp_path):
@@ -104,7 +114,7 @@ def test_reviser_receives_only_refs_for_router_targets():
             },
         }]
     }
-    refs = available_revision_metric_refs(state, plan)
+    refs = capture_reviser_refs(state, plan)
     assert refs
     assert all(
         ".multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.internal_structure."
@@ -127,7 +137,7 @@ def test_reviser_merge_refs_are_limited_to_the_requested_pair():
             },
         }]
     }
-    refs = available_revision_metric_refs(state, plan)
+    refs = capture_reviser_refs(state, plan)
     assert refs
     assert all(
         ".multimodal_consistency_check.metrics.cross_modal_consistency.per_set.C1.boundary_to_other_sets.C2."
@@ -144,12 +154,13 @@ def test_revision_refs_exclude_other_tool_metrics_for_the_same_target():
         "tool_name": "pathway_enrichment",
         "metric_refs": ["tool_results.pathway_enrichment.metrics.sets.C1.effect"],
     })
-    plan = {"actions": [{"action": "split", "target_ids": ["C1"]}]}
-    refs = available_revision_metric_refs(state, plan)
+    plan = {"actions": [{"action": "split", "target_ids": ["C1"],
+                         "decision_state": MODULE.SANITY.assessed_state(structure="incompatible")}]}
+    refs = capture_reviser_refs(state, plan)
     assert all("pathway_enrichment" not in ref for ref in refs)
 
 
-def test_revision_retry_signature_includes_metric_refs():
+def test_revision_retry_signature_includes_metric_refs(monkeypatch):
     first = RevisionPlan.model_validate({
         "split_plans": [{
             "target_id": "C1", "n_children": 2,
@@ -160,4 +171,23 @@ def test_revision_retry_signature_includes_metric_refs():
         "merge_plans": [],
     })
     second = first.model_copy(update={"split_plans": [first.split_plans[0].model_copy(update={"metric_refs": ["ref.two"]})]})
-    assert revision_plan_signature(first) != revision_plan_signature(second)
+    state = MODULE.build_initial_state("split")
+    router_plan = {"actions": [
+        {"action": "split", "target_ids": ["C1"], "decision_state": MODULE.SANITY.assessed_state(structure="incompatible")},
+        {"action": "accept", "target_ids": ["C2"], "decision_state": MODULE.SANITY.assessed_state()},
+    ]}
+    state.update(router_node(state, {"router_model": SimpleNamespace(invoke=lambda payload: router_plan)}))
+    assert state["control"]["error"] is None
+    for plan in (first, second):
+        state.update(reviser_node(state, {"reviser_model": SimpleNamespace(invoke=lambda payload: plan.model_dump())}))
+        assert "unavailable metrics" in state["control"]["error"]
+    assert len(state["control"]["failed_revision_plan_signatures"]) == 2
+
+    valid_refs = capture_reviser_refs(state, router_plan)
+    fixed = first.model_copy(update={"split_plans": [first.split_plans[0].model_copy(update={"metric_refs": valid_refs})]})
+    monkeypatch.setattr("tools.cross_modal_structure.execute_split_membership",
+                        lambda root, members, *args: [members[:len(members)//2], members[len(members)//2:]])
+    state.update(reviser_node(state, {"data_root": "/tmp", "reviser_model": SimpleNamespace(invoke=lambda payload: fixed.model_dump())}))
+    assert state["control"]["error"] is None
+    assert state["control"]["next"] == "router"
+    assert state["revision_result"]["operations"][0]["action"] == "split"

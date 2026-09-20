@@ -195,7 +195,6 @@ class ReviewControl(TypedDict, total=False):
     history_index: int
     revision_validation_error: str | None
     failed_revision_plan_signatures: list[str]
-    partition_signature: str
     llm_usage: dict[str, int | float | None]
 
 

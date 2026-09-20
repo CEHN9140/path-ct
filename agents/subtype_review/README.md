@@ -1,44 +1,30 @@
-# Subtype review implementation
+# Subtype review
 
-The graph still starts at Router and contains three agents:
+`graph.py` owns the three node implementations and graph wiring:
 
-```text
-Router --EvidenceRequests--> Verifier (acquire tools -> audit reports) --> Router
-Router --Split/Merge-------> Reviser (validate -> apply revision) -------> Router
-Router --Accept/Drop-------> end
-```
+- `router_node`: build the decision payload, validate evidence/action coverage,
+  retry invalid plans, record history and choose the next step.
+- `verifier_node`: compute eligible tools, execute selected calls, validate reports,
+  attach provenance and store reports under the current partition signature.
+- `reviser_node`: select structural references, validate and fingerprint the plan,
+  execute Split/Merge, update memberships and return to Router for reassessment.
 
-`graph.py` contains agent transitions, conditional edges and output serialization.
-`state.py` owns partition identity, initialization, trace/failure bookkeeping and
-round snapshots. `evidence.py` owns tool eligibility/execution, report provenance,
-coverage and action validation. `revision.py` validates and applies structural
-plans. The existing imports used by experiment runners remain available from
-`graph.py`.
+Nodes return partial state updates without mutating the caller's state. Runtime
+context holds models, the active tool registry and paths. Messages are replaced
+per evidence round, not accumulated across partitions. Shared helpers are limited
+to partition/evidence views, trace/failure handling and graph/output entry points.
+Removed internal helpers are not retained as compatibility wrappers; replay
+scripts and tests now call the nodes for execution and validation.
 
-`ReviewState` and `ReviewControl` describe the mutable workflow data. Models,
-tool registry, input/output paths and active modalities are supplied through
-`ReviewContext`, not serialized into state. The graph adapter copies mutable
-containers and returns each node's declared state updates. Transition helpers
-remain callable directly by contract tests. Messages use overwrite semantics:
-they belong to one evidence round and are reset before reacquisition/revision.
-An append-only message reducer would change this behavior.
+`llm.py` contains model construction, API settings, message conversion, report
+summaries, payload serialization, JSON correction and usage/cache accounting.
+System prompts, generation settings and bounded correction behavior are unchanged.
+Structured API clients are reused. Missing required runtime fields fail explicitly;
+optional scientific evidence still remains unassessed/unavailable when absent.
 
-`llm.py` owns provider settings, payload serialization and usage tracking. Existing
-temperature, generation limits, thinking settings and retry behavior are retained.
-Each structured model lazily reuses one OpenAI-compatible client. Verifier
-acquisition binds only eligible tools; audit/Router/Reviser retain JSON-object
-transport followed by Pydantic validation. System prompt files are unchanged.
-Tool results retain their call IDs; LangChain message objects are converted with
-the library's OpenAI message converter when an API history is needed. Remote
-audit retains the existing compact evidence payload and its provenance repair.
+`schemas.py` defines state and response contracts. `tools.py` retains the scientific
+tool registry, tool schemas and result compaction. `runner.py` loads configuration
+and starts the graph. No separate state/evidence/revision/LLM-summary modules.
 
-`tools.py` still contains the original tool registry, schemas and result compaction.
-The unused `summarize_evidence` helper was removed; `llm_summary.py` retains the
-report projection used by Router and existing replay scripts.
-
-These boundaries follow the official [LangGraph state/context and node-update
-model](https://docs.langchain.com/oss/python/langgraph/graph-api) and
-[LangChain message/tool-call contracts](https://docs.langchain.com/oss/python/langchain/messages).
-They do not change the scientific workflow or imply independent validation of its
-scientific decisions. The regression suite uses deterministic model/tool doubles;
-it does not call paid APIs or regenerate scientific experiment results.
+Regression tests use model/tool doubles: they verify contracts and control flow,
+not scientific conclusions or live-provider behavior. They do not rerun experiments.

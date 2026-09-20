@@ -1,24 +1,18 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from subtype_review_cases import check_router_plan, acquire_evidence, router_inputs
+
 import pytest
-from langchain_core.messages import AIMessage
 
 from agents.subtype_review.graph import (
-    available_evidence_requests,
     build_review_graph,
     completed_tool_keys,
-    eligible_tools_for_requests,
-    evidence_coverage,
-    execute_tool_calls,
     initial_review_state,
     is_length_finish_error,
     partition_signature,
     router_node,
     save_review_outputs,
-    validate_reports,
-    validate_decision_state_evidence,
-    validate_selected_tool_coverage,
-    validate_router_plan,
     verifier_node,
 )
 from agents.subtype_review.llm import LLMOutputLengthError, LLMUsageTracker
@@ -89,7 +83,6 @@ def test_verifier_can_select_subset_with_explicit_target_ids():
     request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
     state["control"].update({
         "pending_evidence_requests": [request],
-        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
     })
     tools = registry()
     seen = []
@@ -99,7 +92,7 @@ def test_verifier_can_select_subset_with_explicit_target_ids():
         return {"status": "success", "results": {"decision_metrics": {}}}
 
     tools["pathway_enrichment"]["function"] = pathway
-    execute_tool_calls(
+    acquire_evidence(
         state,
         {"tool_calls": [{"name": "pathway_enrichment", "id": "call-1", "args": {"target_ids": ["C1"]}}]},
         runtime(tools),
@@ -110,7 +103,7 @@ def test_verifier_can_select_subset_with_explicit_target_ids():
 
 def test_available_evidence_requests_do_not_expose_tool_names():
     state = state_for(("C1", ["P1", "P2"]))
-    available = available_evidence_requests(state, runtime())
+    available = router_inputs(state, runtime())["available_evidence_requests"]
     assert available and all("tool_name" not in item for item in available)
 
 
@@ -119,9 +112,8 @@ def test_selected_tool_is_removed_from_next_evidence_availability():
     request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
     state["control"].update({
         "pending_evidence_requests": [request],
-        "eligible_tools": eligible_tools_for_requests(state, runtime(), [request]),
     })
-    execute_tool_calls(
+    acquire_evidence(
         state,
         {"tool_calls": [
             {"name": name, "id": name, "args": {"target_ids": ["C1"]}}
@@ -131,7 +123,7 @@ def test_selected_tool_is_removed_from_next_evidence_availability():
     )
     assert not any(
         item["dimension"] == "biological_support" and item["target_ids"] == ["C1"]
-        for item in available_evidence_requests(state, runtime())
+        for item in router_inputs(state, runtime())["available_evidence_requests"]
     )
 
 
@@ -152,16 +144,13 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
         "target_ids": ["C1"],
         "question": "Clarify C1 technical evidence.",
     }]
-    state["control"]["eligible_tools"] = eligible_tools_for_requests(
-        state, runtime(), state["control"]["pending_evidence_requests"]
-    )
     state["round_evidence"] = [{
         "tool_name": "confound_test",
         "status": "success",
         "target_ids": ["C1"],
         "partition_signature": signature,
     }]
-    available = available_evidence_requests(state, runtime())
+    available = router_inputs(state, runtime())["available_evidence_requests"]
     assert any(
         item["dimension"] == "cross_modal_consistency"
         and item["target_ids"] == ["C1"]
@@ -177,9 +166,9 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
         "target_ids": ["C1"],
         "question": "Clarify C1 cross-modal evidence.",
     }]
-    state["control"]["eligible_tools"] = eligible_tools_for_requests(
-        state, runtime(), state["control"]["pending_evidence_requests"]
-    )
+    acquire_evidence(state, {"tool_calls": [{
+        "name": "multimodal_consistency_check", "id": "cross-modal", "args": {"target_ids": ["C1"]},
+    }]}, runtime())
     assert set(state["control"]["eligible_tools"]) == {
         "multimodal_consistency_check",
     }
@@ -188,7 +177,7 @@ def test_available_evidence_requests_survives_multiple_targeted_rounds():
 def test_router_plan_requires_complete_nonoverlapping_coverage():
     state = state_for(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))
     with pytest.raises(ValueError, match="cover every current set"):
-        validate_router_plan(RouterPlan(actions=[{
+        check_router_plan(RouterPlan(actions=[{
             "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
         }]), state, runtime())
 
@@ -202,7 +191,7 @@ def test_router_stores_top_level_evidence_requests():
                 "dimension": "biological_support", "target_ids": ["C1"], "question": "Clarify C1."
             }]}
 
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert state["control"]["pending_evidence_requests"][0]["target_ids"] == ["C1"]
     assert state["control"]["next"] == "verifier_acquire"
     assert "pending_tools" not in state["control"]
@@ -231,7 +220,9 @@ def test_reports_are_checked_against_actual_current_calls():
         "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"],
         "observations": [], "tool_refs": ["pathway_enrichment"],
     }]})
-    validate_reports(batch, state, runtime())
+    state["control"]["next"] = "verifier_audit"
+    state.update(verifier_node(state, {**runtime(), "verifier_model": SimpleNamespace(invoke=lambda payload: batch.model_dump())}))
+    assert state["control"]["error"] is None
 
 
 def test_reports_receive_target_specific_leaf_metric_refs():
@@ -264,11 +255,13 @@ def test_reports_receive_target_specific_leaf_metric_refs():
         for target in ("C1", "C2")
     ]})
 
-    validate_reports(batch, state, runtime())
+    state["control"]["next"] = "verifier_audit"
+    state.update(verifier_node(state, {**runtime(), "verifier_model": SimpleNamespace(invoke=lambda payload: batch.model_dump())}))
+    assert state["control"]["error"] is None
 
-    assert batch.reports[0].metric_refs == sorted(c1_refs)
-    assert batch.reports[1].metric_refs == [c2_ref]
-    assert set(batch.reports[0].metric_refs).issubset(
+    assert state["reports"][0]["metric_refs"] == sorted(c1_refs)
+    assert state["reports"][1]["metric_refs"] == [c2_ref]
+    assert set(state["reports"][0]["metric_refs"]).issubset(
         set(state["round_evidence"][0]["metric_refs"])
     )
 
@@ -291,7 +284,7 @@ def test_audit_merges_reports_into_partition_memory():
                 "limitations": [], "tool_refs": [],
             }]}
 
-    verifier_node(state, {**runtime(), "verifier_model": Verifier()})
+    state.update(verifier_node(state, {**runtime(), "verifier_model": Verifier()}))
     assert state["reports"] and signature in state["evidence_memory"]
 
 
@@ -318,9 +311,9 @@ def test_verifier_clears_request_after_audit_and_returns_to_router():
             }]}
 
     values = {**runtime(), "verifier_model": Verifier()}
-    verifier_node(state, values)
+    state.update(verifier_node(state, values))
     assert state["control"]["next"] == "verifier_audit"
-    verifier_node(state, values)
+    state.update(verifier_node(state, values))
     assert state["control"]["pending_evidence_requests"] == []
     assert state["control"]["eligible_tools"] == {}
     assert state["control"]["next"] == "router"
@@ -397,7 +390,7 @@ def test_verifier_receives_router_evidence_request():
                 "name": "confound_test", "id": "call-1", "args": {"target_ids": ["C1"]}
             }]}
 
-    verifier_node(state, {**runtime(), "verifier_model": Verifier()})
+    state.update(verifier_node(state, {**runtime(), "verifier_model": Verifier()}))
     assert captured["evidence_requests"][0]["target_ids"] == ["C1"]
     assert captured["eligible_tools"]["confound_test"]["target_ids"] == ["C1"]
 
@@ -435,7 +428,7 @@ def test_router_payload_reports_unassessed_dimensions():
                 "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
             }]}
 
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert captured["evidence_coverage"]["set_identity"]["C1"]["biological_support"] == "unassessed"
 
 
@@ -459,9 +452,9 @@ def test_router_validation_retry_returns_previous_plan_and_correction_rules():
                 "decision_state": decision_state(),
             }]}
 
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert state["control"]["next"] == "router"
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert state["control"]["status"] == "complete"
     assert len(payloads) == 2
     assert state["control"]["router_correction_attempts"] == 0
@@ -481,9 +474,9 @@ def test_router_allows_two_semantic_correction_retries_then_fails():
             }]}
 
     values = {**runtime(), "router_model": Router()}
-    router_node(state, values)
-    router_node(state, values)
-    router_node(state, values)
+    state.update(router_node(state, values))
+    state.update(router_node(state, values))
+    state.update(router_node(state, values))
     assert calls == 3
     assert state["control"]["status"] == "review_unavailable"
 
@@ -495,13 +488,15 @@ def test_decision_state_cannot_claim_unobtained_evidence():
         decision_state=decision_state(identity="supported"),
     )
     with pytest.raises(ValueError, match="biological_support"):
-        validate_decision_state_evidence(action, state, runtime())
+        check_router_plan(RouterPlan(actions=[action]), state, runtime())
 
 
 def test_verifier_tool_calls_must_cover_each_request():
     request = {"dimension": "biological_support", "target_ids": ["C1"], "question": "x"}
     with pytest.raises(ValueError, match="do not cover EvidenceRequest"):
-        validate_selected_tool_coverage([], [request], registry())
+        state = state_for(("C1", ["P1", "P2"]))
+        state["control"]["pending_evidence_requests"] = [request]
+        acquire_evidence(state, {"tool_calls": []}, runtime())
 
 
 def test_partition_request_requires_a_partition_tool_call():
@@ -510,10 +505,12 @@ def test_partition_request_requires_a_partition_tool_call():
         "question": "Clarify stage/grade echo.",
     }
     with pytest.raises(ValueError, match="partition EvidenceRequest"):
-        validate_selected_tool_coverage([], [request], registry())
-    validate_selected_tool_coverage([{
-        "name": "known_label_echo_test", "args": {"target_ids": []},
-    }], [request], registry())
+        state = state_for(("C1", ["P1", "P2"]))
+        state["control"]["pending_evidence_requests"] = [request]
+        acquire_evidence(state, {"tool_calls": []}, runtime())
+    acquire_evidence(state, {"tool_calls": [{
+        "name": "known_label_echo_test", "id": "known-label", "args": {"target_ids": []},
+    }]}, runtime())
 
 
 def test_router_plan_evidence_mode_does_not_require_action_coverage():
@@ -521,7 +518,7 @@ def test_router_plan_evidence_mode_does_not_require_action_coverage():
     plan = RouterPlan(evidence_requests=[{
         "dimension": "confounder_exclusion", "target_ids": ["C2"], "question": "x",
     }])
-    validate_router_plan(plan, state, runtime())
+    check_router_plan(plan, state, runtime())
 
 
 def test_round_budget_returns_after_evidence_for_terminal_router_decision():
@@ -547,8 +544,8 @@ def test_round_budget_returns_after_evidence_for_terminal_router_decision():
             }]}
 
     values = {**runtime(), "verifier_model": Verifier()}
-    verifier_node(state, values)
-    verifier_node(state, values)
+    state.update(verifier_node(state, values))
+    state.update(verifier_node(state, values))
     assert state["control"]["next"] == "router"
     assert state["control"]["status"] == "reviewing"
 
@@ -559,7 +556,7 @@ def test_round_budget_returns_after_evidence_for_terminal_router_decision():
                 "action": "accept", "target_ids": ["C1"], "decision_state": decision_state()
             }]}
 
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert state["control"]["status"] == "complete"
     assert state["control"]["round"] == 10
 
@@ -575,7 +572,7 @@ def test_router_payload_has_no_tool_registry_or_raw_metrics():
                 "action": "drop", "target_ids": ["C1"], "decision_state": decision_state()
             }]}
 
-    router_node(state, {**runtime(), "router_model": Router()})
+    state.update(router_node(state, {**runtime(), "router_model": Router()}))
     assert "tool_registry" not in captured and "raw_structural_metrics" not in captured
     assert "available_evidence_requests" in captured
 

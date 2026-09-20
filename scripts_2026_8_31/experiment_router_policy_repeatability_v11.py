@@ -12,17 +12,19 @@ import sys
 from collections import Counter
 from itertools import combinations
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.subtype_review.graph import validate_router_plan  # noqa: E402
+from agents.subtype_review.schemas import RouterPlan
+from agents.subtype_review.graph import router_node  # noqa: E402
 from agents.subtype_review.llm import (  # noqa: E402
     LLMUsageTracker,
     build_default_router,
-    parse_router_plan,
+    parse_json_content,
     review_signature_manifest,
 )
 from agents.subtype_review.tools import TOOL_REGISTRY  # noqa: E402
@@ -122,8 +124,13 @@ def calibrate(
             else:
                 try:
                     raw_plan = router.invoke(replay_payload_instance)
-                    plan = parse_router_plan(raw_plan)
-                    validate_router_plan(plan, state, {"tool_registry": TOOL_REGISTRY})
+                    plan = RouterPlan.model_validate(parse_json_content(raw_plan))
+                    reviewed = router_node(state, {
+                        "tool_registry": TOOL_REGISTRY,
+                        "router_model": SimpleNamespace(invoke=lambda payload: plan.model_dump()),
+                    })
+                    if reviewed["control"]["error"]:
+                        raise ValueError(reviewed["control"]["error"])
                     result.update({"status": "success", "plan": plan.model_dump()})
                 except Exception as exc:
                     result.update({"status": "router_error", "error": f"{type(exc).__name__}: {exc}"})

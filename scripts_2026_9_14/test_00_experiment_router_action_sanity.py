@@ -1,8 +1,10 @@
 import importlib.util
 from pathlib import Path
 
-from agents.subtype_review.graph import validate_router_plan
-from agents.subtype_review.llm import parse_router_plan
+from types import SimpleNamespace
+from agents.subtype_review.schemas import RouterPlan
+from agents.subtype_review.graph import router_node
+from agents.subtype_review.llm import parse_json_content
 
 
 SCRIPT = Path(__file__).with_name("00_experiment_router_action_sanity.py")
@@ -30,17 +32,22 @@ def test_split_and_merge_plans_pass_existing_structural_guards():
             "evidence_requests": [],
         },
     }.items():
-        plan = parse_router_plan(raw_plan)
+        plan = RouterPlan.model_validate(parse_json_content(raw_plan))
         state = MODULE.build_case(name)
-        validate_router_plan(plan, state, {"tool_registry": MODULE.TOOL_REGISTRY})
+        result = router_node(state, {"tool_registry": MODULE.TOOL_REGISTRY,
+                                     "router_model": SimpleNamespace(invoke=lambda payload: plan.model_dump())})
+        assert result["control"]["error"] is None
+        assert result["control"]["next"] == "reviser"
 
 
 def test_drop_plan_is_a_valid_terminal_action():
-    plan = parse_router_plan({
+    plan = RouterPlan.model_validate(parse_json_content({
         "actions": [{"action": "drop", "target_ids": ["C1"], "decision_state": MODULE.assessed_state(identity="unsupported", alternative_explanation="concerning"), "reason": "no defensible identity"}],
         "evidence_requests": [],
-    })
-    validate_router_plan(plan, MODULE.build_case("drop"), {"tool_registry": MODULE.TOOL_REGISTRY})
+    }))
+    result = router_node(MODULE.build_case("drop"), {"tool_registry": MODULE.TOOL_REGISTRY,
+                                                  "router_model": SimpleNamespace(invoke=lambda payload: plan.model_dump())})
+    assert result["control"]["status"] == "complete"
 
 
 def test_controlled_cases_keep_evidence_dimensions_separate():

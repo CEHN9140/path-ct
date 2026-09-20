@@ -9,27 +9,29 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agents.subtype_review.schemas import RouterPlan
 from agents.subtype_review.graph import (
     compact_structural_index,
     current_sets,
     evidence_coverage,
     initial_review_state,
     partition_signature,
-    validate_router_plan,
+    router_node,
 )
 from agents.subtype_review.llm import (
     LLMUsageTracker,
     build_default_router,
-    parse_router_plan,
+    parse_json_content,
     review_signature_manifest,
 )
-from agents.subtype_review.llm_summary import summarize_reports
+from agents.subtype_review.llm import summarize_reports
 from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.io import write_json
 from utils.llm_utils import load_yaml_file
@@ -177,8 +179,13 @@ def run_case(name: str, router: Any) -> dict[str, Any]:
     payload, state = build_payload(name)
     try:
         response = router.invoke(copy.deepcopy(payload))
-        plan = parse_router_plan(response)
-        validate_router_plan(plan, state, {"tool_registry": TOOL_REGISTRY})
+        plan = RouterPlan.model_validate(parse_json_content(response))
+        reviewed = router_node(state, {
+            "tool_registry": TOOL_REGISTRY,
+            "router_model": SimpleNamespace(invoke=lambda payload: plan.model_dump()),
+        })
+        if reviewed["control"]["error"]:
+            raise ValueError(reviewed["control"]["error"])
         actual = action_summary(plan.model_dump())
         expected = dict(CASES[name]["expected"])
         return {

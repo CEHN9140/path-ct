@@ -8,7 +8,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
 
-from langchain_core.messages import convert_to_openai_messages
+from langchain_core.messages import AIMessage, convert_to_openai_messages
 
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
@@ -19,7 +19,6 @@ from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
 from utils.llm_utils import (
     LocalLLMClient,
     extract_json_object,
-    local_llm_server_available,
     resolve_api_key,
 )
 
@@ -130,10 +129,6 @@ def api_extra_body(config: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def load_prompt(prompt_dir: str | Path, name: str) -> str:
-    return (Path(prompt_dir) / name).read_text(encoding="utf-8")
-
-
 def prompt_dir(config: Mapping[str, Any], config_dir: str | Path) -> Path:
     path = Path(str(config.get("prompt_dir", "agents/subtype_review/prompts")))
     return path if path.is_absolute() else Path(config_dir).resolve().parent / path
@@ -173,15 +168,9 @@ def parse_json_content(content: Any) -> dict[str, Any]:
     return parsed
 
 
-def normalize_message(message: Any) -> dict[str, Any]:
-    if isinstance(message, Mapping):
-        return dict(message)
-    return convert_to_openai_messages(message)
-
-
 def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [
-        normalize_message(message)
+        dict(message) if isinstance(message, Mapping) else convert_to_openai_messages(message)
         for message in [
             *(payload.get("message_history", []) or []),
             *(payload.get("tool_messages", []) or []),
@@ -192,7 +181,7 @@ def message_history(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
 def audit_tool_messages(messages: list[Any]) -> list[dict[str, Any]]:
     payloads = []
     for message in messages:
-        normalized = normalize_message(message)
+        normalized = dict(message) if isinstance(message, Mapping) else convert_to_openai_messages(message)
         if normalized.get("role") != "tool":
             continue
         content = normalized.get("content", {})
@@ -315,7 +304,7 @@ class JsonStructuredModel:
                             },
                         ]
                     )
-        raise RuntimeError(last_error or "structured LLM call failed")
+        raise RuntimeError(last_error)
 
 
 class LocalStructuredModel:
@@ -332,10 +321,6 @@ class LocalStructuredModel:
         self.usage_tracker = usage_tracker
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if not local_llm_server_available(self.client.base_url):
-            raise RuntimeError(
-                f"Local LLM server is unavailable: {self.client.base_url}"
-            )
         if self.usage_tracker:
             self.usage_tracker.before_request()
         response = self.client.chat(
@@ -364,16 +349,6 @@ class VerifierChatModel:
         self.tools = {str(item.name): item for item in tools}
         self.usage_tracker = usage_tracker
 
-    def invoke_model(self, model: Any, messages: list[Any]) -> Any:
-        if self.usage_tracker:
-            self.usage_tracker.before_request(
-                role="verifier_acquire", model=str(getattr(self.acquire_model, "model_name", "")), messages=messages,
-            )
-        response = model.invoke(messages)
-        if self.usage_tracker:
-            self.usage_tracker.record_response(response)
-        return response
-
     def invoke(self, payload: dict[str, Any]) -> Any:
         request = verifier_payload(payload)
         mode = str(request.get("mode", "audit"))
@@ -386,14 +361,19 @@ class VerifierChatModel:
                 [self.tools[name] for name in sorted(set(tool_names))],
                 tool_choice="auto",
             )
-            return self.invoke_model(
-                model,
-                [
-                    {"role": "system", "content": self.system_prompt},
-                    *history,
-                    {"role": "user", "content": serialize_llm_payload(request)},
-                ],
-            )
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                *history,
+                {"role": "user", "content": serialize_llm_payload(request)},
+            ]
+            if self.usage_tracker:
+                self.usage_tracker.before_request(
+                    role="verifier_acquire", model=self.acquire_model.model_name, messages=messages,
+                )
+            response = model.invoke(messages)
+            if self.usage_tracker:
+                self.usage_tracker.record_response(response)
+            return response
         return self.audit_model.invoke(request)
 
 
@@ -411,21 +391,7 @@ class LocalVerifierModel:
         self.retries = int(config.get("json_retries", 1) or 1)
         self.usage_tracker = usage_tracker
 
-    def chat(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
-    ) -> dict[str, Any]:
-        if self.usage_tracker:
-            self.usage_tracker.before_request()
-        response = self.client.chat(messages, tools=tools)
-        if self.usage_tracker:
-            self.usage_tracker.record_response(response)
-        return response
-
     def invoke(self, payload: dict[str, Any]) -> Any:
-        if not local_llm_server_available(self.client.base_url):
-            raise RuntimeError(
-                f"Local LLM server is unavailable: {self.client.base_url}"
-            )
         mode = str(payload.get("mode", "audit"))
         request = dict(payload)
         history = message_history(request)
@@ -441,68 +407,41 @@ class LocalVerifierModel:
                         "type": "function",
                         "function": {
                             "name": name,
-                            "description": str(getattr(tool, "description", "") or ""),
-                            "parameters": getattr(
-                                tool, "args_schema", None
-                            ).model_json_schema()
-                            if getattr(tool, "args_schema", None)
-                            else {"type": "object"},
+                            "description": tool.description,
+                            "parameters": tool.args_schema.model_json_schema(),
                         },
                     }
                 )
-        response = self.chat(
-            [
-                {"role": "system", "content": self.system_prompt},
-                *history,
-                {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
-            ],
-            tools=tools,
-        )
-        if mode == "acquire" or response.get("tool_calls"):
-            return response
-        try:
-            EvidenceReportBatch.model_validate(
-                parse_json_content(response.get("content"))
-            )
-            return response
-        except Exception as exc:
-            for _ in range(self.retries):
-                response = self.chat(
-                    [
-                        {"role": "system", "content": self.system_prompt},
-                        {
-                            "role": "user",
-                            "content": json.dumps(
-                                {
-                                    **request,
-                                    "proposed_report": response.get("content"),
-                                    "validation_error": f"{type(exc).__name__}: {exc}",
-                                    "instruction": "Return corrected EvidenceReportBatch JSON only.",
-                                },
-                                ensure_ascii=False,
-                            ),
-                        },
-                    ]
-                )
-                try:
-                    EvidenceReportBatch.model_validate(
-                        parse_json_content(response.get("content"))
-                    )
-                    return response
-                except Exception as next_exc:
-                    exc = next_exc
-            raise RuntimeError("Verifier report failed schema validation")
-
-
-def build_structured_model(
-    config: dict[str, Any],
-    schema: type,
-    prompt: str,
-    usage_tracker: LLMUsageTracker | None = None,
-) -> Any:
-    if str(config.get("structured_output", "json_object")) == "json_prompt":
-        return LocalStructuredModel(config, schema, prompt, usage_tracker)
-    return JsonStructuredModel(config, schema, prompt, usage_tracker)
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            *history,
+            {"role": "user", "content": json.dumps(request, ensure_ascii=False)},
+        ]
+        for attempt in range(self.retries + 1):
+            if self.usage_tracker:
+                self.usage_tracker.before_request()
+            response = self.client.chat(messages, tools=tools)
+            if self.usage_tracker:
+                self.usage_tracker.record_response(response)
+            if mode == "acquire":
+                return AIMessage(content=response["content"], tool_calls=[
+                    {"name": call["name"], "id": call["id"], "args": call["arguments"]}
+                    for call in response["tool_calls"]
+                ])
+            try:
+                return EvidenceReportBatch.model_validate(parse_json_content(response["content"])).model_dump()
+            except Exception as exc:
+                if attempt == self.retries:
+                    raise RuntimeError("Verifier report failed schema validation") from exc
+                messages = [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": json.dumps({
+                        **request,
+                        "proposed_report": response.get("content"),
+                        "validation_error": f"{type(exc).__name__}: {exc}",
+                        "instruction": "Return corrected EvidenceReportBatch JSON only.",
+                    }, ensure_ascii=False)},
+                ]
 
 
 def build_default_verifier(
@@ -512,7 +451,7 @@ def build_default_verifier(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    prompt = load_prompt(prompt_dir(config, config_dir), "verifier.md")
+    prompt = (prompt_dir(config, config_dir) / "verifier.md").read_text(encoding="utf-8")
     tools = build_validation_tools()
     if str(cfg.get("structured_output", "json_object")) == "json_prompt":
         return LocalVerifierModel(cfg, prompt, tools, usage_tracker)
@@ -528,18 +467,10 @@ def build_default_verifier(
     extra_body = api_extra_body(cfg)
     if extra_body:
         model_kwargs["extra_body"] = extra_body
-    acquire_model = ChatOpenAI(
-        **model_kwargs,
-    )
-    audit_model = JsonStructuredModel(
-        cfg, EvidenceReportBatch, prompt, usage_tracker
-    )
     return VerifierChatModel(
-        acquire_model,
-        audit_model,
-        prompt,
-        tools,
-        usage_tracker,
+        ChatOpenAI(**model_kwargs),
+        JsonStructuredModel(cfg, EvidenceReportBatch, prompt, usage_tracker),
+        prompt, tools, usage_tracker,
     )
 
 
@@ -550,12 +481,9 @@ def build_default_router(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    return build_structured_model(
-        cfg,
-        RouterPlan,
-        load_prompt(prompt_dir(config, config_dir), "router.md"),
-        usage_tracker,
-    )
+    model = LocalStructuredModel if cfg.get("structured_output") == "json_prompt" else JsonStructuredModel
+    prompt = (prompt_dir(config, config_dir) / "router.md").read_text(encoding="utf-8")
+    return model(cfg, RouterPlan, prompt, usage_tracker)
 
 
 def build_default_reviser(
@@ -565,21 +493,22 @@ def build_default_reviser(
     usage_tracker: LLMUsageTracker | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    return build_structured_model(
-        cfg,
-        RevisionPlan,
-        load_prompt(prompt_dir(config, config_dir), "reviser.md"),
-        usage_tracker,
-    )
+    model = LocalStructuredModel if cfg.get("structured_output") == "json_prompt" else JsonStructuredModel
+    prompt = (prompt_dir(config, config_dir) / "reviser.md").read_text(encoding="utf-8")
+    return model(cfg, RevisionPlan, prompt, usage_tracker)
 
 
-def parse_router_plan(value: Any) -> RouterPlan:
-    if hasattr(value, "model_dump"):
-        return RouterPlan.model_validate(value.model_dump())
-    return RouterPlan.model_validate(parse_json_content(value))
-
-
-def parse_revision_plan(value: Any) -> RevisionPlan:
-    if hasattr(value, "model_dump"):
-        return RevisionPlan.model_validate(value.model_dump())
-    return RevisionPlan.model_validate(parse_json_content(value))
+def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "dimension": row.get("dimension", ""),
+            "scope": row.get("scope", ""),
+            "target_ids": list(row.get("target_ids", []) or []),
+            "observations": list(row.get("observations", []) or []),
+            "statistical_interpretation": row.get("statistical_interpretation", ""),
+            "medical_interpretation": row.get("medical_interpretation", ""),
+            "limitations": list(row.get("limitations", []) or []),
+            "tool_refs": list(row.get("tool_refs", []) or []),
+        }
+        for row in reports
+    ]

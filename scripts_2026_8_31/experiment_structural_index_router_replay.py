@@ -7,15 +7,17 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.subtype_review.graph import compact_structural_index, validate_router_plan
-from agents.subtype_review.llm import LLMUsageTracker, build_default_router, parse_router_plan
-from agents.subtype_review.llm_summary import summarize_reports
+from agents.subtype_review.schemas import RouterPlan
+from agents.subtype_review.graph import compact_structural_index, initial_review_state, router_node
+from agents.subtype_review.llm import LLMUsageTracker, build_default_router, parse_json_content
+from agents.subtype_review.llm import summarize_reports
 from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.llm_utils import load_yaml_file
 
@@ -32,11 +34,12 @@ def action_summary(plan: Mapping[str, Any]) -> dict[str, str]:
 
 def replay_payload(entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     state = {
+        **initial_review_state(entry["partition"]["sets"]),
         "partition": entry["partition"],
         "round_evidence": entry.get("round_evidence", []),
         "reports": entry.get("evidence_reports", []),
-        "control": {"round": int(entry.get("round", 1)) - 1},
     }
+    state["control"]["round"] = int(entry.get("round", 1)) - 1
     registry_payload = {
         name: {key: value for key, value in metadata.items() if key != "function"}
         for name, metadata in TOOL_REGISTRY.items()
@@ -56,8 +59,13 @@ def replay_payload(entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, 
 def replay_entry(entry: Mapping[str, Any], router_model: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     payload, state = replay_payload(entry)
     raw_plan = router_model.invoke(payload)
-    plan = parse_router_plan(raw_plan)
-    validate_router_plan(plan, state, {"tool_registry": TOOL_REGISTRY})
+    plan = RouterPlan.model_validate(parse_json_content(raw_plan))
+    reviewed = router_node(state, {
+        "tool_registry": TOOL_REGISTRY,
+        "router_model": SimpleNamespace(invoke=lambda payload: plan.model_dump()),
+    })
+    if reviewed["control"]["error"]:
+        raise ValueError(reviewed["control"]["error"])
     return payload, plan.model_dump()
 
 

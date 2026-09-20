@@ -7,10 +7,10 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agents.subtype_review.graph import build_review_graph, initial_review_state, partition_signature
-from agents.subtype_review.llm import JsonStructuredModel, LLMUsageTracker, message_history
+from agents.subtype_review.graph import build_review_graph, initial_review_state, partition_signature, verifier_node
+from agents.subtype_review.llm import JsonStructuredModel, LocalVerifierModel, LLMUsageTracker, message_history
 from agents.subtype_review.schemas import EvidenceReportBatch
-from agents.subtype_review.tools import TOOL_REGISTRY
+from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
 
 
 class TerminalRouter:
@@ -66,6 +66,43 @@ def test_structured_model_reuses_client_with_identical_generation_parameters(mon
     assert requests[0]["messages"][0]["content"] == "unchanged prompt\n\nReturn exactly one valid JSON object."
 
 
+def test_local_verifier_normalizes_real_client_calls_and_report_envelope(monkeypatch):
+    monkeypatch.setenv("TEST_REVIEW_KEY", "test")
+    model = LocalVerifierModel({
+        "api_key_env": "TEST_REVIEW_KEY", "base_url": "http://test", "model_name": "local",
+        "temperature": 0.0, "max_new_tokens": 100,
+    }, "prompt", build_validation_tools())
+    responses = iter([
+        {"content": "", "tool_calls": [{"name": "pathway_enrichment", "id": "local-1",
+                                          "arguments": {"target_ids": ["C1"]}}]},
+        {"content": json.dumps({"reports": [{"dimension": "biological_support",
+                                             "scope": "set_identity", "target_ids": ["C1"]}]}),
+         "tool_calls": []},
+    ])
+    model.client.chat = lambda messages, tools=None: next(responses)
+    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["control"].update(next="verifier_acquire", pending_evidence_requests=[{
+        "dimension": "biological_support", "target_ids": ["C1"], "question": "Assess identity.",
+    }])
+    context = {
+        "data_root": "/tmp", "config_dir": "configs", "patient_states_by_id": {},
+        "verifier_model": model, "tool_registry": {"pathway_enrichment": {
+            **TOOL_REGISTRY["pathway_enrichment"],
+            "function": lambda *args, **kwargs: {"status": "success", "results": {"decision_metrics": {}}},
+        }},
+    }
+    original = copy.deepcopy(state)
+    acquired = verifier_node(state, context)
+    assert state == original
+    state.update(acquired)
+    assert state["control"]["next"] == "verifier_audit"
+    assert state["messages"][-1].tool_call_id == "local-1"
+    state.update(verifier_node(state, context))
+    assert state["control"]["error"] is None
+    assert state["control"]["next"] == "router"
+    assert state["reports"][0]["tool_refs"] == ["pathway_enrichment"]
+
+
 def test_assistant_tool_calls_use_api_format_and_match_tool_message_ids():
     messages = message_history({"message_history": [
         AIMessage(content="", tool_calls=[{
@@ -79,6 +116,36 @@ def test_assistant_tool_calls_use_api_format_and_match_tool_message_ids():
     assert call["function"]["name"] == "pathway_enrichment"
     assert json.loads(call["function"]["arguments"]) == {"target_ids": ["C1"]}
     assert messages[1]["tool_call_id"] == call["id"]
+
+
+@pytest.mark.parametrize("violation", ["extra_target", "disabled_tool", "completed_tool"])
+def test_verifier_recomputes_eligibility_and_rejects_invalid_calls(violation):
+    state = initial_review_state([
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    seen = []
+    registry = {name: {**TOOL_REGISTRY[name], "function": lambda *args, **kwargs: seen.append(kwargs)}
+                for name in ("pathway_enrichment", "mutation_enrichment")}
+    state["control"].update(next="verifier_acquire", pending_evidence_requests=[{
+        "dimension": "biological_support", "target_ids": ["C1"], "question": "Assess C1.",
+    }], eligible_tools={"cnv_characterization": {"target_ids": ["C1", "C2"]}})
+    if violation == "completed_tool":
+        state["history"] = [{"round_evidence": [{
+            "tool_name": "pathway_enrichment", "target_ids": ["C1"], "status": "success",
+            "partition_signature": partition_signature(state["partition"]["sets"]),
+        }]}]
+    message = AIMessage(content="", tool_calls=[{
+        "name": "cnv_characterization" if violation == "disabled_tool" else "pathway_enrichment",
+        "args": {"target_ids": ["C1", "C2"] if violation == "extra_target" else ["C1"]},
+        "id": "invalid-call",
+    }])
+    result = verifier_node(state, {
+        "tool_registry": registry, "verifier_model": SimpleNamespace(invoke=lambda payload: message),
+    })
+    assert result["control"]["error"].startswith("ValueError:")
+    assert seen == []
+    assert result["round_evidence"] == []
 
 
 def test_json_correction_retry_preserves_history_and_usage(monkeypatch):
@@ -182,6 +249,7 @@ def test_revision_reacquires_evidence_on_the_new_partition(operation, monkeypatc
                         lambda root, members, *args: [members[:3], members[3:]])
     router = Router()
     result = build_review_graph().invoke(state, context={
+        "patient_states_by_id": {}, "config_dir": "configs",
         "data_root": "/tmp", "router_model": router,
         "reviser_model": Reviser(), "verifier_model": Verifier(),
         "tool_registry": {"multimodal_consistency_check": {
