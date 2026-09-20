@@ -155,6 +155,34 @@ def validate_router_plan(
                 "and no concerning alternative explanation"
             )
         if action.action == "drop":
+            supported_split = next(
+                (
+                    row for row in reports
+                    if row["dimension"] == "cross_modal_consistency"
+                    and row["aspect"] == "structural_diagnostics"
+                    and row["scope"] == "set"
+                    and row["target_ids"] == [target]
+                    and row.get("internal_structure_assessment") == "supports_subdivision"
+                    and row.get("suggested_k") is not None
+                ),
+                None,
+            )
+            supported_merge = next(
+                (
+                    row for row in reports
+                    if row["dimension"] == "cross_modal_consistency"
+                    and row["aspect"] == "structural_diagnostics"
+                    and row["scope"] == "pair"
+                    and target in row["target_ids"]
+                    and row.get("pair_boundary_assessment") == "insufficiently_separated"
+                ),
+                None,
+            )
+            if supported_split or supported_merge:
+                raise ValueError(
+                    f"Drop cannot override supported structural revision evidence for {target}; "
+                    "Router must issue the corresponding exact split or merge"
+                )
             negative_evidence = (
                 decision.identity == "unsupported"
                 or decision.structure == "incompatible"
@@ -175,8 +203,10 @@ def validate_router_plan(
                     for dimension, scope, request_targets in available
                     if (
                         dimension in unresolved_dimensions
-                        and scope == "set"
-                        and request_targets == (target,)
+                        and (
+                            (scope == "set" and request_targets == (target,))
+                            or (scope == "partition" and not request_targets)
+                        )
                     )
                     or (
                         dimension == "cross_modal_consistency"
