@@ -80,7 +80,7 @@ def representation_concordance(
                 kernels.append(kernel)
             denominator = np.sqrt(np.sum(kernels[0] ** 2) * np.sum(kernels[1] ** 2))
             grv[f"{left}__{right}"] = float(np.sum(kernels[0] * kernels[1]) / denominator) if denominator else None
-        output[key] = {"patient_n": len(members), "pairwise_grv": grv}
+        output[key] = {"patient_n": len(members), "pairwise_affinity_geometry_grv": grv}
     return tool_result("representation_concordance", {scope: output})
 
 
@@ -106,7 +106,7 @@ def structural_diagnostics(
         degree = np.maximum(matrix.sum(axis=1), np.finfo(float).eps)
         laplacian = np.eye(len(matrix)) - matrix / np.sqrt(np.outer(degree, degree))
         values = np.linalg.eigvalsh((laplacian + laplacian.T) / 2)
-        gaps = {k: float(values[k] - values[k - 1]) for k in range(2, max_k + 1) if k < len(values)}
+        gaps = {k: float(values[k] - values[k - 1]) for k in range(1, max_k + 1) if k < len(values)}
         best = max(gaps, key=gaps.get) if gaps else None
         return {"candidate_k": best, "eigengap": gaps.get(best) if best else None}
 
@@ -139,8 +139,7 @@ def structural_diagnostics(
             )[:neighbors]
         }
         boundaries = [row for row in boundaries if tuple(row["target_ids"]) in selected]
-        boundaries.sort(key=lambda row: (-row["mean_between_affinity"], row["target_ids"])
-)
+        boundaries.sort(key=lambda row: (-row["mean_between_affinity"], row["target_ids"]))
         return tool_result("structural_diagnostics", {"partition": {
             "internal_structure": internal,
             "merge_candidates": [row["target_ids"] for row in boundaries],
@@ -168,7 +167,14 @@ def structural_diagnostics(
                     "silhouette": float(silhouette_score(distance, labels, metric="precomputed")),
                     "child_sizes": sorted(map(int, sizes)),
                 }
-            suggested = max(solutions, key=lambda k: (solutions[k]["silhouette"], -int(k))) if solutions else None
+            candidate_k = spectrum["candidate_k"]
+            suggested = (
+                candidate_k
+                if candidate_k and candidate_k > 1
+                and str(candidate_k) in solutions
+                and solutions[str(candidate_k)]["silhouette"] > 0
+                else None
+            )
             output[key] = {
                 "member_n": len(case_ids),
                 "screen_candidate_k": spectrum["candidate_k"],
@@ -189,12 +195,20 @@ def structural_diagnostics(
                 local[a, b] for a, b in combinations(range(len(case_ids)), 2)
                 if (case_ids[a] in left) != (case_ids[b] in left)
             ]
+            within_mean = float(np.mean(within)) if within else None
+            between_mean = float(np.mean(between)) if between else None
+            boundary_silhouette = float(silhouette_score(distance, labels, metric="precomputed"))
             output[key] = {
                 "member_n": len(case_ids),
-                "mean_within_affinity": float(np.mean(within)) if within else None,
-                "mean_between_affinity": float(np.mean(between)) if between else None,
-                "boundary_silhouette": float(silhouette_score(distance, labels, metric="precomputed")),
+                "mean_within_affinity": within_mean,
+                "mean_between_affinity": between_mean,
+                "boundary_silhouette": boundary_silhouette,
                 "union_eigengap": spectrum,
+                "merge_supported": bool(
+                    spectrum["candidate_k"] == 1
+                    and within_mean is not None and between_mean is not None
+                    and between_mean >= within_mean and boundary_silhouette <= 0
+                ),
             }
     return tool_result("structural_diagnostics", {scope: output})
 
@@ -273,6 +287,12 @@ def wxs_mutation_enrichment(
     path = Path(output_root) / "wxs" / "wxs_discovery_features.csv"
     frame = pd.read_csv(path).set_index("case_id")
     features = [name for name in frame.columns if name.startswith("mutation::")]
+    from utils.llm_utils import load_yaml_file
+
+    driver_genes = {
+        str(gene).upper()
+        for gene in load_yaml_file(Path(config_dir) / "wxs.yaml")["biological_support"]["driver_genes"]
+    }
     universe = {str(member) for item in all_cluster_states for member in item["member_ids"]}
     rows_by_set = {}
     for set_id in target_ids:
@@ -289,8 +309,10 @@ def wxs_mutation_enrichment(
             ])
             odds_ratio, p_value = fisher_exact(table)
             ci = Table2x2(table).oddsratio_confint()
+            gene_name = gene.removeprefix("mutation::")
             rows.append({
-                "gene": gene.removeprefix("mutation::"),
+                "gene": gene_name,
+                "driver_panel_member": gene_name.upper() in driver_genes,
                 "set_mutated_n": set_positive,
                 "set_n": len(set_ids),
                 "rest_mutated_n": rest_positive,
@@ -304,7 +326,16 @@ def wxs_mutation_enrichment(
         for row, q_value in zip(rows, q_values):
             row["q_value"] = float(q_value)
         rows.sort(key=lambda item: (item["q_value"], -abs(item["odds_ratio"] - 1)))
-        rows_by_set[set_id] = rows
+        available_drivers = {row["gene"].upper() for row in rows} & driver_genes
+        rows_by_set[set_id] = {
+            "gene_enrichment": rows,
+            "driver_panel": {
+                "configured_genes": sorted(driver_genes),
+                "available_genes": sorted(available_drivers),
+                "not_in_selected_features": sorted(driver_genes - available_drivers),
+                "results": [row for row in rows if row["driver_panel_member"]],
+            },
+        }
     return tool_result("wxs_mutation_enrichment", {"set": rows_by_set})
 
 
@@ -499,10 +530,18 @@ def confounder_association(
 
     scoped = scoped_groups(scope, target_ids, all_cluster_states)
     universe = {str(member) for item in all_cluster_states for member in item["member_ids"]}
-    analyses = {
-        target: {target: members, "rest": sorted(universe - set(members))}
-        for target, members in scoped.items()
-    } if scope == "set" else {scope: scoped}
+    if scope == "set":
+        analyses = {
+            target: {target: members, "rest": sorted(universe - set(members))}
+            for target, members in scoped.items()
+        }
+    elif scope == "partition":
+        analyses = {"partition": {
+            str(item["set_id"]): sorted(set(map(str, item["member_ids"])))
+            for item in all_cluster_states
+        }}
+    else:
+        analyses = {scope: scoped}
     factors = technical_values(patient_states_by_id, output_root)
     permutations = int(load_yaml_file(Path(config_dir) / "subtype_review.yaml")["confounder"]["permutations"])
     result_by_group = {}
@@ -588,36 +627,43 @@ def confounder_representation_effect(
 
 TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "representation_concordance": {
+        "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
-        "description": "Compare the four requested patient affinity geometries using Generalized RV.",
+        "description": "Compare four-view affinity/network geometries using descriptive Generalized RV; this is not a test on native feature distances.",
         "function": representation_concordance,
     },
     "structural_diagnostics": {
+        "aspect": "structural_diagnostics",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
         "description": "Screen partition structure, assess a requested set for multi-child splits, or assess a requested pair boundary.",
         "function": structural_diagnostics,
     },
     "rna_pathway_enrichment": {
+        "aspect": "rna_pathway_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
         "description": "Run Hallmark preranked GSEA on the full filtered log2 RNA transcriptome for each requested set versus rest.",
         "function": rna_pathway_enrichment,
     },
     "wxs_mutation_enrichment": {
+        "aspect": "wxs_mutation_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
         "description": "Run Fisher exact mutation enrichment with odds ratios, confidence intervals, and BH-FDR for requested sets.",
         "function": wxs_mutation_enrichment,
     },
     "known_label_echo": {
+        "aspect": "known_label_echo",
         "dimension": "known_label_echo", "scopes": ("partition",),
         "description": "Compare the full partition with stage, grade, major T/M stage, TCGA m1-m4, and ClearCode34 labels.",
         "function": known_label_echo,
     },
     "confounder_association": {
+        "aspect": "confounder_association",
         "dimension": "confounder_exclusion", "scopes": ("set", "partition"),
         "description": "Test association of candidate membership with measured site and CT acquisition metadata.",
         "function": confounder_association,
     },
     "confounder_representation_effect": {
+        "aspect": "confounder_representation_effect",
         "dimension": "confounder_exclusion", "scopes": ("partition",),
         "description": "Estimate PERMANOVA variance explained by measured technical factors in the related affinity representation.",
         "function": confounder_representation_effect,

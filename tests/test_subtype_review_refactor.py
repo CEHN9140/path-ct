@@ -11,7 +11,7 @@ class TerminalRouter:
         return {"actions": [{
             "action": "drop", "target_ids": [item["set_id"]],
             "decision_state": {
-                "identity": "unassessed", "structure": "unassessed",
+                "identity": "unassessed", "structure": "compatible",
                 "alternative_explanation": "unassessed", "uncertainty": "yes",
             },
         } for item in payload["partition"]["sets"]]}
@@ -20,7 +20,37 @@ class TerminalRouter:
 def test_graph_does_not_mutate_caller_state():
     state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
     original = copy.deepcopy(state)
-    result = build_review_graph().invoke(state, context={"router_model": TerminalRouter()})
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "acquire":
+                return {"tool_calls": [{
+                    "name": "structural_diagnostics", "args": {"scope": "partition", "target_ids": []},
+                }]}
+            return {"reports": [{
+                **required,
+                "observations": [],
+                "internal_structure_assessment": None,
+                "pair_boundary_assessment": None,
+                "suggested_k": None,
+            } for required in payload["required_reports"]]}
+
+    def structural_diagnostics(**kwargs):
+        return {"status": "success", "metrics": {"partition": {
+            "internal_structure": {"C1": {"candidate_k": 1}},
+        }}}
+
+    context = {
+        "router_model": TerminalRouter(), "verifier_model": Verifier(),
+        "tool_registry": {"structural_diagnostics": {
+            "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+            "scopes": ("partition",), "description": "Partition screen.",
+            "function": structural_diagnostics,
+        }},
+        "patient_states_by_id": {"P1": {}, "P2": {}},
+        "data_root": "/tmp", "config_dir": "configs",
+    }
+    result = build_review_graph().invoke(state, context=context)
 
     assert state == original
     assert result["control"]["status"] == "complete"

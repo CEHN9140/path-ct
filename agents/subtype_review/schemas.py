@@ -27,6 +27,7 @@ class EvidenceReport(BaseModel):
         "confounder_exclusion",
         "known_label_echo",
     ]
+    aspect: str = Field(min_length=1)
     scope: Literal["set", "pair", "partition"]
     target_ids: list[str] = Field(default_factory=list)
     observations: list[EvidenceObservation] = Field(default_factory=list)

@@ -116,7 +116,7 @@ def api_extra_body(config: Mapping[str, Any]) -> dict[str, Any]:
     base_url = str(config.get("base_url", "")).lower()
     model_name = str(config.get("model_name", "")).lower()
     if "dashscope.aliyuncs.com" in base_url and model_name.startswith("qwen3.8-"):
-        return {"enable_thinking": True}
+        return {"enable_thinking": False}
     if "deepseek" in base_url or model_name.startswith("deepseek-"):
         return {"thinking": {"type": "disabled"}}
     return {}
@@ -343,6 +343,7 @@ def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
             "dimension": row.get("dimension", ""),
+            "aspect": row.get("aspect", ""),
             "scope": row.get("scope", ""),
             "target_ids": list(row.get("target_ids", []) or []),
             "observations": list(row.get("observations", []) or []),

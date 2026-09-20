@@ -57,9 +57,13 @@ def test_router_report_summary_preserves_interpretation_and_excludes_raw_metrics
         "metrics": {"private": 1}, "metric_refs": ["leaf.ref"],
     }]) == [{
         "dimension": "biological_support", "scope": "set_identity", "target_ids": ["C1"],
+        "aspect": "",
         "observations": [{"metric": "q", "finding": "small effect"}],
         "statistical_interpretation": "", "medical_interpretation": "uncertain identity",
         "limitations": [], "tool_refs": [],
+        "internal_structure_assessment": None,
+        "pair_boundary_assessment": None,
+        "suggested_k": None,
     }]
 
 

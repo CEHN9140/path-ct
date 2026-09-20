@@ -11,6 +11,7 @@ from agents.subtype_review.llm import (
     LLMOutputLengthError,
     LLMUsageTracker,
     VerifierChatModel,
+    api_extra_body,
     build_default_verifier,
     build_default_reviser,
     build_default_router,
@@ -22,6 +23,13 @@ from utils.llm_utils import load_yaml_file
 def test_subtype_review_config_declares_project_generation_limit():
     config = load_yaml_file("configs/subtype_review.yaml")
     assert config["llm"]["max_new_tokens"] == 32768
+
+
+def test_qwen_review_requests_disable_thinking_by_default():
+    assert api_extra_body({
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model_name": "qwen3.8-max",
+    }) == {"enable_thinking": False}
 
 
 def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(monkeypatch):

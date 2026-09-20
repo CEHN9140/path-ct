@@ -13,7 +13,7 @@ Reason jointly over these four dimensions:
 - `confounder_exclusion`
 - `known_label_echo`
 
-They answer different scientific questions. They are not votes, fixed gates, scores, or a checklist. There is no predetermined acquisition order. Do not request evidence merely because a dimension is unassessed, and do not assume any dimension must be requested first, last, or in every review.
+They answer different scientific questions. They are not votes, scores, or a four-dimension checklist. Each current partition receives one mandatory partition-level structural screen before a Router scientific decision; this is a protocol step, not evidence for a split or merge. There is no predetermined acquisition order for the other evidence dimensions. Do not request evidence merely because a dimension is unassessed.
 
 `unassessed` means that the relevant Evidence Report has not been obtained. It is not evidence of support, contradiction, or absence of a problem. Use `evidence_coverage` and request only dimension/target combinations listed in `available_evidence_requests`. A request is appropriate only when a specific unresolved question is material to the current decision, available evidence can address it, and the result could change the next action or its interpretation. Requests may cover different dimensions for the same set, multiple sets, or a partition-level question.
 
@@ -31,7 +31,7 @@ Interpret these states consistently:
 - For `alternative_explanation`: `not_supported` means available confounder evidence does not support a plausible competing explanation; `uncertain` means a competing explanation is possible but evidence is limited or its explanatory ability is unclear; `concerning` means available evidence supports a plausible substantial explanation for the defining candidate signal; `unassessed` means no relevant report is available.
 - Set `uncertainty=yes` when any material limitation, unresolved conflict, or unassessed decision-critical dimension remains; use `no` only when the selected action is not materially uncertain.
 
-Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Report is absent. In particular, an unassessed structure cannot be called compatible and an unassessed alternative explanation cannot be called not supported. If a terminal action retains an unassessed dimension, explain why it is not decision-critical.
+Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Report is absent. In particular, an unassessed structure cannot be called compatible and an unassessed alternative explanation cannot be called not supported. Terminal `accept` and `drop` actions must set `structure` to `compatible`, `uncertain`, or `incompatible` after interpreting the mandatory structural screen; never leave it `unassessed`. Other unassessed dimensions may be retained only when they are not decision-critical, with that reason stated.
 
 # Scientific interpretation
 
@@ -39,7 +39,7 @@ Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Re
 
 One modality provides a strong identity signal only when it is coherent and interpretable; do not require a fixed number of supporting modalities and do not treat modality count as a score.
 
-`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the four-view data. Interpret representation concordance, fused structure, pair boundaries, and internal subdivision jointly. It does not require every modality to be equally strong.
+`cross_modal_consistency` evaluates whether the current membership and boundaries are defensible in the four-view data. Interpret affinity-geometry concordance, fused structure, pair boundaries, and internal subdivision jointly. It does not require every modality to be equally strong. For subdivision, use targeted set diagnostics only when the screen suggests K>1; for merging, require targeted pair diagnostics with union candidate K=1 and affirmative weak-boundary evidence.
 
 `confounder_exclusion` evaluates whether measured technical, acquisition, or site-related factors plausibly explain the signal defining the candidate. Technical association alone does not establish artifact.
 
@@ -47,7 +47,7 @@ One modality provides a strong identity signal only when it is coherent and inte
 
 # Scientific actions
 
-Choose `accept` when the currently available joint evidence is sufficiently affirmative and defensible, no material unresolved question requires an available request, and no better-supported structural revision is indicated. Absence of contradiction alone is not sufficient.
+Choose `accept` when the currently available joint evidence is sufficiently affirmative and defensible, the current partition's structural screen has been interpreted, no material unresolved question requires an available request, and no better-supported structural revision is indicated. Absence of contradiction alone is not sufficient.
 
 Choose `drop` when the joint evidence makes the candidate insufficiently defensible, no credible structural revision resolves the problem, and available additional evidence is not reasonably expected to reverse that conclusion.
 
@@ -92,11 +92,11 @@ Scientific action mode:
       "n_children": null,
       "decision_state": {
         "identity": "supported",
-        "structure": "unassessed",
+        "structure": "compatible",
         "alternative_explanation": "unassessed",
         "uncertainty": "no"
       },
-      "reason": "C0001 has coherent identity evidence. Structure and alternative-explanation evidence are not assessed, but are not decision-critical for retaining this candidate for downstream validation."
+      "reason": "C0001 has coherent identity evidence, and the mandatory partition structural screen found no material concern for retaining it for downstream validation. Alternative-explanation evidence remains unassessed and is not decision-critical."
     }
   ],
   "evidence_requests": []
