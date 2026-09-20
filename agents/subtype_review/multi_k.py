@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 from itertools import combinations
 from pathlib import Path
@@ -11,7 +13,9 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score, silhouette_score
 
+from utils.cache_utils import hash_payload
 from utils.io import write_json
+from utils.llm_utils import load_yaml_file
 
 
 def run_multi_k_aggregation(
@@ -32,9 +36,14 @@ def run_multi_k_aggregation(
         raise ValueError("Candidate patient order contains duplicate IDs")
 
     params = config["multi_k"]
+    initial_ks = tuple(sorted(set(map(int, params["initial_ks"]))))
+    repeats = tuple(sorted(set(map(int, params["repeats"]))))
+    aggregation_params = {**params, "initial_ks": list(initial_ks), "repeats": list(repeats)}
+    patient_order_path = root / "candidate_subtype" / "affinity_patient_order.json"
     run_files = []
-    for k in params["initial_ks"]:
-        for repeat in params["repeats"]:
+    run_manifest = []
+    for k in initial_ks:
+        for repeat in repeats:
             run_root = runs_root / f"K{k}" / f"repeat{repeat}"
             metadata_path = run_root / "run_metadata.json"
             summary_path = run_root / "final_review_summary.json"
@@ -51,6 +60,28 @@ def run_multi_k_aggregation(
             ):
                 raise ValueError(f"Review run is incomplete or has mismatched inputs: {run_root}")
             run_files.append(sets_path)
+            run_manifest.append({
+                "initial_k": k,
+                "repeat": repeat,
+                "agent_input_signature": metadata["input_signature"],
+                "final_subtype_sets_path": str(sets_path.resolve()),
+                "final_subtype_sets_sha256": hashlib.sha256(sets_path.read_bytes()).hexdigest(),
+            })
+
+    aggregation_manifest = {
+        "aggregation_version": 1,
+        "agent_input_signature": input_signature,
+        "initial_ks": list(initial_ks),
+        "repeats": list(repeats),
+        "parameters": aggregation_params,
+        "patient_order": {
+            "path": str(patient_order_path.resolve()),
+            "sha256": hashlib.sha256(patient_order_path.read_bytes()).hexdigest(),
+        },
+        "agent_runs": run_manifest,
+        "aggregation_implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+    aggregation_signature = hash_payload(aggregation_manifest)
 
     run_count = len(run_files)
     coassignment = np.zeros((len(patient_ids), len(patient_ids)), dtype=float)
@@ -146,6 +177,10 @@ def run_multi_k_aggregation(
 
     output_dir = root / "subtype_review" / "multi_k"
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / "aggregation_manifest.json", {
+        **aggregation_manifest,
+        "aggregation_signature": aggregation_signature,
+    })
     pd.DataFrame(coassignment, index=patient_ids, columns=patient_ids).rename_axis("patient_id").to_csv(output_dir / "accepted_coassignment_matrix.csv")
     np.save(output_dir / "accepted_coassignment_matrix.npy", coassignment)
     pd.DataFrame({"patient_id": patient_ids, "acceptance_frequency": acceptance}).to_csv(output_dir / "patient_acceptance_frequency.csv", index=False)
@@ -164,6 +199,8 @@ def run_multi_k_aggregation(
         "status": "complete",
         "run_count": run_count,
         "input_signature": input_signature,
+        "agent_input_signature": input_signature,
+        "aggregation_signature": aggregation_signature,
         "patient_count": len(patient_ids),
         "accepted_patient_count": int(np.count_nonzero(acceptance >= float(params["acceptance_threshold"]))),
         "core_count": len(cores),
@@ -171,8 +208,29 @@ def run_multi_k_aggregation(
         "selected_state_k": int(selected["k"]),
         "selected_state_silhouette": selected["silhouette"],
         "state_merge_rule": "maximum average-linkage silhouette with average/complete agreement and at least two cores per state",
-        "parameters": dict(params),
+        "parameters": aggregation_params,
         "state_membership": state_membership,
     }
     write_json(output_dir / "state_merge_summary.json", summary)
     return summary
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Recompute multi-K aggregation from completed Agent runs.")
+    parser.add_argument("--output-root", required=True)
+    parser.add_argument("--config-dir", default="configs")
+    args = parser.parse_args()
+    config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
+    params = config["multi_k"]
+    first_run = (
+        Path(args.output_root) / "subtype_review" / "runs"
+        / f"K{params['initial_ks'][0]}" / f"repeat{params['repeats'][0]}"
+        / "run_metadata.json"
+    )
+    input_signature = json.loads(first_run.read_text(encoding="utf-8"))["input_signature"]
+    result = run_multi_k_aggregation(args.output_root, config, input_signature)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

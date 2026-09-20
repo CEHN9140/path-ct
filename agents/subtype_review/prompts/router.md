@@ -29,7 +29,8 @@ Interpret these states consistently:
 - For `identity`: `supported` means affirmative evidence supports a coherent biological identity; `uncertain` means biological evidence exists but is weak, mixed, or insufficiently coherent; `unsupported` means available evidence argues against a defensible identity; `unassessed` means no relevant report is available.
 - For `structure`: evaluate whether the current membership, boundaries, and granularity are defensible. `compatible` means affirmative and sufficiently coherent structural evidence supports the current membership, boundaries, and granularity without a material structural caveat; mere absence of evidence for incompatibility is not sufficient. `uncertain` means the current representation remains plausible, but evidence is weak, mixed, or otherwise insufficient to clearly support either retention or structural revision. `incompatible` means positive structural evidence indicates that the current representation is not defensible at its present granularity, including reproducible internal subdivision of an exact set or reproducible insufficient separation between an exact pair of sets. `unassessed` means no relevant report is available.
 - For `alternative_explanation`: `not_supported` means available confounder evidence does not support a plausible competing explanation; `uncertain` means a competing explanation is possible but evidence is limited or its explanatory ability is unclear; `concerning` means available evidence supports a plausible substantial explanation for the defining candidate signal; `unassessed` means no relevant report is available.
-- Set `uncertainty=yes` when any material limitation, unresolved conflict, or unassessed decision-critical dimension remains; use `no` only when the selected action is not materially uncertain.
+- Set `uncertainty=yes` when any material limitation, unresolved conflict, or unassessed decision-critical dimension remains; use `no` only when the selected action is not materially uncertain. If any of `identity`, `structure`, or `alternative_explanation` is `uncertain`, `uncertainty` must be `yes`.
+- When `uncertainty=yes`, represent the decision-critical dimension as `uncertain` (evidence was examined but remains inconclusive) or `unassessed` (relevant evidence has not been obtained). Do not mark unrelated unassessed dimensions as decision-critical.
 
 Do not claim a non-`unassessed` state for a dimension whose relevant Evidence Report is absent. In particular, an unassessed structure cannot be called compatible and an unassessed alternative explanation cannot be called not supported. Terminal `accept` and `drop` actions must set `structure` to `compatible`, `uncertain`, or `incompatible` after interpreting the mandatory structural screen; never leave it `unassessed`. Other unassessed dimensions may be retained only when they are not decision-critical, with that reason stated.
 
@@ -47,9 +48,9 @@ One modality provides a strong identity signal only when it is coherent and inte
 
 # Scientific actions
 
-Choose `accept` when the currently available joint evidence is sufficiently affirmative and defensible, the current partition's structural screen has been interpreted, no material unresolved question requires an available request, and no better-supported structural revision is indicated. Absence of contradiction alone is not sufficient.
+Choose `accept` only when `identity=supported`, `structure=compatible`, `uncertainty=no`, and `alternative_explanation` is not `concerning`. The current partition's structural screen must have been interpreted, and no better-supported structural revision may be indicated. Absence of contradiction alone is not sufficient. An unassessed alternative explanation may remain only when it is not decision-critical.
 
-Choose `drop` when the joint evidence makes the candidate insufficiently defensible, no credible structural revision resolves the problem, and available additional evidence is not reasonably expected to reverse that conclusion.
+Choose `drop` when available evidence affirmatively argues against retaining the candidate, or when the candidate still lacks sufficient affirmative support after all eligible evidence relevant to its decision-critical uncertainty has been used. If such uncertainty remains and a related eligible evidence request is still available, request that evidence instead of dropping the candidate. Do not drop a candidate merely because the current evidence is incomplete when an available decision-relevant request could resolve the uncertainty.
 
 Choose `split` only when positive structural evidence supports reproducible internal subdivision of the exact target. Choose `merge` only when positive pairwise structural evidence supports insufficient separation between the exact targets. Do not infer either action from unassessed or merely weak evidence.
 
@@ -57,7 +58,7 @@ When positive structural evidence directly supports an exact `split` or `merge`,
 
 Structural revisions are isolated rounds: if any action is `split` or `merge`, return exactly that one action and no accept/drop actions. After revision, the new partition will be reviewed again. A split must use the `suggested_k` reported for that exact set; never invent `n_children`. A terminal round contains only accept/drop actions and covers every current set exactly once.
 
-When `terminal_only` is true, return only `accept` or `drop` actions. Do not request evidence or structural revision after the round budget.
+`budget_exhausted` does not change the scientific meaning of the next step. Still return the scientifically warranted evidence request, structural revision, or terminal `accept`/`drop` actions. If evidence or a split/merge is still required at budget exhaustion, return that request/action; the workflow controller will mark the run `incomplete_due_to_round_budget` without executing additional work. If the evidence supports a terminal `accept`/`drop`, return it normally.
 
 The reason must directly justify the selected action and must not state or imply that a different action is better supported than the returned action.
 

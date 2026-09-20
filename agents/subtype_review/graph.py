@@ -80,12 +80,9 @@ def validate_router_plan(
     plan: RouterPlan,
     state: Mapping[str, Any],
     available: set[tuple[str, str, tuple[str, ...]]],
-    terminal_only: bool,
 ) -> None:
     current = {set_id(item) for item in current_sets(state)}
     if plan.evidence_requests:
-        if terminal_only:
-            raise ValueError("Terminal round cannot request additional evidence")
         seen = set()
         for request in plan.evidence_requests:
             key = (request.dimension, request.scope, tuple(request.target_ids))
@@ -96,7 +93,7 @@ def validate_router_plan(
 
     structural = [action for action in plan.actions if action.action in {"split", "merge"}]
     if structural:
-        if terminal_only or len(plan.actions) != 1 or len(structural) != 1:
+        if len(plan.actions) != 1 or len(structural) != 1:
             raise ValueError("A revision round must contain exactly one split or merge")
         action = structural[0]
         if not set(action.target_ids).issubset(current):
@@ -147,6 +144,52 @@ def validate_router_plan(
         target = action.target_ids[0]
         reports = state["reports"]
         decision = action.decision_state
+        if action.action == "accept" and (
+            decision.identity != "supported"
+            or decision.structure != "compatible"
+            or decision.uncertainty != "no"
+            or decision.alternative_explanation == "concerning"
+        ):
+            raise ValueError(
+                "Accept requires supported identity, compatible structure, no material uncertainty, "
+                "and no concerning alternative explanation"
+            )
+        if action.action == "drop":
+            negative_evidence = (
+                decision.identity == "unsupported"
+                or decision.structure == "incompatible"
+                or decision.alternative_explanation == "concerning"
+            )
+            if not negative_evidence and decision.uncertainty != "yes":
+                raise ValueError("Drop requires negative evidence or unresolved insufficient support")
+            if decision.uncertainty == "yes":
+                unresolved_dimensions = set()
+                if decision.identity in {"uncertain", "unassessed"}:
+                    unresolved_dimensions.add("biological_support")
+                if decision.structure in {"uncertain", "unassessed"}:
+                    unresolved_dimensions.add("cross_modal_consistency")
+                if decision.alternative_explanation in {"uncertain", "unassessed"}:
+                    unresolved_dimensions.add("confounder_exclusion")
+                remaining = [
+                    (dimension, scope, request_targets)
+                    for dimension, scope, request_targets in available
+                    if (
+                        dimension in unresolved_dimensions
+                        and scope == "set"
+                        and request_targets == (target,)
+                    )
+                    or (
+                        dimension == "cross_modal_consistency"
+                        and "cross_modal_consistency" in unresolved_dimensions
+                        and scope == "pair"
+                        and target in request_targets
+                    )
+                ]
+                if remaining:
+                    raise ValueError(
+                        "Decision-critical evidence remains available; "
+                        "Router must request evidence before dropping the candidate"
+                    )
         if decision.structure == "unassessed":
             raise ValueError("Terminal structure must be assessed after the partition structural screen")
         if int(screened_sets.get(target, {}).get("candidate_k") or 1) > 1 and not any(
@@ -248,14 +291,22 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     if control["round"] >= control["max_rounds"] and pending_structural_sets:
         control["status"] = "incomplete_due_to_round_budget"
         control["next"] = "end"
-        control["pending_evidence_requests"] = []
+        control["pending_evidence_requests"] = [
+            {
+                "dimension": "cross_modal_consistency",
+                "scope": "set",
+                "target_ids": [target],
+                "question": "Complete the mandatory targeted structural diagnostic for this set.",
+            }
+            for target in pending_structural_sets
+        ]
         control["trace"].append({
             "round": control["round"], "node": "router", "event": "round_budget_exhausted",
             "pending_structural_sets": pending_structural_sets,
         })
         return {"control": control}
-    terminal_only = control["round"] >= control["max_rounds"] and partition_screen_done
-    if not terminal_only:
+    budget_exhausted = control["round"] >= control["max_rounds"]
+    if not budget_exhausted:
         control["round"] += 1
     payload = {
         "partition": state["partition"],
@@ -263,7 +314,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "evidence_coverage": coverage,
         "available_evidence_requests": request_options,
         "round": control["round"],
-        "terminal_only": terminal_only,
+        "budget_exhausted": budget_exhausted,
     }
     if partition_screen_done:
         plan = RouterPlan.model_validate(parse_json_content(values["router_model"].invoke(payload)))
@@ -276,7 +327,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             target_ids=[],
             question="Screen the current partition for unsupported internal splits and weak pair boundaries.",
         )])
-    validate_router_plan(plan, state, available, terminal_only)
+    validate_router_plan(plan, state, available)
 
     state["router_plan"] = plan.model_dump()
     state["history"].append({
@@ -291,7 +342,20 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "plan": plan.model_dump(),
     })
     control["pending_evidence_requests"] = [item.model_dump() for item in plan.evidence_requests]
-    if plan.evidence_requests:
+    needs_more_work = bool(plan.evidence_requests) or any(
+        item.action in {"split", "merge"} for item in plan.actions
+    )
+    if budget_exhausted and needs_more_work:
+        control["status"] = "incomplete_due_to_round_budget"
+        control["next"] = "end"
+        control["trace"].append({
+            "round": control["round"],
+            "node": "router",
+            "event": "round_budget_exhausted",
+            "pending_evidence_requests": control["pending_evidence_requests"],
+            "proposed_actions": [item.model_dump() for item in plan.actions],
+        })
+    elif plan.evidence_requests:
         control["next"] = "verifier"
     elif any(item.action in {"split", "merge"} for item in plan.actions):
         control["next"] = "reviser"
@@ -662,6 +726,7 @@ def save_review_outputs(state: Mapping[str, Any], output_root: str, *, direct: b
         "accepted_subtype_sets": to_jsonable(accepted),
         "accepted_subtype_reports": to_jsonable(accepted_reports),
         "dropped_set_registry": to_jsonable(dropped),
+        "pending_evidence_requests": to_jsonable(state["control"].get("pending_evidence_requests", [])),
         "accepted_patient_count": len({member for item in accepted for member in item["member_ids"]}),
         "history": to_jsonable(state["history"]),
         "decision_trace": to_jsonable(state["control"]["trace"]),
