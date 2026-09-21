@@ -124,6 +124,23 @@ def test_verifier_does_not_call_nonsignificant_trends_corroboration():
     assert "direction alone must not be described as affirmative corroboration" in verifier
 
 
+def test_verifier_prompt_has_mode_specific_output_contracts():
+    verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
+    assert "# selection mode" in verifier
+    assert "selection output contract" in verifier
+    assert "# audit mode" in verifier
+    assert "audit output contract" in verifier
+    assert "do not output an evidence report" in verifier
+    assert "do not answer the evidencerequest itself" in verifier
+    assert "ordinary assistant content is ignored by python" in verifier
+    assert 'the following output format applies only when `mode="audit"`' in verifier
+
+
+def test_verifier_prompt_has_no_global_output_contract():
+    verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
+    assert "\n# output\n" not in verifier
+
+
 def test_router_requests_questions_while_verifier_selects_tools():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
     verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()

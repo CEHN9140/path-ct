@@ -387,10 +387,9 @@ class VerifierChatModel:
             if not calls:
                 if require_tool:
                     raise RuntimeError("Verifier returned no tool call when one was required")
-                content = getattr(response, "content", "")
                 return {
                     "selected_tool": None,
-                    "stop_reason": str(content).strip() or "Verifier ended acquisition without another tool call.",
+                    "stop_reason": "verifier_no_further_tool_call",
                 }
             if len(calls) == 1:
                 call = calls[0]

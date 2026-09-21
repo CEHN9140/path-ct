@@ -246,6 +246,61 @@ def test_verifier_selection_binds_only_eligible_zero_argument_tools():
     }
 
 
+def test_verifier_selection_ignores_content_when_stopping():
+    content = '{"reports":[{"huge":"fake evidence"}]}'
+    model = BoundModel([])
+    model.invoke = lambda messages: SimpleNamespace(
+        content=content, tool_calls=[], additional_kwargs={},
+    )
+    verifier = VerifierChatModel(model, AuditModel(), "prompt", [SimpleNamespace(name="wxs")])
+    result = verifier.invoke({
+        "mode": "select", "remaining_tools": ["wxs"], "require_tool": False,
+    })
+    assert result == {
+        "selected_tool": None,
+        "stop_reason": "verifier_no_further_tool_call",
+    }
+    assert content not in str(result)
+
+
+def test_verifier_selection_ignores_content_when_tool_is_called():
+    model = BoundModel([])
+    model.invoke = lambda messages: SimpleNamespace(
+        content="A very long explanation that should be ignored.",
+        tool_calls=[{"name": "rna_pathway_enrichment", "args": {}, "id": "call-1"}],
+    )
+    verifier = VerifierChatModel(
+        model, AuditModel(), "prompt", [SimpleNamespace(name="rna_pathway_enrichment")],
+    )
+    assert verifier.invoke({
+        "mode": "select", "remaining_tools": ["rna_pathway_enrichment"],
+        "require_tool": False,
+    }) == {"selected_tool": "rna_pathway_enrichment"}
+
+
+def test_verifier_first_selection_still_requires_tool_call():
+    model = BoundModel([])
+    model.invoke = lambda messages: SimpleNamespace(content="STOP", tool_calls=[], additional_kwargs={})
+    verifier = VerifierChatModel(model, AuditModel(), "prompt", [SimpleNamespace(name="wxs")])
+    with pytest.raises(RuntimeError, match="no tool call when one was required"):
+        verifier.invoke({
+            "mode": "select", "remaining_tools": ["wxs"], "require_tool": True,
+        })
+
+
+@pytest.mark.parametrize("content", ["", "STOP", '{"reports":[]}', "some prose"])
+def test_verifier_optional_selection_stops_independent_of_content(content):
+    model = BoundModel([])
+    model.invoke = lambda messages: SimpleNamespace(content=content, tool_calls=[], additional_kwargs={})
+    verifier = VerifierChatModel(model, AuditModel(), "prompt", [SimpleNamespace(name="wxs")])
+    assert verifier.invoke({
+        "mode": "select", "remaining_tools": ["wxs"], "require_tool": False,
+    }) == {
+        "selected_tool": None,
+        "stop_reason": "verifier_no_further_tool_call",
+    }
+
+
 def test_default_agent_prompts_use_new_contracts(monkeypatch):
     prompts = []
     monkeypatch.setattr(

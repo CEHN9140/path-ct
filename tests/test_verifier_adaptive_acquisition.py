@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -74,7 +75,7 @@ def request_state(requests, sets=(("C1", ["P1", "P2"]), ("C2", ["P3", "P4"]))):
     return state
 
 
-def test_verifier_can_stop_after_first_evidence_report_and_selector_sees_report_only():
+def test_verifier_can_stop_after_first_evidence_report_and_selector_sees_report_only(tmp_path):
     registry = make_registry(
         ("rna", "biological_support", ("set",)),
         ("wxs", "biological_support", ("set",)),
@@ -97,11 +98,12 @@ def test_verifier_can_stop_after_first_evidence_report_and_selector_sees_report_
                 assert "round_evidence" not in payload
                 assert "metric_refs" not in str(payload)
                 assert "signal" not in str(payload)
-                return {"selected_tool": None, "stop_reason": "The report addresses the question."}
+                return {"selected_tool": None, "stop_reason": "verifier_no_further_tool_call"}
             return valid_reports(payload)
 
     state = request_state([request])
-    result = verifier_node(state, context(registry, Verifier()))
+    trace_path = tmp_path / "runtime_trace.jsonl"
+    result = verifier_node(state, context(registry, Verifier(), runtime_trace_path=str(trace_path)))
     selections = [item for item in payloads if item["mode"] == "select"]
     assert [item["require_tool"] for item in selections] == [True, False]
     assert selections[1]["current_evidence"][0]["aspect"] == "rna"
@@ -110,6 +112,15 @@ def test_verifier_can_stop_after_first_evidence_report_and_selector_sees_report_
     assert len([item for item in payloads if item["mode"] == "audit"]) == 1
     assert len(result["round_evidence"]) == 1
     assert result["control"]["pending_evidence_requests"] == []
+    stopped = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+        if json.loads(line)["event"] == "verifier_request_stopped"
+    ]
+    assert len(stopped) == 1
+    assert stopped[0]["stop_reason"] == "verifier_no_further_tool_call"
+    assert "reports" not in json.dumps(stopped[0])
+    assert "NES" not in json.dumps(stopped[0])
+    assert "EvidenceReport" not in json.dumps(stopped[0])
 
 
 def test_wave_selection_uses_same_report_snapshot_and_requests_stop_independently():
@@ -263,7 +274,7 @@ def test_later_selection_can_stop_without_a_tool_call():
         "round": 2,
     })
     assert result["selected_tool"] is None
-    assert "No further evidence" in result["stop_reason"]
+    assert result["stop_reason"] == "verifier_no_further_tool_call"
     assert model.bind_calls[0][1] == {}
 
 
