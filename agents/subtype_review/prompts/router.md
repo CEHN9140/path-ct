@@ -311,7 +311,9 @@ For example:
 
 "Is the transcriptomic phenotype accompanied by a distinct somatic alteration pattern that would materially strengthen the case for treating this set as an independent candidate?"
 
-The Verifier decides which currently eligible tool should answer the question.
+The Verifier decides which eligible tool is currently available to answer the question.
+
+For pair-level `cross_modal_consistency`, Python exposes only pairs identified by the mandatory structural screen as boundary follow-up candidates. Request one only when uncertainty about that specific boundary could change whether the involved candidates should remain separate or be structurally revised.
 
 ---
 
@@ -348,6 +350,12 @@ Do not cite unrelated reports.
 Do not omit a relevant report merely because it makes the proposed action less favorable.
 
 The action reason must be consistent with the cited Evidence Reports and must directly justify the selected action.
+
+# Evidence-request closure
+
+`latest_acquisition_closure` identifies the reports acquired in response to the immediately preceding Router requests. If returning actions, include every report reference listed for each action target in `required_terminal_report_refs_by_target`; for a merge, include the required references for both targets. Citation means the report must be accounted for, not that it supports the action.
+
+Explain in the action reason how the newly acquired evidence affects the conclusion alongside relevant positive evidence and counterevidence. Do not omit requested evidence because it is weak, conflicting, or inconvenient. If it raises another specific unresolved question that could materially change the action, request further evidence instead of acting.
 
 For `accept`, explain why the full relevant evidence positively justifies independent retention despite material limitations.
 

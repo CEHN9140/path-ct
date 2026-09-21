@@ -64,6 +64,65 @@ def evidence_request_ref(signature: str, request: EvidenceRequest) -> str:
     return f"RQ:{partition_hash}:{digest}"
 
 
+def latest_acquisition_context(
+    state: Mapping[str, Any],
+    signature: str,
+) -> dict[str, Any]:
+    if not state["history"]:
+        return {"source_round": None, "evidence_requests": [], "new_reports": []}
+
+    previous = state["history"][-1]
+    if previous["partition_signature"] != signature:
+        return {"source_round": None, "evidence_requests": [], "new_reports": []}
+
+    plan = RouterPlan.model_validate(previous["router_plan"])
+    if not plan.evidence_requests:
+        return {"source_round": None, "evidence_requests": [], "new_reports": []}
+
+    requested = {
+        (item.dimension, item.scope, tuple(item.target_ids))
+        for item in plan.evidence_requests
+    }
+    new_refs = {
+        evidence_report_ref(
+            signature, row["dimension"], row["aspect"], row["scope"], tuple(row["target_ids"]),
+        )
+        for row in state["round_evidence"]
+        if row["partition_signature"] == signature
+        and (row["dimension"], row["scope"], tuple(row["target_ids"])) in requested
+    }
+    return {
+        "source_round": previous["round"],
+        "evidence_requests": [item.model_dump() for item in plan.evidence_requests],
+        "new_reports": [row for row in state["reports"] if row["report_ref"] in new_refs],
+    }
+
+
+def terminal_closure_refs(
+    current: list[dict[str, Any]],
+    new_reports: list[Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    required = {set_id(item): set() for item in current}
+    for report in new_reports:
+        targets = required if report["scope"] == "partition" else report["target_ids"]
+        for target in targets:
+            if target in required:
+                required[target].add(report["report_ref"])
+    return required
+
+
+def structural_pair_followup_targets(
+    state: Mapping[str, Any],
+    signature: str,
+) -> set[tuple[str, str]]:
+    screen = next((row for row in state["tool_evidence"]
+                   if row["partition_signature"] == signature
+                   and row["tool_name"] == "structural_diagnostics"
+                   and row["scope"] == "partition"), None)
+    pairs = (screen or {}).get("metrics", {}).get("partition", {}).get("nearest_pair_targets", [])
+    return {tuple(sorted(map(str, pair))) for pair in pairs if len(pair) == 2}
+
+
 def reports_for_request(
     reports: list[Mapping[str, Any]], request: EvidenceRequest,
 ) -> list[dict[str, Any]]:
@@ -138,6 +197,7 @@ def validate_router_plan(
     plan: RouterPlan,
     state: Mapping[str, Any],
     available: set[tuple[str, str, tuple[str, ...]]],
+    required_terminal_refs: Mapping[str, set[str]] | None = None,
 ) -> None:
     current = {set_id(item) for item in current_sets(state)}
     if plan.evidence_requests:
@@ -159,6 +219,15 @@ def validate_router_plan(
             raise ValueError("Action cites an unknown or non-current Evidence Report")
         if any(not (row["scope"] == "partition" or set(action.target_ids) & set(row["target_ids"])) for row in cited):
             raise ValueError("Action cites an Evidence Report unrelated to its targets")
+        required = set().union(*(
+            (required_terminal_refs or {}).get(target, set()) for target in action.target_ids
+        ))
+        missing = required - set(action.evidence_report_refs)
+        if missing:
+            raise ValueError(
+                "Action does not close the latest Router-requested evidence for "
+                f"{', '.join(action.target_ids)}: missing report refs {sorted(missing)}"
+            )
     if structural:
         if len(plan.actions) != 1 or len(structural) != 1:
             raise ValueError("A revision round must contain exactly one split or merge")
@@ -218,6 +287,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         for row in state["tool_evidence"] if row["partition_signature"] == signature
     }
     partition_screen_done = ("structural_diagnostics", "partition", ()) in completed
+    structural_pairs = structural_pair_followup_targets(state, signature)
     set_ids = [set_id(item) for item in current]
     available_aspects = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
@@ -229,6 +299,8 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 targets = [(item,) for item in set_ids]
             else:
                 targets = list(combinations(set_ids, 2))
+                if dimension == "cross_modal_consistency" and partition_screen_done:
+                    targets = [pair for pair in targets if pair in structural_pairs]
             for target_ids in targets:
                 if name == "structural_diagnostics" and (
                     (scope == "partition" and partition_screen_done)
@@ -261,6 +333,16 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             report["target_ids"][0] if scope == "set" else "partition"
         )
         coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
+    latest_acquisition = latest_acquisition_context(state, signature)
+    required_closure = terminal_closure_refs(current, latest_acquisition["new_reports"])
+    closure_payload = {
+        "source_round": latest_acquisition["source_round"],
+        "previous_evidence_requests": latest_acquisition["evidence_requests"],
+        "new_report_refs": sorted(row["report_ref"] for row in latest_acquisition["new_reports"]),
+        "required_terminal_report_refs_by_target": {
+            target: sorted(refs) for target, refs in required_closure.items()
+        },
+    }
     budget_exhausted = control["round"] >= control["max_rounds"]
     if not budget_exhausted:
         control["round"] += 1
@@ -269,6 +351,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "evidence_reports": summarize_reports(state["reports"]),
         "evidence_coverage": coverage,
         "available_evidence_requests": router_request_options,
+        "latest_acquisition_closure": closure_payload,
         "round": control["round"],
         "budget_exhausted": budget_exhausted,
     }
@@ -282,12 +365,44 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "evidence_reports": payload["evidence_reports"],
             "evidence_coverage": coverage,
             "available_evidence_requests": router_request_options,
+            "latest_acquisition_closure": closure_payload,
             "budget_exhausted": budget_exhausted,
         },
     )
     plan_source = "llm_router" if partition_screen_done else "protocol_mandatory_partition_screen"
     if partition_screen_done:
-        plan = RouterPlan.model_validate(parse_json_content(values["router_model"].invoke(payload)))
+        model = values["router_model"]
+        retries = int(getattr(model, "config", {}).get("router_plan_validation_retries", 0))
+        validation_feedback = None
+        for attempt in range(retries + 1):
+            request_payload = copy.deepcopy(payload)
+            if validation_feedback is not None:
+                request_payload["validation_feedback"] = validation_feedback
+            plan = RouterPlan.model_validate(parse_json_content(model.invoke(request_payload)))
+            try:
+                validate_router_plan(plan, state, available, required_terminal_refs=required_closure)
+                break
+            except ValueError as exc:
+                if attempt >= retries:
+                    raise
+                append_runtime_trace(
+                    values.get("runtime_trace_path"),
+                    node="router",
+                    event="router_plan_validation_retry",
+                    round_id=control["round"],
+                    payload={"attempt": attempt + 1, "error": str(exc)},
+                )
+                validation_feedback = {
+                    "error": str(exc),
+                    "instruction": (
+                        "Correct the RouterPlan workflow validation error without changing scientific conclusions "
+                        "merely to satisfy validation. Preserve the action when possible; fix invalid targets, "
+                        "citations, or evidence-request availability as needed."
+                    ),
+                    "required_terminal_report_refs_by_target": closure_payload[
+                        "required_terminal_report_refs_by_target"
+                    ],
+                }
     else:
         if ("cross_modal_consistency", "partition", ()) not in available_aspects:
             raise ValueError("Structural diagnostics must support a partition-level screen")
@@ -297,6 +412,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             target_ids=[],
             question="Screen the current partition for unsupported internal splits and weak pair boundaries.",
         )])
+        validate_router_plan(plan, state, available, required_terminal_refs=required_closure)
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="router",
@@ -308,8 +424,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "plan": plan.model_dump(),
         },
     )
-    validate_router_plan(plan, state, available)
-
     state["router_plan"] = plan.model_dump()
     state["history"].append({
         "round": control["round"],

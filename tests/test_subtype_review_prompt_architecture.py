@@ -149,3 +149,12 @@ def test_router_requests_questions_while_verifier_selects_tools():
     assert "unresolved scientific question" in router
     assert "the verifier decides which eligible tool" in router
     assert "call at most one tool" in verifier
+
+
+def test_router_prompt_closes_acquired_evidence_and_targets_pair_followups():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    assert "# evidence-request closure" in router
+    assert "latest_acquisition_closure" in router
+    assert "required_terminal_report_refs_by_target" in router
+    assert "citation means the report must be accounted for, not that it supports the action" in router
+    assert "only pairs identified by the mandatory structural screen" in router
