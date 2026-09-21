@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import re
 
 from agents.subtype_review.evidence_semantics import (
     EVIDENCE_ROLE_CONTRACTS,
@@ -6,6 +8,7 @@ from agents.subtype_review.evidence_semantics import (
     guidance_for,
 )
 from agents.subtype_review.llm import review_signature_manifest
+from agents.subtype_review.schemas import EvidenceReportBatch, RevisionPlan, RouterPlan
 
 
 PROMPT_DIR = Path("agents/subtype_review/prompts")
@@ -100,7 +103,7 @@ def test_router_prompt_is_compact_and_keeps_metric_semantics_out():
 def test_router_requires_candidate_specific_independence_without_tool_gate():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
     assert "independent retention needs a candidate-specific evidential basis" in router
-    assert "partition-level structural screening cannot serve as the positive candidate-specific basis" in router
+    assert "partition-level structural screening and internal-subdivision evidence cannot serve as the positive membership-independence basis" in router
     assert "no particular tool or report type is mandatory" in router
     assert "strong correspondence does not independently validate a candidate" in router
     assert "weak correspondence does not establish novelty" in router
@@ -111,7 +114,7 @@ def test_router_keeps_evidence_roles_and_requests_dimension_faithful():
     for phrase in (
         "evidence roles are distinct",
         "does not become evidence of an independent",
-        "must directly bear on the current membership",
+        "must directly bear on current membership",
         "absence of a measured confounder does not",
         "each evidencerequest must ask one scientific question",
         "within its declared evidence dimension",
@@ -122,7 +125,19 @@ def test_router_keeps_evidence_roles_and_requests_dimension_faithful():
         assert phrase in router
 
 
-def test_prompts_use_output_contracts_without_json_few_shot_examples():
+def test_router_separates_membership_representation_from_internal_subdivision():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    focus = EVIDENCE_ROLE_CONTRACTS["cross_modal_consistency"]["request_focus"].lower()
+    assert "one question" in focus
+    assert "do not combine" in focus
+    assert "membership representation" in router
+    assert "internal subdivision" in router
+    assert "split/granularity only" in router
+    set_guidance = guidance_for("cross_modal_consistency", "structural_diagnostics", "set")
+    assert "neither positive nor negative evidence" in set_guidance["scope_interpretation"].lower()
+
+
+def test_prompt_json_examples_match_each_agents_output_schema():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
     for phrase in (
         "Return exactly one valid JSON object",
@@ -146,8 +161,19 @@ def test_prompts_use_output_contracts_without_json_few_shot_examples():
 
     verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8")
     reviser = (PROMPT_DIR / "reviser.md").read_text(encoding="utf-8")
-    for prompt in (router, verifier, reviser):
-        assert "```json" not in prompt.lower()
+    router_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", router, re.S)]
+    verifier_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", verifier, re.S)]
+    reviser_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", reviser, re.S)]
+    assert len(router_examples) == 3
+    assert len(verifier_examples) == 1
+    assert len(reviser_examples) == 2
+    for example in router_examples:
+        RouterPlan.model_validate(example)
+    EvidenceReportBatch.model_validate(verifier_examples[0])
+    for example in reviser_examples:
+        RevisionPlan.model_validate(example)
+    assert all(len(reason) < 180 for example in router_examples for action in example.get("actions", [])
+               for reason in [action["reason"]])
 
 
 def test_router_separates_revision_failure_from_retention():
@@ -175,6 +201,9 @@ def test_router_does_not_require_action_language_from_pair_reports_or_exhaustive
     assert "do not require the evidence report to say that merge is supported" in router
     assert "do not request all available pair boundaries by default" in router
     assert "availability alone is not a reason for pair review" in router
+    assert "pair review is not a prerequisite for dropping a weak candidate" in router
+    assert "specific neighbor" in router and "same candidate unit" in router
+    assert "do not sequentially examine additional neighbors" in router
 
 
 def test_verifier_does_not_overstate_adjusted_or_causal_analysis():
@@ -189,7 +218,7 @@ def test_structural_guidance_distinguishes_partition_set_and_pair():
     set_scope = guidance_for("cross_modal_consistency", "structural_diagnostics", "set")
     pair = guidance_for("cross_modal_consistency", "structural_diagnostics", "pair")
     assert "triage evidence" in partition["scope_interpretation"].lower()
-    assert "not positive evidence" in set_scope["scope_interpretation"].lower()
+    assert "neither positive nor negative evidence" in set_scope["scope_interpretation"].lower()
     assert "compatible with treating the pair as one candidate" in pair["scope_interpretation"].lower()
     assert "not sufficient by itself to justify merge" in pair["scope_interpretation"].lower()
     assert "must never be interpreted as evidence against merge" in pair["scope_interpretation"].lower()

@@ -5,7 +5,7 @@ from typing import Any
 
 DIMENSION_GUIDES = {
     "biological_support": "Does the candidate exhibit a coherent and interpretable biological phenotype relative to the rest of the current partition?",
-    "cross_modal_consistency": "Are memberships, internal structures, and boundaries coherently represented across the four-view patient geometry?",
+    "cross_modal_consistency": "Is the current membership or boundary represented in patient geometry, or does a decision-relevant internal subdivision support finer granularity?",
     "confounder_exclusion": "Could measured technical, acquisition, or site factors plausibly account for an important part of the signal or geometry? Association is not causation, and nonsignificance does not establish absence of confounding.",
     "known_label_echo": "How does the partition relate to clinical stratification and established ccRCC taxonomies? TCGA m1-m4 and ClearCode34 overlap the RNA discovery view; this is taxonomy correspondence, not independent validation.",
 }
@@ -18,7 +18,7 @@ EVIDENCE_ROLE_CONTRACTS = {
     },
     "cross_modal_consistency": {
         "role": "Evaluate whether current membership, boundary, internal structure, or granularity is represented in the multimodal patient geometry.",
-        "request_focus": "Ask whether the current membership, boundary, or internal structure is represented in the relevant multimodal or native patient geometries.",
+        "request_focus": "Ask one question about either current membership or boundary representation in relevant patient geometries, or—when a split hypothesis could change the decision—internal subdivision. Do not combine membership representation and internal subdivision in one request.",
         "does_not_establish": "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
     },
     "confounder_exclusion": {
@@ -117,7 +117,7 @@ METRIC_SEMANTICS = {
 
 INTERPRETATION_REQUIREMENTS = {
     "biological_support": ["Integrate pathway or mutation direction, magnitude, coherence, sample availability, and multiplicity."],
-    "cross_modal_consistency": ["Explicitly explain what current-label alignment indicates about representation of the current membership or boundary. Do not stop at global GRV interpretation: GRV describes global patient-geometry similarity and is not itself current-boundary support. Current-label alignment directly bears on whether the existing membership or boundary is expressed in native patient geometry. Describe direction, magnitude, and uncertainty without making accept, drop, split, or merge recommendations. No reclustering is performed. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
+    "cross_modal_consistency": ["Explicitly explain what current-label alignment indicates about representation of the current membership or boundary. Do not stop at global GRV interpretation: GRV describes global patient-geometry similarity and is not itself current-boundary support. Current-label alignment directly bears on whether the existing membership or boundary is expressed in native patient geometry. Describe direction, magnitude, and uncertainty without making accept, drop, split, or merge recommendations. No reclustering is performed. Internal-subdivision evidence informs split or granularity only; absence of subdivision is neither positive nor negative evidence about independence from neighboring candidates. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
     "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance. Interpret PERMANOVA together with PERMDISP. A significant PERMANOVA is not proof of technical artifact; a nonsignificant PERMDISP is not proof of no confounding. PERMANOVA, PERMDISP, and continuous distance-regression p-values belong to separate BH families."],
     "known_label_echo": ["Describe taxonomy correspondence conservatively; do not call it external validation."],
 }
@@ -131,8 +131,8 @@ SCOPE_INTERPRETATIONS = {
     ),
     ("structural_diagnostics", "set"): (
         "For set scope, a single-cluster dominant resolution means no obvious internal multi-cluster subdivision signal. "
-        "This is evidence against an immediate split hypothesis, not positive evidence that the set is independent from "
-        "neighboring candidates. A resolution above one raises a possible subdivision hypothesis only; interpret actual "
+        "This weighs against an immediate split hypothesis, but is neither positive nor negative evidence about whether "
+        "the set is independent from neighboring candidates. A resolution above one raises a possible subdivision hypothesis only; interpret actual "
         "feasible solutions, separation, and child sizes before considering split."
     ),
     ("structural_diagnostics", "pair"): (
