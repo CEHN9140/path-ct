@@ -23,7 +23,7 @@ EVIDENCE_ROLE_CONTRACTS = {
     },
     "confounder_exclusion": {
         "role": "Evaluate whether measured technical, acquisition, site, or related factors remain plausible alternative explanations for the observed candidate structure.",
-        "request_focus": "Ask whether measured technical, acquisition, or site factors remain plausible substantial alternative explanations for the observed membership or geometry. Do not imply covariate adjustment, causal control, or persistence after adjustment unless the supplied analysis performs it.",
+        "request_focus": "Ask whether measured technical, acquisition, or site factors remain plausible alternative explanations at the requested scope. Partition scope concerns the partition as a whole; set scope concerns the target candidate relative to the rest. Do not imply target-specific confounding from partition-level evidence. Do not imply covariate adjustment, causal control, or persistence after adjustment unless the supplied analysis supports it.",
         "does_not_establish": "Absence of a measured confounder association does not by itself positively establish biological identity or an independent boundary.",
     },
     "known_label_echo": {
@@ -118,7 +118,7 @@ METRIC_SEMANTICS = {
 INTERPRETATION_REQUIREMENTS = {
     "biological_support": ["Integrate pathway or mutation direction, magnitude, coherence, sample availability, and multiplicity."],
     "cross_modal_consistency": ["Explicitly explain what current-label alignment indicates about representation of the current membership or boundary. Do not stop at global GRV interpretation: GRV describes global patient-geometry similarity and is not itself current-boundary support. Current-label alignment directly bears on whether the existing membership or boundary is expressed in native patient geometry. Describe direction, magnitude, and uncertainty without making accept, drop, split, or merge recommendations. No reclustering is performed. Internal-subdivision evidence informs split or granularity only; absence of subdivision is neither positive nor negative evidence about independence from neighboring candidates. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
-    "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance. Interpret PERMANOVA together with PERMDISP. A significant PERMANOVA is not proof of technical artifact; a nonsignificant PERMDISP is not proof of no confounding. PERMANOVA, PERMDISP, and continuous distance-regression p-values belong to separate BH families."],
+    "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance. Respect evidence scope: partition-scope association describes a partition-wide technical concern and must not be presented as a candidate-specific confounder association; set-scope association can directly inform candidate-specific alternative explanations. Interpret PERMANOVA together with PERMDISP. A significant PERMANOVA is not proof of technical artifact; nonsignificance does not establish absence of confounding. PERMANOVA, PERMDISP, and continuous distance-regression p-values belong to separate BH families."],
     "known_label_echo": ["Describe taxonomy correspondence conservatively; do not call it external validation."],
 }
 
@@ -161,6 +161,20 @@ SCOPE_INTERPRETATIONS = {
         "provides positive evidence that the boundary is expressed in the available geometries. This evidence does not "
         "itself determine whether the pair should be merged; integrate it with biological, confounder, and other structural "
         "evidence."
+    ),
+    ("confounder_association", "partition"): (
+        "For partition scope, this analysis tests whether the current multi-set partition as a whole is associated "
+        "with measured technical, acquisition, or site factors. An association indicates a partition-wide technical "
+        "concern and may motivate candidate-specific follow-up. It does not establish that every current candidate, "
+        "or any particular candidate, has a candidate-specific confounder association. Do not promote partition-level "
+        "association into a target-specific claim without set-scope evidence."
+    ),
+    ("confounder_association", "set"): (
+        "For set scope, this analysis tests whether the target candidate's membership relative to the rest of the "
+        "current partition is associated with measured technical, acquisition, or site factors. This evidence can "
+        "directly inform whether those measured factors remain plausible candidate-specific alternative explanations "
+        "for the current membership. Association is not causation, and nonsignificance does not establish absence "
+        "of confounding."
     ),
 }
 

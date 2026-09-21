@@ -148,6 +148,43 @@ def test_router_separates_membership_representation_from_internal_subdivision():
     assert "neither positive nor negative evidence" in set_guidance["scope_interpretation"].lower()
 
 
+def test_confounder_scope_guidance_separates_partition_and_candidate_claims():
+    partition = guidance_for("confounder_exclusion", "confounder_association", "partition")
+    set_scope = guidance_for("confounder_exclusion", "confounder_association", "set")
+    partition_text = partition["scope_interpretation"].lower()
+    set_text = set_scope["scope_interpretation"].lower()
+    assert "partition-wide" in partition_text
+    assert "does not establish" in partition_text
+    assert "particular candidate" in partition_text
+    assert "candidate-specific" in partition_text
+    assert "target candidate" in set_text
+    assert "candidate-specific" in set_text
+    assert "association is not causation" in set_text
+    requirements = " ".join(set_scope["interpretation_requirements"]).lower()
+    assert "partition-scope association" in requirements
+    assert "must not be presented as a candidate-specific" in requirements
+
+
+def test_router_respects_evidence_scope_in_terminal_reasoning():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "evidence scope is part of the scientific claim",
+        "do not promote partition-level evidence into a candidate-specific conclusion",
+        "partition-wide technical concern",
+        "does not by itself establish that any particular candidate",
+        "candidate-specific confounder claims require",
+        "when a candidate action cites partition-scope confounder evidence",
+    ):
+        assert phrase in router
+
+
+def test_router_keeps_candidate_specific_confounder_followup_adaptive():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    assert "do not request set-scope confounder evidence merely because" in router
+    assert "could change its disposition" in router
+    assert "terminal drop does not require proving a candidate-specific confounder" in router
+
+
 def test_prompt_json_examples_match_each_agents_output_schema():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
     for phrase in (
