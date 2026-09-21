@@ -1043,14 +1043,26 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
         "description": "Compare four-view native patient-distance geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment within each view without reclustering.",
-        "selection_guidance": "Use when the question concerns whether existing candidate memberships or boundaries are represented across native modality patient geometries.",
+        "selection_guidance": (
+            "Use when the EvidenceRequest asks whether an existing candidate membership or pair boundary is "
+            "represented in native modality patient geometries. For set scope, this is the appropriate evidence "
+            "source for membership-versus-rest representation. It does not assess internal subdivision or split "
+            "granularity. Pair-scope results may complement structural boundary and union evidence."
+        ),
         "function": representation_concordance,
     },
     "structural_diagnostics": {
         "aspect": "structural_diagnostics",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
         "description": "Return partition triage measurements or requested set/pair structural measurements and feasible spectral solutions.",
-        "selection_guidance": "Use for structural evidence concerning internal subdivision or pair-boundary geometry relevant to split or merge assessment. Partition scope is also used by the mandatory structural screen.",
+        "selection_guidance": (
+            "Use for structural evidence concerning internal subdivision or pair-boundary geometry relevant to split "
+            "or merge assessment. For set scope, select this tool only when the EvidenceRequest explicitly concerns "
+            "internal subdivision, split, or granularity. Do not use set-scope structural diagnostics to answer whether "
+            "current membership is represented relative to rest or neighboring patients. Pair scope can provide "
+            "complementary current-boundary and union-structure evidence. Partition scope remains the mandatory "
+            "structural screen."
+        ),
         "function": structural_diagnostics,
     },
     "rna_pathway_enrichment": {

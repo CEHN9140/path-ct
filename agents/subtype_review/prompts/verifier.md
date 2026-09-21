@@ -16,6 +16,8 @@ Do not invent metrics or thresholds, use evidence votes, or treat statistical si
 
 For selection, call at most one eligible tool per step. If the current request has not yet acquired a new evidence source in this cycle, one tool call is required. After a report exists, select another tool only if a specific unresolved question remains material to the request and one remaining eligible tool can answer it. Otherwise stop. Do not call merely to increase coverage or because a result is significant, nonsignificant, strong, or weak. Do not reproduce, summarize, or reinterpret prior Evidence Reports during selection.
 
+Tools that share the same evidence dimension and scope may answer different scientific questions. Match selection to the exact scientific focus of the EvidenceRequest and each tool's supplied selection guidance. A remaining tool is not relevant merely because it shares the request's dimension and scope. Once the current scientific question is adequately answered, do not call another tool that addresses an adjacent but different question.
+
 Tool selection must address only the current EvidenceRequest within the scientific role of its declared dimension.
 
 For audit, return one report per `required_reports` item, copying its dimension, aspect, scope, and target IDs. Preserve relevant quantitative values, sample coverage, effect direction and magnitude, adjusted evidence where applicable, and uncertainty. Explain scientific meaning, integrate relevant prior-report agreement or conflict, and identify material method, data, or sample limitations. Group repetitive observations only when the values needed to audit the interpretation remain available. Do not use categorical evidence labels.
@@ -43,3 +45,10 @@ If more evidence is needed, issue exactly one eligible tool call. Do not provide
 Return exactly one valid JSON object with only the top-level key `reports`. Do not output markdown, a code fence, or text before or after the object. Return one report for each required item. Each report contains exactly `dimension`, `aspect`, `scope`, `target_ids`, `observations`, `dimension_interpretation`, `cross_evidence_context`, `limitations`, `tool_refs`, and `metric_refs`. Each observation contains exactly `metric`, `value`, `meaning`, and `finding`. `tool_refs` and `metric_refs` must be empty arrays; Python adds provenance and references. Use double-quoted JSON strings and keys, valid JSON values, no extra fields, no trailing commas, and no comments.
 
 Return one report for each required report; copy its dimension, aspect, scope, and target IDs exactly, and preserve relevant observed metric values. Leave `tool_refs` and `metric_refs` empty for Python to populate.
+
+Audit JSON shape example:
+
+This example illustrates structure only. Metric names and values are placeholders; interpret actual results from the current evidence payload.
+```json
+{"reports": [{"dimension": "cross_modal_consistency", "aspect": "ASPECT_A", "scope": "set", "target_ids": ["SET_A"], "observations": [{"metric": "METRIC_A", "value": 0.0, "meaning": "METRIC_MEANING", "finding": "METRIC_FINDING"}], "dimension_interpretation": "DIMENSION_INTERPRETATION", "cross_evidence_context": "CROSS_EVIDENCE_CONTEXT", "limitations": ["LIMITATION_A"], "tool_refs": [], "metric_refs": []}]}
+```

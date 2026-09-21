@@ -125,6 +125,17 @@ def test_router_keeps_evidence_roles_and_requests_dimension_faithful():
         assert phrase in router
 
 
+def test_verifier_matches_tools_to_exact_request_focus():
+    verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "share the same evidence dimension and scope",
+        "exact scientific focus",
+        "not relevant merely because it shares",
+        "adjacent but different question",
+    ):
+        assert phrase in verifier
+
+
 def test_router_separates_membership_representation_from_internal_subdivision():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
     focus = EVIDENCE_ROLE_CONTRACTS["cross_modal_consistency"]["request_focus"].lower()
@@ -164,7 +175,7 @@ def test_prompt_json_examples_match_each_agents_output_schema():
     router_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", router, re.S)]
     verifier_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", verifier, re.S)]
     reviser_examples = [json.loads(item) for item in re.findall(r"```json\s*(.*?)\s*```", reviser, re.S)]
-    assert len(router_examples) == 3
+    assert len(router_examples) == 4
     assert len(verifier_examples) == 1
     assert len(reviser_examples) == 2
     for example in router_examples:
@@ -174,6 +185,21 @@ def test_prompt_json_examples_match_each_agents_output_schema():
         RevisionPlan.model_validate(example)
     assert all(len(reason) < 180 for example in router_examples for action in example.get("actions", [])
                for reason in [action["reason"]])
+
+
+def test_prompt_json_examples_are_shape_only():
+    forbidden = (
+        "k4_", "k=2", "k=4", "repeat1", "boundary_silhouette",
+        "candidate_eigengap", "union_eigengap", "q_global", "q_driver",
+        "permanova", "cramers_v", "grv", "nes", "rna", "wxs",
+    )
+    for name in ("router.md", "verifier.md", "reviser.md"):
+        prompt = (PROMPT_DIR / name).read_text(encoding="utf-8")
+        blocks = re.findall(r"```json\s*(.*?)\s*```", prompt, re.S | re.I)
+        for block in blocks:
+            lowered = block.lower()
+            assert all(token not in lowered for token in forbidden), name
+            assert "c0001" not in lowered and "c0002" not in lowered, name
 
 
 def test_router_separates_revision_failure_from_retention():

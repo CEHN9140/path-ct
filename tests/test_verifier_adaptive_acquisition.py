@@ -22,6 +22,17 @@ from agents.subtype_review.schemas import EvidenceReport, EvidenceRequest, Route
 from agents.subtype_review.tools import TOOL_REGISTRY, build_selection_tools
 
 
+def test_cross_modal_set_tools_have_question_specific_selection_guidance():
+    representation = TOOL_REGISTRY["representation_concordance"]["selection_guidance"].lower()
+    structural = TOOL_REGISTRY["structural_diagnostics"]["selection_guidance"].lower()
+    assert "membership-versus-rest representation" in representation
+    assert "does not assess internal subdivision" in representation
+    assert "only when" in structural
+    assert "internal subdivision" in structural
+    assert "do not use set-scope structural diagnostics" in structural
+    assert "membership" in structural
+
+
 def make_registry(*names):
     registry = {}
     for name, dimension, scopes in names:

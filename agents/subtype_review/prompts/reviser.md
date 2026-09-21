@@ -32,3 +32,13 @@ If the Router action is split, return exactly one SplitPlan in `split_plans` and
 If the Router action is merge, return an empty `split_plans` and exactly one MergePlan in `merge_plans`. A MergePlan contains exactly `action`, `target_ids`, `metric_refs`, and `rationale`. Its `action` is `merge`, and it preserves the Router's target pair.
 
 Use double-quoted JSON strings and keys, valid JSON values, no trailing commas or comments, no extra fields, and no markdown or text outside the object.
+
+For a Router split action:
+```json
+{"split_plans": [{"action": "split", "target_id": "SET_A", "n_children": 2, "structural_basis": ["BASIS_A"], "execution_strategy": "fused_similarity_spectral", "metric_refs": ["METRIC_REF_A"], "rationale": "RATIONALE_A"}], "merge_plans": [], "rationale": "PLAN_RATIONALE"}
+```
+
+For a Router merge action:
+```json
+{"split_plans": [], "merge_plans": [{"action": "merge", "target_ids": ["SET_A", "SET_B"], "metric_refs": ["METRIC_REF_A"], "rationale": "RATIONALE_A"}], "rationale": "PLAN_RATIONALE"}
+```

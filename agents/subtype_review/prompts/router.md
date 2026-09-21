@@ -57,3 +57,27 @@ Return exactly one valid JSON object with exactly two keys: `actions` (an array 
 Action object keys are exactly `action`, `target_ids`, `n_children`, `evidence_report_refs`, and `reason`; request keys are exactly `dimension`, `scope`, `target_ids`, and `question`. `action` is `accept`, `drop`, `split`, or `merge`; split uses one target and an integer `n_children`, accept/drop use one target and JSON `null`, and merge uses two targets and JSON `null`. Action targets and evidence references are string arrays; `reason` is a nonempty string. Request `dimension` is one of the four supplied evidence dimensions, `scope` is `set`, `pair`, or `partition`, `target_ids` is a string array, and `question` is a nonempty string. Set requests use one target, pair requests two, and partition requests none. Questions must be specific to the declared dimension. Each action reason must directly justify that action and agree with cited reports.
 
 Use double-quoted JSON strings and keys, JSON `null`, `true`, and `false` (never Python `None`, `True`, or `False`), no trailing commas or comments, and no extra fields. Escape quotes and control characters as required by JSON.
+
+## JSON shape examples
+
+These examples illustrate JSON structure only. They do not imply when an action should be chosen, which evidence should be requested, or an expected action distribution. Replace placeholder IDs and report references with values from the current runtime context.
+
+Evidence request:
+```json
+{"actions": [], "evidence_requests": [{"dimension": "cross_modal_consistency", "scope": "set", "target_ids": ["SET_A"], "question": "Assess the current membership representation."}]}
+```
+
+Split:
+```json
+{"actions": [{"action": "split", "target_ids": ["SET_A"], "n_children": 2, "evidence_report_refs": ["ER:REPORT_A"], "reason": "ACTION_REASON_A"}], "evidence_requests": []}
+```
+
+Merge:
+```json
+{"actions": [{"action": "merge", "target_ids": ["SET_A", "SET_B"], "n_children": null, "evidence_report_refs": ["ER:REPORT_A"], "reason": "ACTION_REASON_A"}], "evidence_requests": []}
+```
+
+Terminal disposition:
+```json
+{"actions": [{"action": "accept", "target_ids": ["SET_A"], "n_children": null, "evidence_report_refs": ["ER:REPORT_A"], "reason": "ACTION_REASON_A"}, {"action": "drop", "target_ids": ["SET_B"], "n_children": null, "evidence_report_refs": ["ER:REPORT_B"], "reason": "ACTION_REASON_B"}], "evidence_requests": []}
+```
