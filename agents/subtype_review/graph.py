@@ -347,6 +347,14 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         },
     }
     budget_exhausted = control["round"] >= control["max_rounds"]
+    merge_legal = len(current) > 2
+    workflow_constraints = {
+        "allowed_structural_actions": ["split", "merge"] if merge_legal else ["split"],
+        "forbidden_structural_actions": [] if merge_legal else [{
+            "action": "merge",
+            "reason": "This workflow does not permit a merge that leaves fewer than two current sets.",
+        }],
+    }
     if not budget_exhausted:
         control["round"] += 1
     payload = {
@@ -355,6 +363,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "evidence_coverage": coverage,
         "available_evidence_requests": router_request_options,
         "latest_acquisition_closure": closure_payload,
+        "workflow_constraints": workflow_constraints,
         "round": control["round"],
         "budget_exhausted": budget_exhausted,
     }
@@ -369,6 +378,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "evidence_coverage": coverage,
             "available_evidence_requests": router_request_options,
             "latest_acquisition_closure": closure_payload,
+            "workflow_constraints": workflow_constraints,
             "budget_exhausted": budget_exhausted,
         },
     )
@@ -650,7 +660,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             "required_reports": [
                 {"dimension": dimension, "aspect": aspect, "scope": scope,
                  "target_ids": list(targets), "tool_refs": sorted(names),
-                 "evidence_guidance": guidance_for(dimension, aspect)}
+                 "evidence_guidance": guidance_for(dimension, aspect, scope)}
                 for (dimension, aspect, scope, targets), names in sorted(expected_reports.items())
             ],
             "prior_reports": summarize_reports(report_snapshot),

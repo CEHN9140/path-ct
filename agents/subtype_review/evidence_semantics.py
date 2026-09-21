@@ -20,7 +20,7 @@ METRIC_SEMANTICS = {
         "fdr_q": "GSEA multiple-testing-adjusted enrichment evidence, not biological importance.",
         "direction": "Enrichment direction relative to the target-versus-rest Wald-statistic ranking.",
         "leading_edge_genes": "Genes contributing most to pathway enrichment; overlap can indicate shared programs.",
-        "contrast_interpretation": "For K=2, the two set-versus-rest contrasts are exact reciprocal views of the same two-group contrast, not independent biological confirmations. For K>2, rest combines multiple candidate sets and is a heterogeneous background.",
+        "contrast_interpretation": "When the current partition contains exactly two sets, the two set-versus-rest contrasts are reciprocal views of the same comparison, not independent biological confirmations. When it contains more than two sets, the rest combines multiple candidate sets and may be heterogeneous.",
     },
     ("biological_support", "wxs_mutation_enrichment"): {
         "analysis_status": "Computational estimability only; not_estimable is neither support nor contradiction.",
@@ -44,8 +44,8 @@ METRIC_SEMANTICS = {
         "comparison": "Defines whether alignment uses current partition labels, one target versus the rest, or the selected candidate pair.",
         "current_membership_alignment.silhouette": "How well the already-defined current labels separate in a single modality's native distance geometry; no reclustering is performed.",
         "mean_within_distance/mean_between_distance": "Mean native distance among same-label or different-label patient pairs under the current membership comparison.",
-        "K=2 interpretation": "The two set-versus-rest contrasts are reciprocal descriptions of the same two-group partition and must not be treated as independent confirmations.",
-        "K>2 interpretation": "For set scope, rest is a mixture of other candidate sets; interpret set-versus-rest alignment against that heterogeneous background.",
+        "two-set partition interpretation": "When the current partition contains exactly two sets, the two set-versus-rest contrasts are reciprocal descriptions of the same comparison and must not be treated as independent confirmations.",
+        "multi-set partition interpretation": "When the current partition contains more than two sets, rest is a mixture of other candidate sets; interpret set-versus-rest alignment against that potentially heterogeneous background.",
     },
     ("cross_modal_consistency", "structural_diagnostics"): {
         "member_n": "Number of patients represented in the structural calculation.",
@@ -100,11 +100,40 @@ INTERPRETATION_REQUIREMENTS = {
 }
 
 
-def guidance_for(dimension: str, aspect: str) -> dict[str, Any]:
-    return {
+STRUCTURAL_SCOPE_INTERPRETATIONS = {
+    "partition": (
+        "Partition structural diagnostics are triage evidence. The internal screen asks whether a current candidate "
+        "shows an obvious subdivision signal, and nearest-pair affinity identifies boundaries for possible pair review. "
+        "Neither result independently establishes retention, split, or merge."
+    ),
+    "set": (
+        "For set scope, a single-cluster dominant resolution means no obvious internal multi-cluster subdivision signal. "
+        "This is evidence against an immediate split hypothesis, not positive evidence that the set is independent from "
+        "neighboring candidates. A resolution above one raises a possible subdivision hypothesis only; interpret actual "
+        "feasible solutions, separation, and child sizes before considering split."
+    ),
+    "pair": (
+        "For pair scope, current-boundary separation and union structure answer different questions: boundary measurements "
+        "describe the current labels, while union structure describes internal subdivision of their union. A union "
+        "dominated by the single-cluster resolution lacks a dominant internal subdivision signal. This is structurally "
+        "compatible with treating the pair as one candidate and must never be interpreted as evidence against merge, but "
+        "is not sufficient by itself to justify merge. A multi-cluster union suggests retained internal structure but "
+        "does not establish that it corresponds to the current pair labels. A weak current boundary together with a "
+        "single-cluster-dominated union is compatible with removing the boundary; a clearly represented boundary with "
+        "meaningful union structure favors preserving distinct units. Conflicting boundary and union findings do not "
+        "identify a simple merge solution. Integrate both with the other evidence."
+    ),
+}
+
+
+def guidance_for(dimension: str, aspect: str, scope: str | None = None) -> dict[str, Any]:
+    guidance = {
         "dimension": dimension,
         "aspect": aspect,
         "scientific_question": DIMENSION_GUIDES[dimension],
         "metric_semantics": METRIC_SEMANTICS.get((dimension, aspect), {}),
         "interpretation_requirements": INTERPRETATION_REQUIREMENTS[dimension],
     }
+    if aspect == "structural_diagnostics" and scope is not None:
+        guidance["scope_interpretation"] = STRUCTURAL_SCOPE_INTERPRETATIONS[scope]
+    return guidance
