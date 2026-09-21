@@ -290,6 +290,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     structural_pairs = structural_pair_followup_targets(state, signature)
     set_ids = [set_id(item) for item in current]
     available_aspects = {}
+    available_question_foci = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
         dimension = metadata["dimension"]
         for scope in metadata["scopes"]:
@@ -311,15 +312,19 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 if key not in completed:
                     request_key = (dimension, scope, tuple(target_ids))
                     available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
+                    available_question_foci.setdefault(request_key, set()).update(
+                        metadata.get("question_foci", {}).get(scope, ())
+                    )
 
     available = set(available_aspects)
     request_options = [
         {"dimension": dimension, "scope": scope, "target_ids": list(target_ids),
-         "available_aspects": sorted(aspects)}
+         "available_aspects": sorted(aspects),
+         "available_question_foci": sorted(available_question_foci[(dimension, scope, target_ids)])}
         for (dimension, scope, target_ids), aspects in sorted(available_aspects.items())
     ]
     router_request_options = [
-        {key: item[key] for key in ("dimension", "scope", "target_ids")}
+        {key: item[key] for key in ("dimension", "scope", "target_ids", "available_question_foci")}
         for item in request_options
     ]
     coverage = {

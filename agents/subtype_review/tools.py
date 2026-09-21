@@ -1043,6 +1043,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
         "description": "Compare four-view native patient-distance geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment within each view without reclustering.",
+        "question_foci": {"set": ("membership_representation",), "pair": ("boundary_representation",), "partition": ("patient_geometry_concordance",)},
         "selection_guidance": (
             "Use when the EvidenceRequest asks whether an existing candidate membership or pair boundary is "
             "represented in native modality patient geometries. For set scope, this is the appropriate evidence "
@@ -1055,6 +1056,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "structural_diagnostics",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
         "description": "Return partition triage measurements or requested set/pair structural measurements and feasible spectral solutions.",
+        "question_foci": {"partition": ("partition_structural_screen",), "set": ("internal_subdivision",), "pair": ("boundary_structure",)},
         "selection_guidance": (
             "Use for structural evidence concerning internal subdivision or pair-boundary geometry relevant to split "
             "or merge assessment. For set scope, select this tool only when the EvidenceRequest explicitly concerns "
@@ -1069,6 +1071,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "rna_pathway_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
         "description": "Run Hallmark preranked GSEA using PyDESeq2 target-versus-rest Wald statistics from raw RNA counts.",
+        "question_foci": {"set": ("transcriptomic_phenotype",)},
         "selection_guidance": "Use when the unresolved biological question concerns coherent transcriptomic pathway programs.",
         "function": rna_pathway_enrichment,
     },
@@ -1076,6 +1079,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "wxs_mutation_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
         "description": "Run all-gene Fisher mutation tests on the full nonsynonymous interpretation matrix; return all configured ccRCC drivers, top exploratory results, and a complete result artifact.",
+        "question_foci": {"set": ("mutation_phenotype",)},
         "selection_guidance": "Use when the unresolved biological question concerns somatic mutation patterns or whether an interpreted phenotype has a distinct mutation context.",
         "function": wxs_mutation_enrichment,
     },
@@ -1083,6 +1087,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "known_label_echo",
         "dimension": "known_label_echo", "scopes": ("partition",),
         "description": "Compare the full partition with stage, grade, major T/M stage, TCGA m1-m4, and ClearCode34 labels.",
+        "question_foci": {"partition": ("taxonomy_correspondence",)},
         "selection_guidance": "Use when the question concerns correspondence with clinical stratification or established ccRCC taxonomies.",
         "function": known_label_echo,
     },
@@ -1090,6 +1095,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "confounder_association",
         "dimension": "confounder_exclusion", "scopes": ("set", "partition"),
         "description": "Test association of candidate membership with measured site and CT acquisition metadata.",
+        "question_foci": {"set": ("candidate_specific_confounder_association",), "partition": ("partition_confounder_association",)},
         "selection_guidance": "Use when the question concerns whether candidate membership is associated with measured technical, site, or acquisition factors.",
         "function": confounder_association,
     },
@@ -1097,6 +1103,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "aspect": "confounder_representation_effect",
         "dimension": "confounder_exclusion", "scopes": ("partition",),
         "description": "Test categorical technical factors with PERMANOVA and PERMDISP on fused or CT native distances, and continuous factors with CT distance-based regression; apply separate BH families.",
+        "question_foci": {"partition": ("partition_factor_geometry_association",)},
         "selection_guidance": "Use when the unresolved question concerns whether technical factors are associated with patient representation geometry rather than membership alone.",
         "function": confounder_representation_effect,
     },

@@ -95,3 +95,44 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         context = next(row for row in trace_rows if row["event"] == "router_context")
         assert context["workflow_constraints"] == captured["workflow_constraints"]
         assert context["evidence_dimension_contracts"] == EVIDENCE_ROLE_CONTRACTS
+
+
+def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():
+    state = initial_review_state([
+        {"set_id": set_id, "member_ids": [f"{set_id}-P1", f"{set_id}-P2"]}
+        for set_id in ("C1", "C2")
+    ])
+    signature = partition_signature(state["partition"]["sets"])
+    state["tool_evidence"] = [
+        {"tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [], "partition_signature": signature,
+         "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]]}}},
+        {"tool_name": "representation_concordance", "scope": "set", "target_ids": ["C1"], "partition_signature": signature},
+    ]
+    captured = {}
+
+    class Router:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "biological_support", "scope": "set",
+                "target_ids": ["C1"], "question": "Assess the candidate phenotype.",
+            }]}
+
+    router_node(state, {
+        "router_model": Router(), "tool_registry": TOOL_REGISTRY,
+        "patient_states_by_id": {}, "data_root": "/tmp",
+        "artifact_root": "/tmp", "config_dir": "configs",
+    })
+    options = captured["available_evidence_requests"]
+    c1 = next(item for item in options if item["dimension"] == "cross_modal_consistency"
+              and item["scope"] == "set" and item["target_ids"] == ["C1"])
+    c2 = next(item for item in options if item["dimension"] == "cross_modal_consistency"
+              and item["scope"] == "set" and item["target_ids"] == ["C2"])
+    assert c1["available_question_foci"] == ["internal_subdivision"]
+    assert c2["available_question_foci"] == ["internal_subdivision", "membership_representation"]
+    pair = next(item for item in options if item["dimension"] == "cross_modal_consistency"
+                and item["scope"] == "pair" and item["target_ids"] == ["C1", "C2"])
+    assert pair["available_question_foci"] == ["boundary_representation", "boundary_structure"]
+    assert "available_aspects" not in str(options)
+    assert "representation_concordance" not in str(options)
+    assert "structural_diagnostics" not in str(options)

@@ -225,7 +225,7 @@ def test_router_payload_hides_aspects_but_python_validation_keeps_them():
 
     state.update(router_node(state, context(registry, None, router_model=Router())))
     option = captured["available_evidence_requests"][0]
-    assert set(option) == {"dimension", "scope", "target_ids"}
+    assert set(option) == {"dimension", "scope", "target_ids", "available_question_foci"}
     assert "available_aspects" not in str(captured)
     assert "rna_pathway_enrichment" not in str(captured)
     validate_router_plan(RouterPlan(evidence_requests=[{

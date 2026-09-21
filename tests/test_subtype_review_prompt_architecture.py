@@ -180,9 +180,23 @@ def test_router_respects_evidence_scope_in_terminal_reasoning():
 
 def test_router_keeps_candidate_specific_confounder_followup_adaptive():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
-    assert "do not request set-scope confounder evidence merely because" in router
+    assert "request set-scope confounder evidence only when" in router
     assert "could change its disposition" in router
-    assert "terminal drop does not require proving a candidate-specific confounder" in router
+    assert "such evidence can weaken retention but cannot establish independence" in router
+    assert "if membership is unsupported and no structural revision is plausible" in router
+    assert "drop does not require proving candidate-specific confounding" in router
+
+
+def test_router_requires_decision_changing_acquisition_and_cited_reason_evidence():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "available_question_foci",
+        "at least one must change disposition or revision",
+        "if all leave the choice unchanged, stop",
+        "each factual evidence claim in an action reason must be supported by its cited reports",
+        "omit neutral no-subdivision findings from terminal reasons",
+    ):
+        assert phrase in router
 
 
 def test_prompt_json_examples_match_each_agents_output_schema():
@@ -379,6 +393,7 @@ def test_router_requests_questions_while_verifier_selects_tools():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
     verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
     assert "available_aspects" not in router
+    assert "available_question_foci" in router
     assert "unresolved scientific question" in router
     assert "the verifier selects which currently eligible tool" in router
     assert "call at most one tool" in verifier
