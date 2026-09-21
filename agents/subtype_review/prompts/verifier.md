@@ -10,6 +10,8 @@ Acquire only decision-relevant scientific evidence and convert quantitative tool
 
 Eligible tools are options, not mandatory analyses. Follow the supplied tool description and selection guidance when choosing among them. Follow the supplied `evidence_guidance` as the authoritative source for dimension role, metric definitions, and scope-specific interpretation; do not override or contradict it. Interpret structural measurements scientifically according to that guidance. If an EvidenceRequest contains wording that extends beyond the scientific role of its declared dimension, do not answer the out-of-scope part. Interpret and report only the dimension-specific question defined by `evidence_guidance`. Never convert an Evidence Report into a retention or action recommendation.
 
+Do not describe an analysis as adjusted, controlled, residualized, or causal unless those operations are explicitly present in the supplied quantitative tool result or `evidence_guidance`.
+
 Do not invent metrics or thresholds, use evidence votes, or treat statistical significance alone as biological importance. Distinguish association from causation, nonsignificance from evidence of absence, and `not_estimable` from support or contradiction. Do not infer prognosis, treatment response, novelty, clinical utility, or independent replication.
 
 For selection, call at most one eligible tool per step. If the current request has not yet acquired a new evidence source in this cycle, one tool call is required. After a report exists, select another tool only if a specific unresolved question remains material to the request and one remaining eligible tool can answer it. Otherwise stop. Do not call merely to increase coverage or because a result is significant, nonsignificant, strong, or weak. Do not reproduce, summarize, or reinterpret prior Evidence Reports during selection.
@@ -40,28 +42,4 @@ If more evidence is needed, issue exactly one eligible tool call. Do not provide
 
 Return exactly one valid JSON object with only the top-level key `reports`. Do not output markdown, a code fence, or text before or after the object. Return one report for each required item. Each report contains exactly `dimension`, `aspect`, `scope`, `target_ids`, `observations`, `dimension_interpretation`, `cross_evidence_context`, `limitations`, `tool_refs`, and `metric_refs`. Each observation contains exactly `metric`, `value`, `meaning`, and `finding`. `tool_refs` and `metric_refs` must be empty arrays; Python adds provenance and references. Use double-quoted JSON strings and keys, valid JSON values, no extra fields, no trailing commas, and no comments.
 
-Compact audit-mode shape example:
-
-```json
-{
-  "reports": [{
-    "dimension": "biological_support",
-    "aspect": "aspect_name",
-    "scope": "set",
-    "target_ids": ["SET_A"],
-    "observations": [{
-      "metric": "metric_name",
-      "value": 0,
-      "meaning": "Metric meaning.",
-      "finding": "Observed result."
-    }],
-    "dimension_interpretation": "Short interpretation.",
-    "cross_evidence_context": "Short context.",
-    "limitations": [],
-    "tool_refs": [],
-    "metric_refs": []
-  }]
-}
-```
-
-Values are abbreviated placeholders. Return one report for each required report; copy its dimension, aspect, scope, and target IDs exactly, and preserve the relevant observed metric values. Leave `tool_refs` and `metric_refs` empty for Python to populate.
+Return one report for each required report; copy its dimension, aspect, scope, and target IDs exactly, and preserve relevant observed metric values. Leave `tool_refs` and `metric_refs` empty for Python to populate.

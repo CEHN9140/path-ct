@@ -13,18 +13,22 @@ DIMENSION_GUIDES = {
 EVIDENCE_ROLE_CONTRACTS = {
     "biological_support": {
         "role": "Characterize whether the candidate has a coherent and interpretable biological identity or phenotype.",
+        "request_focus": "Ask whether the candidate shows a coherent and interpretable biological phenotype or molecular program relative to the appropriate comparison population.",
         "does_not_establish": "Biological identity does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
     },
     "cross_modal_consistency": {
         "role": "Evaluate whether current membership, boundary, internal structure, or granularity is represented in the multimodal patient geometry.",
+        "request_focus": "Ask whether the current membership, boundary, or internal structure is represented in the relevant multimodal or native patient geometries.",
         "does_not_establish": "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
     },
     "confounder_exclusion": {
         "role": "Evaluate whether measured technical, acquisition, site, or related factors remain plausible alternative explanations for the observed candidate structure.",
+        "request_focus": "Ask whether measured technical, acquisition, or site factors remain plausible substantial alternative explanations for the observed membership or geometry. Do not imply covariate adjustment, causal control, or persistence after adjustment unless the supplied analysis performs it.",
         "does_not_establish": "Absence of a measured confounder association does not by itself positively establish biological identity or an independent boundary.",
     },
     "known_label_echo": {
         "role": "Describe correspondence with clinical stratification or previously reported ccRCC taxonomies.",
+        "request_focus": "Ask only how the current partition corresponds to available clinical stratification or previously reported subtype taxonomies.",
         "does_not_establish": "Known-label correspondence or non-correspondence does not by itself establish novelty, validity, independence, or retention.",
     },
 }
@@ -113,25 +117,25 @@ METRIC_SEMANTICS = {
 
 INTERPRETATION_REQUIREMENTS = {
     "biological_support": ["Integrate pathway or mutation direction, magnitude, coherence, sample availability, and multiplicity."],
-    "cross_modal_consistency": ["Interpret GRV as global patient-geometry similarity, not as current-boundary support. Jointly inspect native-distance current-label alignment; high GRV alone does not show shared subtype boundaries, and low GRV may reflect complementary information rather than a faulty modality. No reclustering is done by this tool. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
+    "cross_modal_consistency": ["Explicitly explain what current-label alignment indicates about representation of the current membership or boundary. Do not stop at global GRV interpretation: GRV describes global patient-geometry similarity and is not itself current-boundary support. Current-label alignment directly bears on whether the existing membership or boundary is expressed in native patient geometry. Describe direction, magnitude, and uncertainty without making accept, drop, split, or merge recommendations. No reclustering is performed. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
     "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance. Interpret PERMANOVA together with PERMDISP. A significant PERMANOVA is not proof of technical artifact; a nonsignificant PERMDISP is not proof of no confounding. PERMANOVA, PERMDISP, and continuous distance-regression p-values belong to separate BH families."],
     "known_label_echo": ["Describe taxonomy correspondence conservatively; do not call it external validation."],
 }
 
 
-STRUCTURAL_SCOPE_INTERPRETATIONS = {
-    "partition": (
+SCOPE_INTERPRETATIONS = {
+    ("structural_diagnostics", "partition"): (
         "Partition structural diagnostics are triage evidence. The internal screen asks whether a current candidate "
         "shows an obvious subdivision signal, and nearest-pair affinity identifies boundaries for possible pair review. "
         "Neither result independently establishes retention, split, or merge."
     ),
-    "set": (
+    ("structural_diagnostics", "set"): (
         "For set scope, a single-cluster dominant resolution means no obvious internal multi-cluster subdivision signal. "
         "This is evidence against an immediate split hypothesis, not positive evidence that the set is independent from "
         "neighboring candidates. A resolution above one raises a possible subdivision hypothesis only; interpret actual "
         "feasible solutions, separation, and child sizes before considering split."
     ),
-    "pair": (
+    ("structural_diagnostics", "pair"): (
         "For pair scope, current-boundary separation and union structure answer different questions: boundary measurements "
         "describe the current labels, while union structure describes internal subdivision of their union. A union "
         "dominated by the single-cluster resolution lacks a dominant internal subdivision signal. This is structurally "
@@ -141,6 +145,22 @@ STRUCTURAL_SCOPE_INTERPRETATIONS = {
         "single-cluster-dominated union is compatible with removing the boundary; a clearly represented boundary with "
         "meaningful union structure favors preserving distinct units. Conflicting boundary and union findings do not "
         "identify a simple merge solution. Integrate both with the other evidence."
+    ),
+    ("affinity_geometry_concordance", "set"): (
+        "For set scope, current membership alignment directly addresses how the target membership is represented relative to "
+        "the rest of the current partition in each native modality geometry. Consistent within-set versus between-set "
+        "distinction provides positive evidence that the membership is represented in those geometries; little "
+        "distinction provides limited geometric support for treating it as a separately represented unit. Set-versus-rest "
+        "interpretation is limited by a potentially heterogeneous rest group. This evidence bears directly on membership "
+        "representation but does not by itself determine accept or drop."
+    ),
+    ("affinity_geometry_concordance", "pair"): (
+        "For pair scope, current-label alignment directly addresses whether the existing boundary between the two current "
+        "candidate sets is represented in each native modality geometry. Little within-label versus between-label "
+        "distinction provides limited geometric support for the current boundary; consistently represented separation "
+        "provides positive evidence that the boundary is expressed in the available geometries. This evidence does not "
+        "itself determine whether the pair should be merged; integrate it with biological, confounder, and other structural "
+        "evidence."
     ),
 }
 
@@ -154,6 +174,7 @@ def guidance_for(dimension: str, aspect: str, scope: str | None = None) -> dict[
         "metric_semantics": METRIC_SEMANTICS.get((dimension, aspect), {}),
         "interpretation_requirements": INTERPRETATION_REQUIREMENTS[dimension],
     }
-    if aspect == "structural_diagnostics" and scope is not None:
-        guidance["scope_interpretation"] = STRUCTURAL_SCOPE_INTERPRETATIONS[scope]
+    scope_key = (aspect, scope)
+    if scope_key in SCOPE_INTERPRETATIONS:
+        guidance["scope_interpretation"] = SCOPE_INTERPRETATIONS[scope_key]
     return guidance
