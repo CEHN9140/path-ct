@@ -278,6 +278,21 @@ def test_router_does_not_require_action_language_from_pair_reports_or_exhaustive
     assert "do not require the evidence report to say that merge is supported" in router
     assert "do not request all available pair boundaries by default" in router
     assert "availability alone is not a reason for pair review" in router
+
+
+def test_router_defines_adaptive_two_stage_merge_review():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "two distinct stages",
+        "boundary representation",
+        "boundary_structure",
+        "could plausibly change the disposition",
+        "resolve union structure before terminally disposing",
+        "weak boundary alone does not justify merge",
+        "single-cluster-dominated union alone does not justify merge",
+        "not mandatory for every candidate or every weak pair",
+    ):
+        assert phrase in router
     assert "pair review is not a prerequisite for dropping a weak candidate" in router
     assert "specific neighbor" in router and "same candidate unit" in router
     assert "do not sequentially examine additional neighbors" in router

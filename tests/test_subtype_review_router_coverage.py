@@ -136,3 +136,55 @@ def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():
     assert "available_aspects" not in str(options)
     assert "representation_concordance" not in str(options)
     assert "structural_diagnostics" not in str(options)
+
+
+def pair_options_after_completed_tools(completed_pair_tools):
+    state = initial_review_state([
+        {"set_id": set_id, "member_ids": [f"{set_id}-P1", f"{set_id}-P2"]}
+        for set_id in ("C1", "C2")
+    ])
+    signature = partition_signature(state["partition"]["sets"])
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": signature,
+        "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]]}},
+    }]
+    state["tool_evidence"].extend({
+        "tool_name": tool_name, "scope": "pair", "target_ids": ["C1", "C2"],
+        "partition_signature": signature,
+    } for tool_name in completed_pair_tools)
+    captured = {}
+
+    class Router:
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+                "question": "Clarify the candidate phenotype.",
+            }]}
+
+    router_node(state, {
+        "router_model": Router(), "tool_registry": TOOL_REGISTRY,
+        "patient_states_by_id": {}, "data_root": "/tmp",
+        "artifact_root": "/tmp", "config_dir": "configs",
+    })
+    return captured["available_evidence_requests"]
+
+
+def test_pair_boundary_representation_leaves_union_structure_available():
+    options = pair_options_after_completed_tools(["representation_concordance"])
+    pair = next(item for item in options if item["dimension"] == "cross_modal_consistency"
+                and item["scope"] == "pair" and item["target_ids"] == ["C1", "C2"])
+    assert pair["available_question_foci"] == ["boundary_structure"]
+    assert "representation_concordance" not in str(options)
+    assert "structural_diagnostics" not in str(options)
+    assert "affinity_geometry_concordance" not in str(options)
+
+
+def test_completed_pair_boundary_and_union_structure_remove_pair_capability():
+    options = pair_options_after_completed_tools([
+        "representation_concordance", "structural_diagnostics",
+    ])
+    assert not any(item["dimension"] == "cross_modal_consistency"
+                   and item["scope"] == "pair" and item["target_ids"] == ["C1", "C2"]
+                   for item in options)
