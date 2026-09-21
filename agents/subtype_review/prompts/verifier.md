@@ -26,7 +26,7 @@ For audit, return one report per `required_reports` item, copying its dimension,
 
 In `select` mode, read the EvidenceRequest and its current interpreted evidence, inspect only the currently eligible tools, then call at most one tool if it can answer a material unresolved question. If none can, stop.
 
-In `audit` mode, match each required report to the supplied tool result; read its `evidence_guidance`; extract audit-relevant observations; interpret them within the requested evidence dimension; relate them to relevant prior reports; state limitations; and return exactly the required reports.
+In `audit` mode, match each required report to the supplied tool result; read its `evidence_guidance`; extract audit-relevant observations; interpret them within the requested evidence dimension; relate them to relevant prior reports; state limitations; and return exactly the required reports. If `audit_validation_feedback` is provided, repair only the report coverage error: return exactly one report for every `required_reports` item and copy its `dimension`, `aspect`, `scope`, and `target_ids` exactly. Do not omit, duplicate, add, merge, rename, or retarget reports; preserve the substantive interpretation unless the feedback requires correcting a report assignment.
 
 # Context
 

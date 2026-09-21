@@ -661,7 +661,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                          "scope": scope, "target_ids": list(targets), "result": row},
             )
 
-        audit = values["verifier_model"].invoke({
+        audit_payload = {
             "mode": "audit",
             "partition": {"sets": [{"set_id": set_id(item), "member_n": len(item["member_ids"])} for item in current]},
             "required_reports": [
@@ -674,15 +674,58 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             "round_evidence": new_rows_wave,
             "round": state["control"]["round"],
             "wave": wave,
-        })
-        data = audit if isinstance(audit, Mapping) else parse_json_content(getattr(audit, "content", audit))
-        batch = EvidenceReportBatch.model_validate(data)
-        reports_by_key = {
-            (report.dimension, report.aspect, report.scope, tuple(report.target_ids)): report
-            for report in batch.reports
         }
-        if set(reports_by_key) != set(expected_reports):
-            raise ValueError("Verifier reports must exactly cover the tool evidence targets")
+        audit_feedback = None
+        reports_by_key = None
+        max_coverage_retries = max(0, int(values.get("verifier_audit_coverage_retries", 2)))
+        for audit_attempt in range(max_coverage_retries + 1):
+            request_payload = copy.deepcopy(audit_payload)
+            if audit_feedback is not None:
+                request_payload["audit_validation_feedback"] = audit_feedback
+            audit = values["verifier_model"].invoke(request_payload)
+            data = audit if isinstance(audit, Mapping) else parse_json_content(getattr(audit, "content", audit))
+            batch = EvidenceReportBatch.model_validate(data)
+            actual_keys = [
+                (report.dimension, report.aspect, report.scope, tuple(report.target_ids))
+                for report in batch.reports
+            ]
+            expected_keys = set(expected_reports)
+            actual_key_set = set(actual_keys)
+            duplicates = sorted({key for key in actual_keys if actual_keys.count(key) > 1})
+            if actual_key_set == expected_keys and len(actual_keys) == len(expected_keys) and not duplicates:
+                reports_by_key = dict(zip(actual_keys, batch.reports))
+                if audit_attempt:
+                    append_runtime_trace(
+                        values.get("runtime_trace_path"), node="verifier",
+                        event="verifier_audit_coverage_repaired", round_id=state["control"]["round"],
+                        payload={"wave": wave, "attempt": audit_attempt + 1},
+                    )
+                break
+
+            missing = sorted(expected_keys - actual_key_set)
+            extra = sorted(actual_key_set - expected_keys)
+            append_runtime_trace(
+                values.get("runtime_trace_path"), node="verifier",
+                event="verifier_audit_coverage_invalid", round_id=state["control"]["round"],
+                payload={"wave": wave, "attempt": audit_attempt + 1,
+                         "expected": sorted(expected_keys), "actual": actual_keys,
+                         "missing": missing, "extra": extra, "duplicates": duplicates},
+            )
+            if audit_attempt >= max_coverage_retries:
+                raise ValueError(
+                    "Verifier reports must exactly cover the tool evidence targets after audit retries"
+                )
+            audit_feedback = {
+                "error": "Verifier report coverage does not exactly match required_reports.",
+                "missing_reports": missing,
+                "extra_reports": extra,
+                "duplicate_reports": duplicates,
+                "instruction": (
+                    "Return exactly one Evidence Report for every required_reports item. "
+                    "Copy dimension, aspect, scope, and target_ids exactly. Do not omit, "
+                    "duplicate, add, merge, rename, or retarget reports."
+                ),
+            }
 
         for key, report in reports_by_key.items():
             dimension, aspect, scope, targets = key

@@ -137,6 +137,63 @@ def test_verifier_can_stop_after_first_evidence_report_and_selector_sees_report_
     assert "EvidenceReport" not in json.dumps(stopped[0])
 
 
+def test_audit_coverage_retry_does_not_rerun_scientific_tool(tmp_path):
+    registry = make_registry(("rna", "biological_support", ("set",)))
+    tool_calls = []
+
+    def tool(**kwargs):
+        tool_calls.append(kwargs["target_ids"])
+        return {"status": "success", "metrics": {"set": {"C1": {"signal": "rna"}}}}
+
+    registry["rna"]["function"] = tool
+
+    class Verifier:
+        audits = 0
+
+        def invoke(self, payload):
+            if payload["mode"] == "select":
+                return {"selected_tool": "rna"} if payload["require_tool"] else {
+                    "selected_tool": None, "stop_reason": "done",
+                }
+            self.audits += 1
+            return {"reports": []} if self.audits == 1 else valid_reports(payload)
+
+    verifier = Verifier()
+    state = request_state([{
+        "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+        "question": "Is the phenotype coherent?",
+    }])
+    result = verifier_node(state, context(
+        registry, verifier, verifier_audit_coverage_retries=1,
+        runtime_trace_path=str(tmp_path / "trace.jsonl"),
+    ))
+    assert tool_calls == [["C1"]]
+    assert verifier.audits == 2
+    assert len(result["round_evidence"]) == 1
+    events = [json.loads(line)["event"] for line in (tmp_path / "trace.jsonl").read_text().splitlines()]
+    assert "verifier_audit_coverage_invalid" in events
+    assert "verifier_audit_coverage_repaired" in events
+
+
+def test_audit_coverage_retry_exhaustion_preserves_strict_failure():
+    registry = make_registry(("rna", "biological_support", ("set",)))
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "select":
+                return {"selected_tool": "rna"}
+            return {"reports": []}
+
+    with pytest.raises(ValueError, match="after audit retries"):
+        verifier_node(
+            request_state([{
+                "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+                "question": "Is the phenotype coherent?",
+            }]),
+            context(registry, Verifier(), verifier_audit_coverage_retries=1),
+        )
+
+
 def test_wave_selection_uses_same_report_snapshot_and_requests_stop_independently():
     registry = make_registry(
         ("rna", "biological_support", ("set",)),

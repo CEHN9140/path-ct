@@ -53,6 +53,9 @@ def run_subtype_review(
             runtime_trace_path=runtime_trace_path,
         ),
         "runtime_trace_path": runtime_trace_path,
+        "verifier_audit_coverage_retries": int(
+            review_config["llm"].get("verifier_audit_coverage_retries", 2)
+        ),
     }
     state = initial_review_state(candidate_sets)
     state["control"]["max_rounds"] = int(budget["max_rounds"])
