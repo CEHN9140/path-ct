@@ -2,7 +2,16 @@ import json
 import re
 from pathlib import Path
 
-from agents.subtype_review.evidence_semantics import METRIC_SEMANTICS, guidance_for
+from agents.subtype_review.evidence_semantics import (
+    EVIDENCE_ROLE_CONTRACTS,
+    METRIC_SEMANTICS,
+    guidance_for,
+)
+from agents.subtype_review.graph import (
+    initial_review_state,
+    partition_signature,
+    validate_router_plan,
+)
 from agents.subtype_review.llm import review_signature_manifest
 from agents.subtype_review.schemas import EvidenceReportBatch, RevisionPlan, RouterPlan
 
@@ -105,17 +114,32 @@ def test_router_requires_candidate_specific_independence_without_tool_gate():
     assert "weak correspondence does not establish novelty" in router
 
 
-def test_output_format_examples_match_pydantic_contracts():
+def test_router_keeps_evidence_roles_and_requests_dimension_faithful():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "evidence roles are distinct",
+        "does not become evidence of an independent",
+        "must directly bear on the current membership",
+        "absence of a measured confounder does not",
+        "each evidencerequest must ask one scientific question",
+        "within its declared evidence dimension",
+        "evidence_dimension_contracts",
+    ):
+        assert phrase in router
+
+
+def test_output_contracts_have_compact_schema_valid_examples():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
     for phrase in (
         "Return exactly one valid JSON object",
-        "The top-level object contains exactly two keys",
+        "with exactly two keys: `actions`",
         "Exactly one output mode is allowed",
-        "Evidence-request mode", "Structural-revision mode", "Terminal mode",
+        "evidence request (empty `actions`", "structural revision (one `split` or `merge`",
+        "terminal disposition (one `accept` or `drop`",
         "Action object keys are exactly", "request keys are exactly",
-        "Use double quotes", "Do not use trailing commas",
-        "Do not wrap the JSON object in markdown code fences",
-        "reason` is a valid JSON string that directly justifies its action",
+        "double-quoted json strings and keys", "no trailing commas or comments",
+        "do not include markdown, commentary, or text outside the object",
+        "each action reason must directly justify that action",
     ):
         assert phrase.lower() in router.lower()
     for field in (
@@ -123,17 +147,82 @@ def test_output_format_examples_match_pydantic_contracts():
         "`reason`", "`dimension`", "`scope`", "`question`",
     ):
         assert field in router
-    assert "split uses one target and an integer child count" in router.lower()
+    assert "split uses one target and an integer `n_children`" in router.lower()
     assert "JSON `null`" in router
 
-    router_examples = [RouterPlan.model_validate(json.loads(block)) for block in re.findall(r"```json\s*(.*?)\s*```", router, re.S)]
     verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8")
-    verifier_examples = [EvidenceReportBatch.model_validate(json.loads(block)) for block in re.findall(r"```json\s*(.*?)\s*```", verifier, re.S)]
     reviser = (PROMPT_DIR / "reviser.md").read_text(encoding="utf-8")
-    reviser_examples = [RevisionPlan.model_validate(json.loads(block)) for block in re.findall(r"```json\s*(.*?)\s*```", reviser, re.S)]
-    assert len(router_examples) == 3
+    examples = re.findall(r"```json\s*(.*?)\s*```", router, re.S)
+    assert len(examples) == 4
+    router_plans = [RouterPlan.model_validate(json.loads(block)) for block in examples]
+    assert all(action.reason == "Short rationale." for plan in router_plans for action in plan.actions)
+
+    verifier_examples = re.findall(r"```json\s*(.*?)\s*```", verifier, re.S)
     assert len(verifier_examples) == 1
+    EvidenceReportBatch.model_validate(json.loads(verifier_examples[0]))
+
+    reviser_examples = re.findall(r"```json\s*(.*?)\s*```", reviser, re.S)
     assert len(reviser_examples) == 2
+    split_plan, merge_plan = (RevisionPlan.model_validate(json.loads(block)) for block in reviser_examples)
+    assert split_plan.split_plans[0].action == "split"
+    assert split_plan.split_plans[0].execution_strategy == "fused_similarity_spectral"
+    assert merge_plan.merge_plans[0].action == "merge"
+
+
+def test_router_examples_follow_runtime_workflow_constraints():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
+    plans = [RouterPlan.model_validate(json.loads(block))
+             for block in re.findall(r"```json\s*(.*?)\s*```", router, re.S)]
+
+    def candidate_sets(ids):
+        return [{"set_id": set_id, "member_ids": [f"{set_id}-P1"]} for set_id in ids]
+
+    request_plan = next(plan for plan in plans if plan.evidence_requests)
+    state = initial_review_state(candidate_sets(["SET_A", "SET_B", "SET_C"]))
+    validate_router_plan(
+        request_plan, state,
+        {("cross_modal_consistency", "pair", ("SET_A", "SET_B"))},
+    )
+
+    split_plan = next(plan for plan in plans if plan.actions and plan.actions[0].action == "split")
+    split_action = split_plan.actions[0]
+    state = initial_review_state(candidate_sets(["SET_A", "SET_B", "SET_C"]))
+    signature = partition_signature(state["partition"]["sets"])
+    state["reports"] = [{
+        "report_ref": split_action.evidence_report_refs[0],
+        "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+        "scope": "set", "target_ids": ["SET_A"],
+    }]
+    state["tool_evidence"] = [{
+        "partition_signature": signature, "tool_name": "structural_diagnostics",
+        "scope": "set", "target_ids": ["SET_A"],
+        "metrics": {"set": {"SET_A": {"solutions": {"2": {}}}}},
+    }]
+    validate_router_plan(split_plan, state, set())
+
+    merge_plan = next(plan for plan in plans if plan.actions and plan.actions[0].action == "merge")
+    merge_action = merge_plan.actions[0]
+    state = initial_review_state(candidate_sets(["SET_A", "SET_B", "SET_C"]))
+    state["reports"] = [{
+        "report_ref": merge_action.evidence_report_refs[0],
+        "dimension": "cross_modal_consistency", "aspect": "structural_diagnostics",
+        "scope": "pair", "target_ids": ["SET_A", "SET_B"],
+    }]
+    validate_router_plan(merge_plan, state, set())
+
+    terminal_plan = next(plan for plan in plans if plan.actions and all(
+        action.action in {"accept", "drop"} for action in plan.actions
+    ))
+    state = initial_review_state(candidate_sets(["SET_A", "SET_B"]))
+    state["reports"] = [{
+        "report_ref": "partition-screen", "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics", "scope": "partition", "target_ids": [],
+    }, *[
+        {"report_ref": action.evidence_report_refs[0], "dimension": "biological_support",
+         "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": action.target_ids}
+        for action in terminal_plan.actions
+    ]]
+    validate_router_plan(terminal_plan, state, set())
 
 
 def test_structural_guidance_distinguishes_partition_set_and_pair():
@@ -153,10 +242,34 @@ def test_structural_guidance_distinguishes_partition_set_and_pair():
     assert "k>2" not in all_semantics
 
 
+def test_evidence_roles_define_non_substitutable_scientific_scope():
+    assert set(EVIDENCE_ROLE_CONTRACTS) == {
+        "biological_support", "cross_modal_consistency",
+        "confounder_exclusion", "known_label_echo",
+    }
+    biological = EVIDENCE_ROLE_CONTRACTS["biological_support"]
+    cross_modal = EVIDENCE_ROLE_CONTRACTS["cross_modal_consistency"]
+    confounder = EVIDENCE_ROLE_CONTRACTS["confounder_exclusion"]
+    known = EVIDENCE_ROLE_CONTRACTS["known_label_echo"]
+    assert "identity" in biological["role"].lower()
+    assert "does not by itself establish" in biological["does_not_establish"].lower()
+    assert "membership" in cross_modal["role"].lower()
+    assert "boundary" in cross_modal["role"].lower()
+    assert "alternative explanation" in confounder["role"].lower()
+    assert "does not by itself" in confounder["does_not_establish"].lower()
+    assert "correspondence" in known["role"].lower()
+
+
+def test_guidance_includes_dimension_role_contract():
+    guidance = guidance_for("biological_support", "rna_pathway_enrichment", "set")
+    assert guidance["evidence_role"] == EVIDENCE_ROLE_CONTRACTS["biological_support"]
+
+
 def test_verifier_pair_semantics_and_mode_contracts():
     verifier = (PROMPT_DIR / "verifier.md").read_text(encoding="utf-8").lower()
-    assert "evidence against merge" in verifier
-    assert "this finding alone does not recommend merge" in verifier
+    assert "evidence_guidance" in verifier
+    assert "extends beyond the scientific role" in verifier
+    assert "do not answer the out-of-scope part" in verifier
     assert "## selection mode" in verifier
     assert "## audit mode" in verifier
     assert "do not provide substantive ordinary text, json, or an evidence report" in verifier

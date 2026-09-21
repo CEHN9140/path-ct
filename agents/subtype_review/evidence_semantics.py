@@ -10,6 +10,25 @@ DIMENSION_GUIDES = {
     "known_label_echo": "How does the partition relate to clinical stratification and established ccRCC taxonomies? TCGA m1-m4 and ClearCode34 overlap the RNA discovery view; this is taxonomy correspondence, not independent validation.",
 }
 
+EVIDENCE_ROLE_CONTRACTS = {
+    "biological_support": {
+        "role": "Characterize whether the candidate has a coherent and interpretable biological identity or phenotype.",
+        "does_not_establish": "Biological identity does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
+    },
+    "cross_modal_consistency": {
+        "role": "Evaluate whether current membership, boundary, internal structure, or granularity is represented in the multimodal patient geometry.",
+        "does_not_establish": "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
+    },
+    "confounder_exclusion": {
+        "role": "Evaluate whether measured technical, acquisition, site, or related factors remain plausible alternative explanations for the observed candidate structure.",
+        "does_not_establish": "Absence of a measured confounder association does not by itself positively establish biological identity or an independent boundary.",
+    },
+    "known_label_echo": {
+        "role": "Describe correspondence with clinical stratification or previously reported ccRCC taxonomies.",
+        "does_not_establish": "Known-label correspondence or non-correspondence does not by itself establish novelty, validity, independence, or retention.",
+    },
+}
+
 METRIC_SEMANTICS = {
     ("biological_support", "rna_pathway_enrichment"): {
         "analysis_status": "Computational estimability only; not_estimable is neither support nor contradiction.",
@@ -131,6 +150,7 @@ def guidance_for(dimension: str, aspect: str, scope: str | None = None) -> dict[
         "dimension": dimension,
         "aspect": aspect,
         "scientific_question": DIMENSION_GUIDES[dimension],
+        "evidence_role": EVIDENCE_ROLE_CONTRACTS[dimension],
         "metric_semantics": METRIC_SEMANTICS.get((dimension, aspect), {}),
         "interpretation_requirements": INTERPRETATION_REQUIREMENTS[dimension],
     }

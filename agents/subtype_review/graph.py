@@ -25,7 +25,7 @@ from agents.subtype_review.schemas import (
     set_id,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
-from agents.subtype_review.evidence_semantics import guidance_for
+from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS, guidance_for
 from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import to_jsonable
@@ -361,6 +361,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "partition": state["partition"],
         "evidence_reports": summarize_reports(state["reports"]),
         "evidence_coverage": coverage,
+        "evidence_dimension_contracts": copy.deepcopy(EVIDENCE_ROLE_CONTRACTS),
         "available_evidence_requests": router_request_options,
         "latest_acquisition_closure": closure_payload,
         "workflow_constraints": workflow_constraints,
@@ -376,6 +377,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "partition": partition_snapshot(current),
             "evidence_reports": payload["evidence_reports"],
             "evidence_coverage": coverage,
+            "evidence_dimension_contracts": payload["evidence_dimension_contracts"],
             "available_evidence_requests": router_request_options,
             "latest_acquisition_closure": closure_payload,
             "workflow_constraints": workflow_constraints,

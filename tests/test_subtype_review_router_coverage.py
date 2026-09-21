@@ -1,6 +1,7 @@
 import json
 
 from agents.subtype_review.graph import initial_review_state, partition_signature, router_node
+from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
 from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS
 from agents.subtype_review.tools import TOOL_REGISTRY
 
@@ -76,6 +77,7 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         }
         router_node(state, runtime)
         assert captured["workflow_constraints"]["allowed_structural_actions"] == allowed_actions
+        assert captured["evidence_dimension_contracts"] == EVIDENCE_ROLE_CONTRACTS
         forbidden_actions = captured["workflow_constraints"]["forbidden_structural_actions"]
         assert forbidden_actions == ([] if "merge" in allowed_actions else [{
             "action": "merge",
@@ -92,3 +94,4 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         ]
         context = next(row for row in trace_rows if row["event"] == "router_context")
         assert context["workflow_constraints"] == captured["workflow_constraints"]
+        assert context["evidence_dimension_contracts"] == EVIDENCE_ROLE_CONTRACTS

@@ -25,9 +25,13 @@ The input contains `partition`, `router_action`, `referenced_reports`, and `avai
 
 # Output Format
 
-Return exactly one valid JSON object and no markdown, code fence, or text before or after it. The object contains only `split_plans`, `merge_plans`, and `rationale`; do not add wrapper fields. The following short examples show the two alternative shapes.
+Return exactly one valid JSON object and no markdown or text before or after it. The object contains only `split_plans`, `merge_plans`, and `rationale`; do not add wrapper fields.
 
 If the Router action is split, return exactly one SplitPlan in `split_plans` and an empty `merge_plans`. A SplitPlan contains exactly `action`, `target_id`, `n_children`, `structural_basis`, `execution_strategy`, `metric_refs`, and `rationale`. Its `action` is `split`, and it preserves the Router's target and child count.
+
+If the Router action is merge, return an empty `split_plans` and exactly one MergePlan in `merge_plans`. A MergePlan contains exactly `action`, `target_ids`, `metric_refs`, and `rationale`. Its `action` is `merge`, and it preserves the Router's target pair.
+
+Compact shape examples (use only the shape matching the Router action):
 
 ```json
 {
@@ -38,14 +42,12 @@ If the Router action is split, return exactly one SplitPlan in `split_plans` and
     "structural_basis": ["fused"],
     "execution_strategy": "fused_similarity_spectral",
     "metric_refs": [],
-    "rationale": "Structural plan."
+    "rationale": "Short rationale."
   }],
   "merge_plans": [],
-  "rationale": "Preserve the authorized split."
+  "rationale": "Short rationale."
 }
 ```
-
-If the Router action is merge, return an empty `split_plans` and exactly one MergePlan in `merge_plans`. A MergePlan contains exactly `action`, `target_ids`, `metric_refs`, and `rationale`. Its `action` is `merge`, and it preserves the Router's target pair.
 
 ```json
 {
@@ -54,10 +56,12 @@ If the Router action is merge, return an empty `split_plans` and exactly one Mer
     "action": "merge",
     "target_ids": ["SET_A", "SET_B"],
     "metric_refs": [],
-    "rationale": "Preserve the authorized merge."
+    "rationale": "Short rationale."
   }],
-  "rationale": "Preserve the authorized merge."
+  "rationale": "Short rationale."
 }
 ```
 
-Use double quotes for JSON strings and keys, valid JSON values, no trailing commas or comments, and no extra top-level fields.
+IDs and rationales are placeholders; preserve the exact action and targets supplied by the Router.
+
+Use double-quoted JSON strings and keys, valid JSON values, no trailing commas or comments, no extra fields, and no markdown or text outside the object.

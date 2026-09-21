@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -140,6 +141,51 @@ def test_direct_audit_request_has_json_format_and_no_tools(monkeypatch):
     assert captured["response_format"] == {"type": "json_object"}
     assert "tools" not in captured
     assert "tool_choice" not in captured
+
+
+def test_structured_output_retry_includes_field_specific_validation_error(monkeypatch):
+    calls = []
+    invalid = {
+        "reports": [{
+            "dimension": "biological_support", "aspect": "rna_pathway_enrichment",
+            "scope": "set", "target_ids": ["C1"], "observations": [],
+            "dimension_interpretation": "Interpretable phenotype.",
+            "cross_evidence_context": "No prior report.",
+            "limitations": "Small sample size.", "tool_refs": [], "metric_refs": [],
+        }]
+    }
+    corrected = {"reports": [{**invalid["reports"][0], "limitations": ["Small sample size."]}]}
+
+    class Completions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            content = invalid if len(calls) == 1 else corrected
+            return SimpleNamespace(choices=[SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(content=json.dumps(content)),
+            )])
+
+    monkeypatch.setenv("TEST_KEY", "secret")
+    monkeypatch.setattr(
+        "openai.OpenAI",
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+    )
+    model = JsonStructuredModel(
+        {
+            "api_key_env": "TEST_KEY", "base_url": "http://test",
+            "model_name": "deepseek-v4-flash", "temperature": 0,
+            "max_new_tokens": 32768, "structured_output_retries": 1,
+        },
+        EvidenceReportBatch,
+        "audit prompt",
+    )
+
+    result = model.invoke({"mode": "audit"})
+
+    assert result["reports"][0]["limitations"] == ["Small sample size."]
+    assert len(calls) == 2
+    assert "reports.0.limitations" in calls[1]["messages"][-1]["content"]
+    assert "valid list" in calls[1]["messages"][-1]["content"]
 
 
 def test_length_finish_reason_records_usage_and_does_not_retry(monkeypatch):

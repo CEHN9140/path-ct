@@ -216,7 +216,7 @@ def test_router_payload_hides_aspects_but_python_validation_keeps_them():
     option = captured["available_evidence_requests"][0]
     assert set(option) == {"dimension", "scope", "target_ids"}
     assert "available_aspects" not in str(captured)
-    assert "rna" not in str(captured)
+    assert "rna_pathway_enrichment" not in str(captured)
     validate_router_plan(RouterPlan(evidence_requests=[{
         "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
         "question": "Is this candidate biologically coherent?",

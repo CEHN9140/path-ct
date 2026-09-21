@@ -280,14 +280,23 @@ class JsonStructuredModel:
                 if attempt >= max_retries:
                     raise
 
+                error_summary = [
+                    {
+                        "path": ".".join(str(part) for part in error.get("loc", ())),
+                        "type": error.get("type", "validation_error"),
+                        "message": error.get("msg", "Invalid value"),
+                    }
+                    for error in validation_errors
+                ]
                 repair_instruction = (
                     "Your previous response was valid JSON or attempted JSON, but it did not satisfy "
                     "the required output schema. The only allowed top-level fields are: "
                     f"{sorted(self.schema.model_fields)}. Do not output wrapper fields such as 'type', "
                     "'format', 'json_object', 'response', or 'schema'. Preserve the scientific decision "
                     "and all substantive content from your previous response. Repair only the JSON/schema "
-                    "structure needed to satisfy the required schema. Return exactly one corrected JSON "
-                    "object and no commentary."
+                    "structure needed to satisfy the required schema. Fix these validation errors: "
+                    f"{json.dumps(error_summary, ensure_ascii=False)}. Return exactly one corrected "
+                    "JSON object and no commentary."
                 )
                 messages = [
                     *base_messages,
