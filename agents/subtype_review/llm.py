@@ -16,7 +16,7 @@ from agents.subtype_review.schemas import (
     RouterPlan,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace
-from agents.subtype_review.tools import TOOL_REGISTRY, build_validation_tools
+from agents.subtype_review.tools import TOOL_REGISTRY, build_selection_tools
 
 
 class LLMOutputLengthError(RuntimeError):
@@ -317,38 +317,30 @@ class VerifierChatModel:
         system_prompt: str,
         tools: list[Any],
         usage_tracker: LLMUsageTracker | None = None,
+        runtime_trace_path: str | Path | None = None,
+        selection_retries: int = 1,
     ):
         self.acquire_model = acquire_model
         self.audit_model = audit_model
         self.system_prompt = system_prompt
         self.tools = {str(item.name): item for item in tools}
         self.usage_tracker = usage_tracker
+        self.runtime_trace_path = Path(runtime_trace_path) if runtime_trace_path is not None else None
+        self.selection_retries = max(0, int(selection_retries))
 
     def invoke(self, payload: dict[str, Any]) -> Any:
         mode = payload["mode"]
-        if mode == "acquire":
-            tool_names = sorted(payload["eligible_tools"])
-            model = self.acquire_model.bind_tools(
-                [self.tools[name] for name in tool_names],
-                tool_choice="required",
+        if mode == "select":
+            return self._select_next_tool(
+                payload,
+                tool_names=list(payload["remaining_tools"]),
+                require_tool=bool(payload["require_tool"]),
             )
-            messages = [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": serialize_llm_payload(payload)},
-            ]
-            if self.usage_tracker:
-                self.usage_tracker.before_request(
-                    role="verifier_acquire", model=self.acquire_model.model_name, messages=messages,
-                )
-            response = model.invoke(messages)
-            if self.usage_tracker:
-                self.usage_tracker.record_response(response)
-            return response
         if mode == "audit":
             request = dict(payload)
             request["round_evidence"] = sorted(
                 [{key: value for key, value in row.items()
-                  if key not in {"metric_refs", "artifact_paths", "partition_signature"}}
+                  if key not in {"metric_refs", "artifact_paths", "partition_signature", "request_ref"}}
                  for row in request["round_evidence"]],
                 key=lambda row: (row.get("tool_name", ""), tuple(row.get("target_ids", []))),
             )
@@ -358,6 +350,79 @@ class VerifierChatModel:
             ]
             return self.audit_model.invoke(request)
         raise ValueError(f"Unknown verifier mode: {mode}")
+
+    def _select_next_tool(
+        self,
+        payload: dict[str, Any],
+        *,
+        tool_names: list[str],
+        require_tool: bool,
+    ) -> dict[str, Any]:
+        if not tool_names:
+            return {"selected_tool": None, "stop_reason": "no_remaining_eligible_tools"}
+        unknown = set(tool_names) - set(self.tools)
+        if unknown:
+            raise ValueError(f"Selection requested unregistered tools: {sorted(unknown)}")
+
+        tools = [self.tools[name] for name in sorted(tool_names)]
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": serialize_llm_payload(payload)},
+        ]
+        last_error = ""
+        for attempt in range(self.selection_retries + 1):
+            bind_args = {"tool_choice": "required"} if require_tool else {}
+            model = self.acquire_model.bind_tools(tools, **bind_args)
+            if self.usage_tracker:
+                self.usage_tracker.before_request(
+                    role="verifier_select", model=self.acquire_model.model_name, messages=messages,
+                )
+            response = model.invoke(messages)
+            if self.usage_tracker:
+                self.usage_tracker.record_response(response)
+            calls = list(getattr(response, "tool_calls", None) or [])
+            if not calls:
+                additional = getattr(response, "additional_kwargs", {}) or {}
+                calls = list(additional.get("tool_calls", []) or [])
+            if not calls:
+                if require_tool:
+                    raise RuntimeError("Verifier returned no tool call when one was required")
+                content = getattr(response, "content", "")
+                return {
+                    "selected_tool": None,
+                    "stop_reason": str(content).strip() or "Verifier ended acquisition without another tool call.",
+                }
+            if len(calls) == 1:
+                call = calls[0]
+                name = str(call.get("name", "")) if isinstance(call, Mapping) else str(getattr(call, "name", ""))
+                args = call.get("args", {}) if isinstance(call, Mapping) else getattr(call, "args", {})
+                if name in tool_names and args in ({}, None):
+                    return {"selected_tool": name}
+                last_error = (
+                    f"selected tool {name!r} is not eligible" if name not in tool_names
+                    else f"selection tool arguments must be empty, got {args!r}"
+                )
+            else:
+                last_error = f"selection returned {len(calls)} tool calls; at most one is allowed"
+
+            append_runtime_trace(
+                self.runtime_trace_path,
+                node="verifier",
+                event="verifier_tool_selection_retry",
+                round_id=payload.get("round"),
+                payload={"attempt": attempt + 1, "error": last_error},
+            )
+            if attempt < self.selection_retries:
+                messages = [
+                    *messages,
+                    {"role": "assistant", "content": "The previous selection was invalid."},
+                    {"role": "user", "content": (
+                        f"Your previous response was invalid: {last_error}. Call at most one of the currently "
+                        "eligible zero-argument tools. Choose exactly one if additional evidence is needed; "
+                        "if stopping is allowed, make no tool call."
+                    )},
+                ]
+        raise ValueError(f"Verifier tool selection remained invalid after retries: {last_error}")
 
 
 def build_default_verifier(
@@ -369,7 +434,7 @@ def build_default_verifier(
 ) -> Any:
     cfg = dict(config["llm"])
     prompt = (prompt_dir(config, config_dir) / "verifier.md").read_text(encoding="utf-8")
-    tools = build_validation_tools()
+    tools = build_selection_tools()
     from langchain_openai import ChatOpenAI
 
     api_key_env = str(cfg.get("api_key_env", "") or "").strip()
@@ -398,7 +463,8 @@ def build_default_verifier(
             cfg, EvidenceReportBatch, prompt, usage_tracker,
             runtime_trace_path=runtime_trace_path,
         ),
-        prompt, tools, usage_tracker,
+        prompt, tools, usage_tracker, runtime_trace_path,
+        int(cfg.get("tool_selection_retries", cfg.get("structured_output_retries", 1))),
     )
 
 
