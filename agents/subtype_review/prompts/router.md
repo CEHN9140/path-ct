@@ -67,6 +67,8 @@ A candidate can therefore be dropped because its evidence is too weak, too ambig
 
 Do not require proof of technical artifact, false biology, or complete absence of signal before using `drop`.
 
+Before dropping a candidate because its independent boundary is not defensible, consider whether the evidence raises a specific merge hypothesis with an identified neighbor. If available pair evidence could materially distinguish drop from merge, request it first. Drop remains appropriate when no specific structural revision is plausible or pair evidence does not support removing the boundary and independent retention is still unjustified.
+
 ---
 
 ## Request more evidence
@@ -105,7 +107,7 @@ Use `merge` only when the interpreted evidence supports treating two current set
 
 A weak pair boundary alone does not establish that a merge is warranted.
 
-A merge must cite the exact-pair `structural_diagnostics` Evidence Report.
+A merge must resolve a specific boundary question. Weak evidence for one candidate alone is insufficient; exact-pair structural evidence must support the interpretation that maintaining the current boundary is not scientifically well justified. Integrate this report with the relevant biological, cross-modal, and confounder evidence. Do not merge solely because two candidates are nearest neighbors or have relatively high fused affinity. Biological differences do not automatically protect a pair from merge if they do not correspond to a defensible candidate boundary. The question is whether the current two-set representation is better justified than treating their union as one discovery-stage candidate. A merge must cite the exact-pair `structural_diagnostics` Evidence Report.
 
 The workflow ensures that a merge cannot collapse the partition to a single whole-cohort set.
 
@@ -135,6 +137,18 @@ For example:
 - inability to justify a split does not imply that the current set deserves acceptance.
 
 Structural revision and candidate retention are separate questions.
+
+## Structural revision triage
+
+Before terminal disposition, distinguish failure of independent retention from a potentially correctable structural boundary. Internal heterogeneity may raise a split hypothesis; an insufficient boundary against a specific neighbor may raise a merge hypothesis; weak or ambiguous evidence without a specific structural alternative may justify drop. These are different questions, not mandatory sequential tests. A split hypothesis is relevant when interpreted exact-set structural evidence indicates meaningful internal subdivision; a feasible spectral solution alone is not evidence for split.
+
+## Distinguishing drop from merge
+
+A candidate with weak evidence for independent retention should not automatically be merged, and it should not automatically be dropped. When its principal unresolved weakness concerns an external boundary, ask whether the evidence identifies a specific neighboring candidate with which that boundary may be unnecessary. A merge hypothesis is relevant only when the weakness concerns separation from that neighbor, the partition screen identifies a plausible pair, pair-level evidence remains available, and that evidence could reasonably change the choice between drop and merge. In that situation, request pair-level evidence before terminally dropping the candidate. This is a decision-relevant structural follow-up, not a mandatory merge test for every weak candidate.
+
+The partition structural screen may generate a merge hypothesis, but it cannot by itself justify a merge. Partition-level nearest-pair affinity is triage evidence only; acquire and interpret exact-pair structural evidence before merging. When several plausible neighbors exist, request the pair whose unresolved boundary is most likely to change the decision. Do not exhaustively evaluate every nearest pair; request another only if the first pair leaves a materially different merge hypothesis unresolved.
+
+Do not request pair-level evidence before every drop. Pair review is generally unnecessary when the candidate lacks an interpretable identity, a dominant technical or site alternative would not be resolved by merging, evidence is too sparse for meaningful structural interpretation, the concern is internal and more naturally raises a split question, or no specific neighbor is identified. A merge is not a rescue operation for an otherwise unsupported candidate. Structural revision takes precedence over terminal disposition only when current evidence raises a specific structural hypothesis that could materially change the disposition.
 
 ---
 
@@ -331,6 +345,24 @@ For example:
 
 The Verifier decides which eligible tool is currently available to answer the question.
 
+For example, when a candidate's unresolved weakness concerns its boundary with a specific neighbor, an available pair-level follow-up could ask:
+
+```json
+{
+  "actions": [],
+  "evidence_requests": [
+    {
+      "dimension": "cross_modal_consistency",
+      "scope": "pair",
+      "target_ids": ["C0002", "C0004"],
+      "question": "Does the current structural boundary between these candidates support maintaining them as separate candidate units, or does pair-specific evidence support treating their union as one candidate?"
+    }
+  ]
+}
+```
+
+This example illustrates a decision-relevant question, not a required pair test or merge criterion.
+
 For pair-level `cross_modal_consistency`, Python exposes only pairs identified by the mandatory structural screen as boundary follow-up candidates. Request one only when uncertainty about that specific boundary could change whether the involved candidates should remain separate or be structurally revised.
 
 ---
@@ -409,6 +441,8 @@ Each evidence request contains exactly:
 - `target_ids`
 - `question`
 
+The examples illustrate evidence roles and reasoning structure only. They do not define mandatory tool combinations, required scopes, or fixed acceptance criteria.
+
 Terminal example (the first candidate has candidate-specific positive phenotype and boundary evidence; the second has interpretable biology but insufficient support for independent retention):
 
 ```json
@@ -420,9 +454,10 @@ Terminal example (the first candidate has candidate-specific positive phenotype 
       "n_children": null,
       "evidence_report_refs": [
         "ER:partitionhash:biological_support:rna_pathway_enrichment:set:targethash",
-        "ER:partitionhash:cross_modal_consistency:structural_diagnostics:partition:partitionhash"
+        "ER:partitionhash:cross_modal_consistency:affinity_geometry_concordance:set:targethash",
+        "ER:partitionhash:confounder_exclusion:confounder_association:set:targethash"
       ],
-      "reason": "The RNA and mutation reports describe a coherent candidate-specific phenotype, while the relevant structural report positively supports this set's current boundary relative to its neighboring candidate. The technical association is limited and the candidate-specific evidence does not leave a substantial alternative explanation unresolved. Together these findings positively justify retaining this set as an independent discovery-stage candidate; the remaining limitations still matter for downstream stability analysis."
+      "reason": "The biological reports describe a coherent candidate-specific phenotype. The candidate-specific affinity-geometry report provides positive evidence that the current membership is represented as a distinguishable unit in the relevant patient geometries. The candidate-specific confounder report identifies limitations but does not leave a substantial measured technical or acquisition explanation unresolved. Together, the evidence positively supports both the candidate's interpretable identity and continued treatment of its current membership as an independent discovery-stage candidate."
     },
     {
       "action": "drop",
@@ -430,9 +465,10 @@ Terminal example (the first candidate has candidate-specific positive phenotype 
       "n_children": null,
       "evidence_report_refs": [
         "ER:partitionhash:biological_support:rna_pathway_enrichment:set:targethash",
-        "ER:partitionhash:cross_modal_consistency:structural_diagnostics:partition:partitionhash"
+        "ER:partitionhash:cross_modal_consistency:affinity_geometry_concordance:set:targethash",
+        "ER:partitionhash:confounder_exclusion:confounder_association:set:targethash"
       ],
-      "reason": "The RNA report describes an interpretable phenotype, but the structural report shows weak support for this set's boundary and the available reports do not resolve a plausible technical alternative. No available request could materially resolve these concerns, so the evidence does not positively justify retaining this partition unit independently, even though its biology may be real. Dropping it does not imply that these observations are false or that the patients cannot participate in an accepted candidate in another run."
+      "reason": "The biological report describes an interpretable phenotype, but the candidate-specific affinity-geometry report provides weak support for treating the current membership as a distinct unit, and the available confounder evidence leaves a material alternative explanation unresolved. No available request could reasonably resolve these concerns enough to change the disposition. The current partition unit therefore has not earned independent retention, even though its observed biology may be real. Dropping it does not imply that these observations are false or that the patients cannot participate in an accepted candidate in another run."
     }
   ],
   "evidence_requests": []

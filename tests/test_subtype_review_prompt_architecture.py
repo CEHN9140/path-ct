@@ -93,6 +93,40 @@ def test_router_prompt_distinguishes_phenotype_from_independent_retention():
     assert "weak correspondence does not prove novelty" in router
 
 
+def test_router_terminal_examples_use_candidate_specific_evidence_consistently():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
+    examples = router.split("Terminal example", 1)[1].split("Evidence request example", 1)[0]
+    assert "examples illustrate evidence roles and reasoning structure only" in router.lower()
+    assert "cross_modal_consistency:affinity_geometry_concordance:set" in examples
+    assert "confounder_exclusion:confounder_association:set" in examples
+    assert "cross_modal_consistency:structural_diagnostics:partition" not in examples
+    assert "structural report positively supports this set's current boundary" not in examples.lower()
+    assert "rna and mutation reports" not in examples.lower()
+    assert "does not leave a substantial measured technical or acquisition explanation unresolved" in examples
+
+
+def test_router_prompt_distinguishes_drop_from_merge_without_forcing_pair_review():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    assert "structural revision triage" in router
+    assert "distinguishing drop from merge" in router
+    assert "specific neighboring candidate" in router
+    assert "request pair-level evidence before terminally dropping" in router
+    assert "not a mandatory merge test for every weak candidate" in router
+    assert "a merge is not a rescue operation for an otherwise unsupported candidate" in router
+    assert "do not request pair-level evidence before every drop" in router
+    assert "do not exhaustively evaluate every nearest pair" in router
+
+
+def test_router_prompt_requires_exact_pair_evidence_and_context_for_merge():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    assert "the partition structural screen may generate a merge hypothesis, but it cannot by itself justify a merge" in router
+    assert "exact-pair structural evidence" in router
+    assert "could reasonably change the choice between drop and merge" in router
+    assert '"scope": "pair"' in router
+    assert '"actions": []' in router
+    assert "a feasible spectral solution alone is not evidence for split" in router
+
+
 def test_router_requires_explicit_decision_state_fields():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
 
