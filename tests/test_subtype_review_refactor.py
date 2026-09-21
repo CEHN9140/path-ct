@@ -8,12 +8,10 @@ from agents.subtype_review.schemas import EvidenceReportBatch
 
 class TerminalRouter:
     def invoke(self, payload):
+        report_ref = payload["evidence_reports"][0]["report_ref"]
         return {"actions": [{
             "action": "drop", "target_ids": [item["set_id"]],
-            "decision_state": {
-                "identity": "unassessed", "structure": "compatible",
-                "alternative_explanation": "unassessed", "uncertainty": "yes",
-            },
+            "evidence_report_refs": [report_ref], "reason": "The evidence does not justify retention.",
         } for item in payload["partition"]["sets"]]}
 
 
@@ -23,16 +21,14 @@ def test_graph_does_not_mutate_caller_state():
 
     class Verifier:
         def invoke(self, payload):
-            if payload["mode"] == "acquire":
-                return {"tool_calls": [{
-                    "name": "structural_diagnostics", "args": {"scope": "partition", "target_ids": []},
-                }]}
             return {"reports": [{
-                **required,
+                **{key: required[key] for key in ("dimension", "aspect", "scope", "target_ids")},
                 "observations": [],
-                "internal_structure_assessment": None,
-                "pair_boundary_assessment": None,
-                "suggested_k": None,
+                "dimension_interpretation": "The partition screen describes current structure.",
+                "cross_evidence_context": "No prior report is relevant.",
+                "limitations": [],
+                "tool_refs": [],
+                "metric_refs": [],
             } for required in payload["required_reports"]]}
 
     def structural_diagnostics(**kwargs):

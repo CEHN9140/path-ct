@@ -39,7 +39,7 @@ def test_openai_compatible_structured_request_maps_project_limit_to_max_tokens(m
         def create(self, **kwargs):
             captured.update(kwargs)
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content='{"actions":[{"action":"drop","target_ids":["C1"],"decision_state":{"identity":"unassessed","structure":"unassessed","alternative_explanation":"unassessed","uncertainty":"yes"}}]}'))]
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"actions":[{"action":"drop","target_ids":["C1"],"evidence_report_refs":["ER:test"],"reason":"No evidence supports retaining the candidate."}],"evidence_requests":[]}'))]
             )
 
     monkeypatch.setenv("TEST_KEY", "secret")
@@ -228,35 +228,29 @@ def test_usage_tracker_is_statistics_only():
     }
 
 
-def test_verifier_acquisition_binds_only_eligible_real_tools():
+def test_verifier_selection_binds_only_eligible_zero_argument_tools():
     model = BoundModel(["unused"])
-    first = SimpleNamespace(name="multimodal_consistency_check")
     second = SimpleNamespace(name="pathway_enrichment")
-    verifier = VerifierChatModel(model, AuditModel(), "prompt", [first, second])
-    verifier.invoke({
-        "mode": "acquire",
-        "eligible_tools": {
-            "multimodal_consistency_check": {},
-            "pathway_enrichment": {},
-        },
-    })
-    assert model.bind_calls[0]["tool_choice"] == "auto"
+    model.invoke = lambda messages: SimpleNamespace(content="", tool_calls=[{
+        "name": "pathway_enrichment", "args": {}, "id": "call-1",
+    }])
+    verifier = VerifierChatModel(model, AuditModel(), "prompt", [second])
+    assert verifier.invoke({
+        "mode": "select",
+        "remaining_tools": ["pathway_enrichment"],
+        "require_tool": True,
+    }) == {"selected_tool": "pathway_enrichment"}
+    assert model.bind_calls[0]["tool_choice"] == "required"
     assert {tool.name for tool in model.bind_calls[0]["tools"]} == {
-        "multimodal_consistency_check", "pathway_enrichment"
+        "pathway_enrichment",
     }
-
-
-def test_verifier_audit_accepts_report_batch_without_status():
-    verifier = VerifierChatModel(BoundModel(["unused"]), AuditModel(), "prompt", [])
-    response = verifier.invoke({"mode": "audit", "round_evidence": [], "prior_reports": []})
-    assert response == {"reports": []}
 
 
 def test_default_agent_prompts_use_new_contracts(monkeypatch):
     prompts = []
     monkeypatch.setattr(
         "agents.subtype_review.llm.JsonStructuredModel",
-        lambda config, schema, prompt, usage_tracker=None: prompts.append((schema, prompt)) or prompt,
+        lambda *args, **kwargs: prompts.append((args[1], args[2])) or args[2],
     )
     config = {"llm": {"model_name": "test"}, "prompt_dir": "agents/subtype_review/prompts"}
     build_default_router(config, "/data/qijun/path-ct/configs")
@@ -267,13 +261,19 @@ def test_default_agent_prompts_use_new_contracts(monkeypatch):
     assert "Reviser" in prompts[1][1]
 
 
-def test_review_prompts_constrain_internal_evidence_and_medical_claims():
+def test_review_prompts_constrain_adaptive_selection_and_medical_claims():
     router = (Path("agents/subtype_review/prompts/router.md")).read_text(encoding="utf-8")
     verifier = (Path("agents/subtype_review/prompts/verifier.md")).read_text(encoding="utf-8")
 
-    assert "independent external validation" in router
-    assert "one modality provides a strong" in router.lower()
-    assert "effect magnitude" in verifier.lower()
-    assert "do not recommend" in verifier.lower()
+    assert "unresolved scientific question" in router
+    assert "available_aspects" not in router
+    assert "call at most one tool" in verifier.lower()
+    assert "eligible tools are options" in verifier.lower()
+    assert "never choose accept, drop, split, or merge" in verifier.lower()
     assert "prognosis" in verifier
-    assert "nonsignificant evidence" in verifier.lower()
+
+
+def test_verifier_audit_accepts_report_batch_without_status():
+    verifier = VerifierChatModel(BoundModel(["unused"]), AuditModel(), "prompt", [])
+    response = verifier.invoke({"mode": "audit", "round_evidence": [], "prior_reports": []})
+    assert response == {"reports": []}

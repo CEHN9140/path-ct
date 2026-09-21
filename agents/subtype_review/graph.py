@@ -68,7 +68,8 @@ def reports_for_request(
     reports: list[Mapping[str, Any]], request: EvidenceRequest,
 ) -> list[dict[str, Any]]:
     return [
-        copy.deepcopy(dict(report)) for report in reports
+        {key: copy.deepcopy(value) for key, value in report.items() if key != "metric_refs"}
+        for report in reports
         if report["dimension"] == request.dimension
         and report["scope"] == request.scope
         and sorted(map(str, report["target_ids"])) == request.target_ids
@@ -351,7 +352,6 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
     values = runtime.context if isinstance(runtime, Runtime) else runtime
     requests = [EvidenceRequest.model_validate(item) for item in state["control"]["pending_evidence_requests"]]
     current = current_sets(state)
-    set_ids = {set_id(item) for item in current}
     signature = partition_signature(current)
     registry = values.get("tool_registry", TOOL_REGISTRY)
     completed = {
@@ -504,6 +504,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                              "error_type": type(exc).__name__, "error_message": str(exc)},
                 )
                 raise
+            completed.add((name, scope, targets))
             row = compact_tool_result(raw, name)
             if row["status"] == "runtime_failure":
                 raise RuntimeError(f"Scientific tool {name} failed: {row['errors']}")
