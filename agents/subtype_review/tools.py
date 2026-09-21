@@ -505,6 +505,13 @@ def rna_pathway_enrichment(
 
 def odds_ratio_with_ci(table: np.ndarray) -> dict[str, Any]:
     a, b, c, d = map(float, np.asarray(table).reshape(-1))
+    if a + c == 0:
+        return {
+            "odds_ratio": None,
+            "odds_ratio_ci95": None,
+            "zero_cell_correction_applied": False,
+            "effect_status": "not_estimable_no_events",
+        }
     corrected = bool(np.any(np.asarray(table) == 0))
     if corrected:
         a, b, c, d = a + 0.5, b + 0.5, c + 0.5, d + 0.5
@@ -515,6 +522,7 @@ def odds_ratio_with_ci(table: np.ndarray) -> dict[str, Any]:
         "odds_ratio": float(odds_ratio),
         "odds_ratio_ci95": [float(interval[0]), float(interval[1])],
         "zero_cell_correction_applied": corrected,
+        "effect_status": "estimated",
     }
 
 
@@ -596,8 +604,8 @@ def wxs_mutation_enrichment(
         pd.DataFrame([
             {
                 **{key: value for key, value in row.items() if key != "odds_ratio_ci95"},
-                "odds_ratio_ci95_lower": row["odds_ratio_ci95"][0],
-                "odds_ratio_ci95_upper": row["odds_ratio_ci95"][1],
+                "odds_ratio_ci95_lower": row["odds_ratio_ci95"][0] if row["odds_ratio_ci95"] else None,
+                "odds_ratio_ci95_upper": row["odds_ratio_ci95"][1] if row["odds_ratio_ci95"] else None,
             }
             for row in rows
         ]).to_csv(artifact_path, index=False)
@@ -902,9 +910,11 @@ def confounder_representation_effect(
         if len(levels) < 2 or len(available) <= len(levels):
             results[factor] = result
             continue
+        metadata = pd.DataFrame({"group": labels}, index=available)
         dm = DistanceMatrix(local_distance, ids=available)
-        grouping = pd.Series(labels, index=available)
-        permanova_result = permanova(dm, grouping=grouping, permutations=permutations, seed=seed)
+        permanova_result = permanova(
+            dm, grouping=metadata, column="group", permutations=permutations, seed=seed
+        )
         pseudo_f = float(permanova_result["test statistic"])
         permanova_p = float(permanova_result["p-value"])
         ratio = pseudo_f * (len(levels) - 1) / (len(available) - len(levels))
@@ -917,9 +927,20 @@ def confounder_representation_effect(
             "q_value": None,
         }
         permanova_rows.append((factor, permanova_p))
+        if np.min(counts) < 2:
+            result["permdisp"] = {
+                "test": "not_estimable",
+                "reason": "PERMDISP requires at least two observations in every group.",
+                "f_statistic": None,
+                "permutation_p": None,
+                "q_value": None,
+            }
+            results[factor] = result
+            continue
         try:
             permdisp_result = permdisp(
-                dm, grouping=grouping, test="median", permutations=permutations, seed=seed
+                dm, grouping=metadata, column="group", test="median",
+                permutations=permutations, seed=seed
             )
             dispersion_f = float(permdisp_result["test statistic"])
             dispersion_p = float(permdisp_result["p-value"])

@@ -38,7 +38,11 @@ def test_wxs_enrichment_tests_full_matrix_and_returns_all_drivers(tmp_path):
     assert all(row["q_global"] is not None and row["q_driver"] is not None for row in metrics["driver_panel"]["results"])
     pbrm1 = next(row for row in metrics["driver_panel"]["results"] if row["gene"] == "PBRM1")
     assert pbrm1["set_mutated_n"] == 0
-    assert pbrm1["zero_cell_correction_applied"] is True
+    assert pbrm1["effect_status"] == "not_estimable_no_events"
+    assert pbrm1["odds_ratio"] is None
+    assert pbrm1["odds_ratio_ci95"] is None
+    assert pbrm1["zero_cell_correction_applied"] is False
+    assert pbrm1["p_value"] == 1.0
     assert len(metrics["exploratory_top_genes"]) == 1
     complete_table = pd.read_csv(result["artifact_paths"]["C1"])
     assert set(complete_table["gene"]) == {"VHL", "OTHER", "PBRM1"}
@@ -163,21 +167,18 @@ def test_rna_pathway_review_uses_deseq2_wald_rank_and_raw_counts(tmp_path, monke
     assert metrics["ranking_method"] == "pydeseq2_wald_statistic"
 
 
-def test_confounder_geometry_uses_native_distance_and_separate_test_families(tmp_path, monkeypatch):
+def test_confounder_geometry_calls_real_skbio_and_separates_test_families(tmp_path, monkeypatch):
     from agents.subtype_review import tools as review_tools
 
-    patient_ids = ["P1", "P2", "P3", "P4"]
+    patient_ids = [f"P{i:02}" for i in range(12)]
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
     (candidate / "affinity_patient_order.json").write_text(json.dumps(patient_ids))
-    ct_distance = np.array([
-        [0, 1, 1, 2**0.5], [1, 0, 2**0.5, 1],
-        [1, 2**0.5, 0, 1], [2**0.5, 1, 1, 0],
-    ])
-    fused_distance = np.array([
-        [0, 0.8, 0.6, 0.4], [0.8, 0, 0.5, 0.7],
-        [0.6, 0.5, 0, 0.9], [0.4, 0.7, 0.9, 0],
-    ])
+    rng = np.random.default_rng(3)
+    points = rng.normal(size=(len(patient_ids), 4))
+    ct_distance = np.linalg.norm(points[:, None] - points[None, :], axis=2)
+    fused_points = rng.normal(size=(len(patient_ids), 4))
+    fused_distance = np.linalg.norm(fused_points[:, None] - fused_points[None, :], axis=2)
     for modality in ("ct", "wsi", "rna", "wxs"):
         np.save(candidate / f"{modality}_distance.npy", ct_distance)
     np.save(candidate / "fused_distance.npy", fused_distance)
@@ -187,46 +188,31 @@ def test_confounder_geometry_uses_native_distance_and_separate_test_families(tmp
         "confounder:\n  permutations: 9\n  random_seed: 7\n", encoding="utf-8"
     )
     values = {
-        "P1": {"tissue_source_site": "A", "ct_phase": "X", "ct_slice_thickness": 1.0},
-        "P2": {"tissue_source_site": "A", "ct_phase": "Y", "ct_slice_thickness": 3.0},
-        "P3": {"tissue_source_site": "B", "ct_phase": "X", "ct_slice_thickness": 2.0},
-        "P4": {"tissue_source_site": "B", "ct_phase": "Y", "ct_slice_thickness": 5.0},
+        case_id: {
+            "tissue_source_site": "A" if index < 6 else "B",
+            "ct_phase": "X" if index % 2 == 0 else "Y",
+            "ct_slice_thickness": float(index + 1),
+        }
+        for index, case_id in enumerate(patient_ids)
     }
     monkeypatch.setattr(review_tools, "technical_values", lambda *_: values)
-    permanova_distances = []
-    permanova_p = iter([0.01, 0.04])
-    permdisp_p = iter([0.02, 0.08])
-
-    class DistanceMatrix:
-        def __init__(self, data, ids):
-            self.data = np.asarray(data)
-            self.ids = ids
-
-    def fake_permanova(dm, **kwargs):
-        permanova_distances.append(dm.data.copy())
-        return {"test statistic": 2.0, "p-value": next(permanova_p)}
-
-    def fake_permdisp(dm, **kwargs):
-        return {"test statistic": 1.5, "p-value": next(permdisp_p)}
-
-    skbio = types.ModuleType("skbio")
-    skbio.DistanceMatrix = DistanceMatrix
-    skbio_stats = types.ModuleType("skbio.stats")
-    distance_stats = types.ModuleType("skbio.stats.distance")
-    distance_stats.permanova = fake_permanova
-    distance_stats.permdisp = fake_permdisp
-    monkeypatch.setitem(sys.modules, "skbio", skbio)
-    monkeypatch.setitem(sys.modules, "skbio.stats", skbio_stats)
-    monkeypatch.setitem(sys.modules, "skbio.stats.distance", distance_stats)
-
     result = review_tools.confounder_representation_effect(
         {}, str(tmp_path), str(config_dir), [], "partition", [],
     )["metrics"]["partition"]
 
-    assert np.array_equal(permanova_distances[0], fused_distance)
-    assert np.array_equal(permanova_distances[1], ct_distance)
-    assert result["tissue_source_site"]["permanova"]["r_squared"] == 0.5
-    assert result["tissue_source_site"]["permanova"]["q_value"] == 0.02
-    assert result["tissue_source_site"]["permdisp"]["q_value"] == 0.04
-    assert result["ct_phase"]["permdisp"]["q_value"] == 0.08
+    for factor in ("tissue_source_site", "ct_phase"):
+        assert result[factor]["permanova"]["test"] == "permanova"
+        assert 0 < result[factor]["permanova"]["permutation_p"] <= 1
+        assert result[factor]["permanova"]["q_value"] is not None
+        assert result[factor]["permdisp"]["test"] == "median"
+        assert 0 < result[factor]["permdisp"]["permutation_p"] <= 1
+        assert result[factor]["permdisp"]["q_value"] is not None
     assert "distance_regression" in result["ct_slice_thickness"]
+
+    for index, case_id in enumerate(patient_ids):
+        values[case_id]["ct_phase"] = "singleton" if index == 0 else "common"
+    sparse_result = review_tools.confounder_representation_effect(
+        {}, str(tmp_path), str(config_dir), [], "partition", [],
+    )["metrics"]["partition"]["ct_phase"]["permdisp"]
+    assert sparse_result["test"] == "not_estimable"
+    assert "at least two observations" in sparse_result["reason"]
