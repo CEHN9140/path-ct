@@ -167,6 +167,7 @@ def candidate_proposer(
         and all(path.is_file() for path in matrix_paths)
         and (consensus_dir / "pair_seen_counts.npy").is_file()
         and (root / "fused_similarity.npy").is_file()
+        and (root / "fused_distance.npy").is_file()
     )
     if cache_valid:
         records = {
@@ -178,7 +179,10 @@ def candidate_proposer(
         }
     else:
         full_fused = fuse_affinities(affinities, config["snf"])
+        full_distance = 1.0 - np.clip((full_fused + full_fused.T) / 2, 0, 1)
+        np.fill_diagonal(full_distance, 0.0)
         np.save(root / "fused_similarity.npy", full_fused)
+        np.save(root / "fused_distance.npy", full_distance)
         records = build_patient_resampled_candidates(affinities, patient_ids, config)
         np.save(consensus_dir / "pair_seen_counts.npy", records[int(config["candidate_ks"][0])]["pair_seen"])
         for k, record in records.items():
@@ -242,4 +246,5 @@ def candidate_proposer(
         "patient_store_paths": save_patient_states(output_root, updated_states),
         "resampling_manifest_path": str(manifest_path),
         "fused_similarity_path": str(root / "fused_similarity.npy"),
+        "fused_distance_path": str(root / "fused_distance.npy"),
     }

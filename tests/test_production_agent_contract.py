@@ -46,7 +46,7 @@ def test_review_tool_registry_is_the_production_seven_tool_set():
     assert set(TOOL_REGISTRY["structural_diagnostics"]["scopes"]) == {"set", "pair", "partition"}
 
 
-def test_wxs_driver_panel_is_posthoc_and_does_not_add_features(tmp_path):
+def test_wxs_driver_panel_is_posthoc_and_reports_complete_interpretation_genes(tmp_path):
     import pandas as pd
 
     from agents.subtype_review.tools import wxs_mutation_enrichment
@@ -55,12 +55,15 @@ def test_wxs_driver_panel_is_posthoc_and_does_not_add_features(tmp_path):
     wxs_dir.mkdir()
     pd.DataFrame({
         "case_id": ["P1", "P2", "P3", "P4"],
-        "mutation::VHL": [1, 1, 0, 0],
-        "mutation::OTHER": [0, 1, 0, 1],
-    }).to_csv(wxs_dir / "wxs_discovery_features.csv", index=False)
+        "VHL": [1, 1, 0, 0],
+        "OTHER": [0, 1, 0, 1],
+        "PBRM1": [0, 0, 0, 0],
+    }).to_csv(wxs_dir / "wxs_interpretation_features.csv", index=False)
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
-    (config_dir / "wxs.yaml").write_text("biological_support:\n  driver_genes: [VHL, PBRM1]\n")
+    (config_dir / "wxs.yaml").write_text(
+        "biological_support:\n  driver_genes: [VHL, PBRM1]\n  exploratory_report_top_n: 30\n"
+    )
 
     result = wxs_mutation_enrichment(
         {}, str(tmp_path), str(config_dir),
@@ -70,11 +73,14 @@ def test_wxs_driver_panel_is_posthoc_and_does_not_add_features(tmp_path):
         ],
         "set", ["C1"],
     )
-    panel = result["metrics"]["set"]["C1"]["driver_panel"]
-    assert {row["gene"] for row in result["metrics"]["set"]["C1"]["gene_enrichment"]} == {"VHL", "OTHER"}
-    assert panel["available_genes"] == ["VHL"]
-    assert panel["not_in_selected_features"] == ["PBRM1"]
-    assert [row["gene"] for row in panel["results"]] == ["VHL"]
+    metrics = result["metrics"]["set"]["C1"]
+    drivers = metrics["driver_panel"]["results"]
+
+    assert {row["gene"] for row in metrics["exploratory_top_genes"]} == {"OTHER"}
+    assert {row["gene"] for row in drivers} == {"VHL", "PBRM1"}
+    assert all(row["q_global"] is not None and row["q_driver"] is not None for row in drivers)
+    assert next(row for row in drivers if row["gene"] == "PBRM1")["set_mutated_n"] == 0
+    assert set(pd.read_csv(result["artifact_paths"]["C1"])["gene"]) == {"VHL", "OTHER", "PBRM1"}
 
 
 def test_confounder_numeric_factor_with_one_observed_group_is_not_estimable(monkeypatch, tmp_path):

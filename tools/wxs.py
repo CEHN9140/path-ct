@@ -110,23 +110,37 @@ def build_wxs_artifacts(
     patient_ids = [str(case["Case_ID"]) for case in cohort_cases]
     output_dir = ensure_dir(Path(output_root) / "wxs")
     discovery_path = output_dir / "wxs_discovery_features.csv"
+    interpretation_path = output_dir / "wxs_interpretation_features.csv"
     validation_path = output_dir / "wxs_validation_features.csv"
+    distance_path = output_dir / "wxs_distance.npy"
     affinity_path = output_dir / "wxs_affinity.npy"
     order_path = output_dir / "wxs_discovery_patient_order.json"
     audit_path = output_dir / "wxs_discovery_audit.json"
     signature = hash_payload({
-        "cache_version": 3,
+        "cache_version": 4,
         "wxs_input_signature": wxs_cache["signature"],
         "patient_ids": patient_ids,
-        "config": semantic_config(config),
+        "config": semantic_config({
+            **config,
+            "biological_support": {
+                key: value
+                for key, value in config["biological_support"].items()
+                if key != "exploratory_report_top_n"
+            },
+        }),
         "snf": semantic_config(snf_config),
         "code": file_identity(str(Path(__file__).resolve())),
     })
-    if all(path.is_file() for path in (discovery_path, validation_path, affinity_path, order_path, audit_path)):
+    if all(path.is_file() for path in (
+        discovery_path, interpretation_path, validation_path, distance_path,
+        affinity_path, order_path, audit_path,
+    )):
         if json.loads(audit_path.read_text(encoding="utf-8")).get("artifact_signature") == signature:
             return {
                 "wxs_discovery_feature_path": str(discovery_path),
+                "wxs_interpretation_feature_path": str(interpretation_path),
                 "wxs_validation_feature_path": str(validation_path),
+                "wxs_distance_path": str(distance_path),
                 "wxs_affinity_path": str(affinity_path),
                 "wxs_patient_order_path": str(order_path),
                 "wxs_discovery_audit_path": str(audit_path),
@@ -139,24 +153,28 @@ def build_wxs_artifacts(
     altered = rows[rows["classification"].isin(nonsynonymous)]
     prevalence = altered.groupby("gene")["patient_id"].nunique() / len(patient_ids)
     genes = sorted(prevalence[prevalence >= float(config["min_gene_prevalence"])].index)
+    driver_genes = sorted({str(gene).upper() for gene in config["biological_support"]["driver_genes"]})
+    interpretation_genes = sorted(set(altered["gene"]) | set(driver_genes))
     discovery = pd.DataFrame(False, index=patient_ids, columns=genes)
+    interpretation = pd.DataFrame(False, index=patient_ids, columns=interpretation_genes)
     for gene, gene_rows in altered[altered["gene"].isin(genes)].groupby("gene"):
         carriers = set(gene_rows["patient_id"])
         discovery[gene] = [patient_id in carriers for patient_id in patient_ids]
+    for gene, gene_rows in altered[altered["gene"].isin(interpretation_genes)].groupby("gene"):
+        carriers = set(gene_rows["patient_id"])
+        interpretation[gene] = [patient_id in carriers for patient_id in patient_ids]
 
     functional = pd.DataFrame(index=patient_ids)
     for name, classes in config["functional_classes"].items():
         functional[name] = rows[rows["classification"].isin(classes)].groupby("patient_id").size().reindex(patient_ids, fill_value=0)
-    tmb = (
-        altered.groupby("patient_id").size().reindex(patient_ids, fill_value=0)
-        / float(config["capture_size_mb"])
-    ).rename("validation::estimated_TMB")
-    discovery.index.name = functional.index.name = tmb.index.name = "case_id"
+    discovery.index.name = interpretation.index.name = functional.index.name = "case_id"
     discovery.add_prefix("mutation::").reset_index().to_csv(discovery_path, index=False)
-    pd.concat([functional.add_prefix("validation::"), tmb], axis=1).reset_index().to_csv(validation_path, index=False)
+    interpretation.reset_index().to_csv(interpretation_path, index=False)
+    functional.add_prefix("validation::").reset_index().to_csv(validation_path, index=False)
 
     binary = discovery.to_numpy(dtype=bool)
     distance = binary_mutation_distance(binary, float(config["empty_mutation_distance"]))
+    np.save(distance_path, distance)
     np.save(affinity_path, wxs_distance_affinity(distance, snf_config))
     write_json(order_path, patient_ids)
     write_json(audit_path, {
@@ -165,15 +183,20 @@ def build_wxs_artifacts(
         "discovery_gene_count": len(genes),
         "discovery_genes": genes,
         "minimum_gene_prevalence": float(config["min_gene_prevalence"]),
-        "driver_forced_inclusion": False,
-        "validation_features": list(functional.columns) + ["validation::estimated_TMB"],
+        "discovery_driver_forced_inclusion": False,
+        "interpretation_includes_configured_drivers": True,
+        "interpretation_gene_count": len(interpretation_genes),
+        "driver_genes": driver_genes,
+        "validation_features": [f"validation::{name}" for name in functional.columns],
         "distance_metric": "jaccard_binary",
         "empty_mutation_distance": float(config["empty_mutation_distance"]),
         "zero_vector_patient_count": int(np.sum(binary.sum(axis=1) == 0)),
     })
     return {
         "wxs_discovery_feature_path": str(discovery_path),
+        "wxs_interpretation_feature_path": str(interpretation_path),
         "wxs_validation_feature_path": str(validation_path),
+        "wxs_distance_path": str(distance_path),
         "wxs_affinity_path": str(affinity_path),
         "wxs_patient_order_path": str(order_path),
         "wxs_discovery_audit_path": str(audit_path),

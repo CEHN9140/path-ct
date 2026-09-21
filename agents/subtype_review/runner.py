@@ -78,13 +78,19 @@ def run_review_grid(
     evidence_paths = {
         str(state["omics_evidence"][key])
         for state in patient_states_by_id.values()
-        for key in ("rna_pathway_feature_path", "wxs_discovery_feature_path")
+        for key in (
+            "rna_pathway_feature_path",
+            "rna_raw_counts_path",
+            "wxs_discovery_feature_path",
+            "wxs_interpretation_feature_path",
+        )
         if state.get("omics_evidence", {}).get(key)
     }
     evidence_paths.update(str(review_config["known_label_echo"][key]) for key in (
         "mrna_m1_m4_path", "clearcode34_path"
     ))
     evidence_paths.add(str(review_config["rna"]["hallmark_gene_sets_path"]))
+    evidence_paths.add(str(Path(config_dir) / "wxs.yaml"))
     technical_metadata = sorted(
         str(path) for path in (Path(output_root) / "ct_qc").rglob("*.json")
     )

@@ -55,6 +55,7 @@ def build_modality_affinity_artifacts(
     )
     wxs = {
         "affinity": np.load(discovery_artifacts["wxs_affinity_path"]),
+        "distance": np.load(discovery_artifacts["wxs_distance_path"]),
         "patient_ids": wxs_patient_ids,
         "audit": {
             "source": "wxs_discovery_features",
@@ -63,14 +64,26 @@ def build_modality_affinity_artifacts(
     }
     patient_ids = list(ct["patient_ids"])
     modalities = {"ct": ct, "wsi": wsi, "rna": rna, "wxs": wxs}
+    distances = {}
     for name, result in modalities.items():
         if list(result["patient_ids"]) != patient_ids:
             raise ValueError(f"{name} patient order does not match the candidate cohort")
+        distance = np.asarray(result["distance"], dtype=float)
+        if (
+            distance.shape != (len(patient_ids), len(patient_ids))
+            or not np.isfinite(distance).all()
+            or not np.allclose(distance, distance.T, atol=1e-8)
+            or np.min(distance) < 0
+            or not np.allclose(np.diag(distance), 0.0, atol=1e-8)
+        ):
+            raise ValueError(f"{name} native distance is invalid or misaligned")
+        distances[name] = distance
     return {
         "patient_ids": patient_ids,
         "modality_affinities": {
             name: result["affinity"] for name, result in modalities.items()
         },
+        "modality_distances": distances,
         "audit": {
             "modalities": {
                 name: result["audit"] for name, result in modalities.items()

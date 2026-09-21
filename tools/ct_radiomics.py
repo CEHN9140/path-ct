@@ -9,6 +9,8 @@ from typing import Any, Mapping, Sequence
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+import numpy as np
+
 from utils.tool_utils import quiet_tool_logs
 
 
@@ -19,7 +21,9 @@ def build_ct_discovery_feature_matrix(
     output_root: str = "",
 ) -> dict[str, Any]:
     import json
+
     import numpy as np
+
     from utils.llm_utils import load_candidate_proposer_config
 
     snf_config = load_candidate_proposer_config(config_dir or "configs")["snf"]
@@ -30,7 +34,9 @@ def build_ct_discovery_feature_matrix(
     feature_names = []
     for state in states:
         evidence = dict(state.get("ct_evidence", {}) or {})
-        values = json.loads(Path(str(evidence["feature_path"])).read_text(encoding="utf-8"))
+        values = json.loads(
+            Path(str(evidence["feature_path"])).read_text(encoding="utf-8")
+        )
         names = list(values)
         if feature_names and names != feature_names:
             raise ValueError(f"CT feature names differ for {state['case_id']}")
@@ -39,7 +45,9 @@ def build_ct_discovery_feature_matrix(
 
     matrix = np.asarray(vectors, dtype=float)
     if not patient_ids or not feature_names or not np.isfinite(matrix).all():
-        raise ValueError("CT feature matrix must contain finite features for every eligible patient")
+        raise ValueError(
+            "CT feature matrix must contain finite features for every eligible patient"
+        )
 
     scale = np.maximum(1.0, np.max(np.abs(matrix), axis=0))
     constant = matrix.std(axis=0) <= np.finfo(float).eps * scale * 16
@@ -69,7 +77,10 @@ def build_ct_discovery_feature_matrix(
             if active[left] and active[right]:
                 drop = max(
                     (left, right),
-                    key=lambda index: (row_sums[index] / max(active_count - 1, 1), names[index]),
+                    key=lambda index: (
+                        row_sums[index] / max(active_count - 1, 1),
+                        names[index],
+                    ),
                 )
                 active[drop] = False
                 row_sums -= absolute[:, drop]
@@ -112,6 +123,7 @@ def build_ct_affinity(
     output_root: str = "",
 ) -> dict[str, Any]:
     from scipy.spatial.distance import cdist
+
     from tools.evidence_features import distance_to_affinity
     from utils.llm_utils import load_candidate_proposer_config
 
@@ -120,7 +132,11 @@ def build_ct_affinity(
     )
     config = load_candidate_proposer_config(config_dir or "configs")["snf"]
     distance = cdist(payload["matrix"], payload["matrix"], metric="euclidean")
-    return {**payload, "affinity": distance_to_affinity(distance, config)}
+    return {
+        **payload,
+        "distance": np.asarray(distance, dtype=float),
+        "affinity": distance_to_affinity(distance, config),
+    }
 
 
 def run_ct_radiomics(

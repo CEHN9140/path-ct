@@ -26,11 +26,13 @@ def build_wsi_affinity(
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     matrix = np.divide(matrix, norms, out=np.zeros_like(matrix), where=norms > 0)
     if len(case_ids) == 1:
+        distance = np.zeros((1, 1), dtype=float)
         affinity = np.ones((1, 1), dtype=float)
     else:
         distance = cdist(matrix, matrix, metric="cosine")
         affinity = distance_to_affinity(distance, config)
     return {
+        "distance": np.asarray(distance, dtype=float),
         "affinity": np.asarray(affinity, dtype=float),
         "patient_ids": case_ids,
         "feature_count": int(matrix.shape[1]),

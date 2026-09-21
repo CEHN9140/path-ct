@@ -85,6 +85,10 @@ def test_candidate_proposer_reuses_cached_consensus_for_agent_subset_runs(tmp_pa
 
     first = proposer.candidate_proposer(states, output_root=str(tmp_path), config_dir=str(config_dir))
     assert set(first["candidate_partitions"]) == {2}
+    fused = np.load(candidate_dir / "fused_similarity.npy")
+    fused_distance = np.load(candidate_dir / "fused_distance.npy")
+    assert np.allclose(fused_distance, 1.0 - np.clip((fused + fused.T) / 2, 0, 1))
+    assert np.allclose(np.diag(fused_distance), 0.0)
     monkeypatch.setattr(proposer, "build_patient_resampled_candidates", lambda *args: pytest.fail("cache was recomputed"))
     second = proposer.candidate_proposer(states, output_root=str(tmp_path), config_dir=str(config_dir))
     assert second["candidate_signature"] == first["candidate_signature"]

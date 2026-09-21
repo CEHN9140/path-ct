@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -26,8 +27,14 @@ def scoped_groups(scope: str, target_ids: list[str], sets: list[Mapping[str, Any
     return {pair_id: sorted(set(members[target_ids[0]]) | set(members[target_ids[1]]))}
 
 
-def tool_result(name: str, metrics: Mapping[str, Any], status: str = "success", reason: str = "") -> dict[str, Any]:
-    return {
+def tool_result(
+    name: str,
+    metrics: Mapping[str, Any],
+    status: str = "success",
+    reason: str = "",
+    artifacts: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    result = {
         "tool_name": name,
         "status": status,
         "metrics": dict(metrics),
@@ -35,6 +42,9 @@ def tool_result(name: str, metrics: Mapping[str, Any], status: str = "success", 
         "missing_reason": reason,
         "errors": [],
     }
+    if artifacts:
+        result["artifact_paths"] = dict(artifacts)
+    return result
 
 
 def affinity_matrices(output_root: str) -> tuple[list[str], dict[str, np.ndarray]]:
@@ -57,6 +67,58 @@ def distance_kernel(distance: np.ndarray) -> np.ndarray:
     return -0.5 * centering @ np.square(distance) @ centering
 
 
+def modality_distance_matrices(output_root: str) -> tuple[list[str], dict[str, np.ndarray]]:
+    candidate_root = Path(output_root) / "candidate_subtype"
+    patient_ids = [
+        str(value)
+        for value in json.loads((candidate_root / "affinity_patient_order.json").read_text())
+    ]
+    shape = (len(patient_ids), len(patient_ids))
+    matrices = {}
+    for name in ("ct", "wsi", "rna", "wxs"):
+        matrix = np.asarray(np.load(candidate_root / f"{name}_distance.npy"), dtype=float)
+        if (
+            matrix.shape != shape
+            or not np.isfinite(matrix).all()
+            or not np.allclose(matrix, matrix.T, atol=1e-8)
+            or np.min(matrix) < 0
+            or not np.allclose(np.diag(matrix), 0.0, atol=1e-8)
+        ):
+            raise ValueError(
+                f"{name} native distance does not match patient order or is invalid"
+            )
+        matrices[name] = matrix
+    return patient_ids, matrices
+
+
+def generalized_rv(left_distance: np.ndarray, right_distance: np.ndarray) -> float | None:
+    left_kernel = distance_kernel(left_distance)
+    right_kernel = distance_kernel(right_distance)
+    denominator = np.linalg.norm(left_kernel) * np.linalg.norm(right_kernel)
+    return float(np.sum(left_kernel * right_kernel) / denominator) if denominator else None
+
+
+def current_membership_alignment(distance: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
+    from sklearn.metrics import silhouette_score
+
+    labels = np.asarray(labels, dtype=str)
+    upper = np.triu(np.ones(distance.shape, dtype=bool), k=1)
+    same = labels[:, None] == labels[None, :]
+    within = distance[upper & same]
+    between = distance[upper & ~same]
+    unique_n = len(np.unique(labels))
+    silhouette = (
+        float(silhouette_score(distance, labels, metric="precomputed"))
+        if 1 < unique_n < len(labels)
+        else None
+    )
+    return {
+        "silhouette": silhouette,
+        "mean_within_distance": float(within.mean()) if len(within) else None,
+        "mean_between_distance": float(between.mean()) if len(between) else None,
+    }
+
+
 def representation_concordance(
     patient_states_by_id: Mapping[str, Mapping[str, Any]],
     output_root: str,
@@ -65,23 +127,100 @@ def representation_concordance(
     target_ids: list[str],
     config_dir: str = "",
 ) -> dict[str, Any]:
-    patient_ids, matrices = affinity_matrices(output_root)
+    from utils.llm_utils import load_yaml_file
+
+    patient_ids, matrices = modality_distance_matrices(output_root)
     index = {patient_id: position for position, patient_id in enumerate(patient_ids)}
-    output = {}
-    for key, members in scoped_groups(scope, target_ids, all_cluster_states).items():
-        positions = [index[member] for member in members]
-        grv = {}
-        for left, right in combinations(("ct", "wsi", "rna", "wxs"), 2):
-            kernels = []
-            for name in (left, right):
-                affinity = matrices[name][np.ix_(positions, positions)]
-                distance = np.clip(1.0 - affinity / np.sqrt(np.outer(np.diag(affinity), np.diag(affinity))), 0, 1)
-                kernel = distance_kernel(distance)
-                kernels.append(kernel)
-            denominator = np.sqrt(np.sum(kernels[0] ** 2) * np.sum(kernels[1] ** 2))
-            grv[f"{left}__{right}"] = float(np.sum(kernels[0] * kernels[1]) / denominator) if denominator else None
-        output[key] = {"patient_n": len(members), "pairwise_affinity_geometry_grv": grv}
-    return tool_result("representation_concordance", {scope: output})
+    memberships = {
+        str(item["set_id"]): set(map(str, item["member_ids"]))
+        for item in all_cluster_states
+    }
+    partition_members = set().union(*memberships.values())
+    missing_members = sorted(partition_members - set(index))
+    if missing_members:
+        raise ValueError(f"Current memberships are absent from native distance matrices: {missing_members}")
+    if scope == "partition":
+        case_ids = [case_id for case_id in patient_ids if case_id in partition_members]
+        labels = np.asarray([
+            next(set_id for set_id, members in memberships.items() if case_id in members)
+            for case_id in case_ids
+        ])
+        comparison = "current_partition_labels"
+        report_key = "partition"
+    elif scope == "set":
+        target = target_ids[0]
+        case_ids = [case_id for case_id in patient_ids if case_id in partition_members]
+        labels = np.asarray([target if case_id in memberships[target] else "rest" for case_id in case_ids])
+        comparison = "target_vs_rest"
+        report_key = target
+    else:
+        left, right = target_ids
+        selected = memberships[left] | memberships[right]
+        case_ids = [case_id for case_id in patient_ids if case_id in selected]
+        labels = np.asarray([left if case_id in memberships[left] else right for case_id in case_ids])
+        comparison = "candidate_pair"
+        report_key = "|".join(sorted(target_ids))
+
+    positions = [index[case_id] for case_id in case_ids]
+    settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["cross_modal"]["concordance"]
+    permutations = int(settings["permutations"])
+    bootstrap_repeats = int(settings["bootstrap_repeats"])
+    rng = np.random.default_rng(int(settings["random_seed"]))
+    concordance = {}
+    for left, right in combinations(("ct", "wsi", "rna", "wxs"), 2):
+        left_distance = matrices[left][np.ix_(positions, positions)]
+        right_distance = matrices[right][np.ix_(positions, positions)]
+        observed = generalized_rv(left_distance, right_distance)
+        if observed is None:
+            ci = None
+            valid_n = 0
+            permutation_p = None
+        else:
+            bootstrapped = []
+            n = len(positions)
+            for _ in range(bootstrap_repeats):
+                sample = rng.integers(0, n, size=n)
+                value = generalized_rv(
+                    left_distance[np.ix_(sample, sample)],
+                    right_distance[np.ix_(sample, sample)],
+                )
+                if value is not None:
+                    bootstrapped.append(value)
+            valid_n = len(bootstrapped)
+            ci = (
+                [float(value) for value in np.quantile(bootstrapped, [0.025, 0.975])]
+                if valid_n >= 2 else None
+            )
+            left_kernel = distance_kernel(left_distance)
+            right_kernel = distance_kernel(right_distance)
+            denominator = np.linalg.norm(left_kernel) * np.linalg.norm(right_kernel)
+            exceed = 0
+            for _ in range(permutations):
+                perm = rng.permutation(len(positions))
+                permuted = right_kernel[np.ix_(perm, perm)]
+                perm_grv = float(np.sum(left_kernel * permuted) / denominator)
+                exceed += perm_grv >= observed
+            permutation_p = (exceed + 1) / (permutations + 1)
+        concordance[f"{left}__{right}"] = {
+            "grv": observed,
+            "bootstrap_ci95": ci,
+            "bootstrap_valid_n": valid_n,
+            "permutation_p": permutation_p,
+            "permutations": permutations,
+        }
+    alignment = {
+        name: current_membership_alignment(
+            matrices[name][np.ix_(positions, positions)], labels
+        )
+        for name in ("ct", "wsi", "rna", "wxs")
+    }
+    output = {
+        "patient_n": len(case_ids),
+        "comparison": comparison,
+        "geometry_concordance": concordance,
+        "current_membership_alignment": alignment,
+    }
+    return tool_result("representation_concordance", {scope: {report_key: output}})
 
 
 def structural_diagnostics(
@@ -215,9 +354,9 @@ def rna_pathway_enrichment(
     scope: str,
     target_ids: list[str],
 ) -> dict[str, Any]:
-    from scipy.stats import ttest_ind
     from gseapy import prerank
-    from statsmodels.stats.multitest import multipletests
+    from pydeseq2.dds import DeseqDataSet
+    from pydeseq2.ds import DeseqStats
     from utils.llm_utils import load_yaml_file
 
     all_members = {
@@ -231,30 +370,33 @@ def rna_pathway_enrichment(
     missing_paths = []
     for case_id in sorted(all_members):
         omics = dict(patient_states_by_id[case_id].get("omics_evidence", {}) or {})
-        path = str(omics.get("rna_pathway_feature_path", "") or "")
+        path = str(omics.get("rna_raw_counts_path", "") or "")
         if path:
             rna_paths.add(path)
         else:
             missing_paths.append(case_id)
     if missing_paths:
         raise ValueError(
-            "Candidate-cohort patient states are missing rna_pathway_feature_path: "
+            "Candidate-cohort patient states are missing rna_raw_counts_path: "
             f"{missing_paths}"
         )
     if len(rna_paths) != 1:
         raise ValueError(
-            "Candidate-cohort patient states must reference exactly one RNA pathway "
+            "Candidate-cohort patient states must reference exactly one raw RNA count "
             f"feature artifact, found: {sorted(rna_paths)}"
         )
 
     frame = pd.read_csv(next(iter(rna_paths))).set_index("case_id")
     frame.index = frame.index.map(str)
-    missing_rna = sorted(all_members - set(frame.index))
-    if missing_rna:
+    missing_counts = sorted(all_members - set(frame.index))
+    if missing_counts:
         raise ValueError(
-            "RNA pathway feature matrix does not cover the full candidate cohort: "
-            f"{missing_rna}"
+            "Raw RNA count matrix does not cover the full candidate cohort: "
+            f"{missing_counts}"
         )
+    counts_array = frame.to_numpy(dtype=float)
+    if not np.isfinite(counts_array).all() or np.any(counts_array < 0) or not np.allclose(counts_array, np.rint(counts_array)):
+        raise ValueError("Raw RNA count matrix must contain finite nonnegative integers")
     gene_settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["rna"]
     gene_sets_path = gene_settings["hallmark_gene_sets_path"]
     gene_sets = {}
@@ -268,25 +410,51 @@ def rna_pathway_enrichment(
     for set_id in target_ids:
         members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
         case_ids = sorted(all_members)
-        group = frame.loc[[case_id for case_id in case_ids if case_id in members]]
-        rest = frame.loc[[case_id for case_id in case_ids if case_id not in members]]
-        set_n, rest_n = len(group), len(rest)
+        target_ids_in_matrix = [case_id for case_id in case_ids if case_id in members]
+        rest_ids = [case_id for case_id in case_ids if case_id not in members]
+        set_n, rest_n = len(target_ids_in_matrix), len(rest_ids)
         if set_n < 2 or rest_n < 2:
             results[set_id] = {
                 "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "ranking_method": "pydeseq2_wald_statistic",
                 "finite_ranked_gene_n": 0,
-                "reason": "Welch t-statistics require at least two samples in both groups.",
+                "reason": "DESeq2 target-versus-rest contrast requires at least two samples in both groups.",
                 "pathways": [],
             }
             continue
+        contrast_ids = target_ids_in_matrix + rest_ids
+        counts = frame.loc[contrast_ids].astype(np.int64)
+        metadata = pd.DataFrame(
+            {"condition": ["target"] * set_n + ["rest"] * rest_n}, index=contrast_ids
+        )
+        dds = DeseqDataSet(
+            counts=counts,
+            metadata=metadata,
+            design="~condition",
+            refit_cooks=True,
+            n_cpus=1,
+            quiet=True,
+        )
+        dds.deseq2()
+        differential_stats = DeseqStats(
+            dds,
+            contrast=["condition", "target", "rest"],
+            cooks_filter=False,
+            independent_filter=False,
+            n_cpus=1,
+            quiet=True,
+        )
+        differential_stats.run_wald_test()
         ranking = pd.DataFrame({
-            "gene": frame.columns,
-            "t": [float(ttest_ind(group[gene], rest[gene], equal_var=False, nan_policy="omit").statistic) for gene in frame.columns],
-        }).replace([np.inf, -np.inf], np.nan).dropna().sort_values("t", ascending=False)
+            "gene": frame.columns.astype(str),
+            "stat": np.asarray(differential_stats.statistics, dtype=float).reshape(-1),
+        }).replace([np.inf, -np.inf], np.nan).dropna()
+        ranking = ranking.sort_values(["stat", "gene"], ascending=[False, True])
         finite_ranked_gene_n = len(ranking)
         if finite_ranked_gene_n < 2:
             results[set_id] = {
                 "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "ranking_method": "pydeseq2_wald_statistic",
                 "finite_ranked_gene_n": finite_ranked_gene_n,
                 "reason": "Fewer than two finite gene statistics were available for preranked enrichment.",
                 "pathways": [],
@@ -301,13 +469,14 @@ def rna_pathway_enrichment(
         if not eligible_gene_sets:
             results[set_id] = {
                 "analysis_status": "not_estimable", "set_n": set_n, "rest_n": rest_n,
+                "ranking_method": "pydeseq2_wald_statistic",
                 "finite_ranked_gene_n": finite_ranked_gene_n,
                 "reason": "No configured pathway met the minimum overlap with finite ranked genes.",
                 "pathways": [],
             }
             continue
         result = prerank(
-            rnk=ranking,
+            rnk=ranking[["gene", "stat"]],
             gene_sets=eligible_gene_sets,
             min_size=min_overlap,
             max_size=500,
@@ -328,9 +497,25 @@ def rna_pathway_enrichment(
         rows.sort(key=lambda item: (item["fdr_q"], -abs(item["nes"])))
         results[set_id] = {
             "analysis_status": "success", "set_n": set_n, "rest_n": rest_n,
+            "ranking_method": "pydeseq2_wald_statistic",
             "finite_ranked_gene_n": finite_ranked_gene_n, "pathways": rows[:30],
         }
     return tool_result("rna_pathway_enrichment", {"set": results})
+
+
+def odds_ratio_with_ci(table: np.ndarray) -> dict[str, Any]:
+    a, b, c, d = map(float, np.asarray(table).reshape(-1))
+    corrected = bool(np.any(np.asarray(table) == 0))
+    if corrected:
+        a, b, c, d = a + 0.5, b + 0.5, c + 0.5, d + 0.5
+    odds_ratio = a * d / (b * c)
+    standard_error = np.sqrt(1 / a + 1 / b + 1 / c + 1 / d)
+    interval = np.exp(np.log(odds_ratio) + np.array([-1.96, 1.96]) * standard_error)
+    return {
+        "odds_ratio": float(odds_ratio),
+        "odds_ratio_ci95": [float(interval[0]), float(interval[1])],
+        "zero_cell_correction_applied": corrected,
+    }
 
 
 def wxs_mutation_enrichment(
@@ -342,73 +527,88 @@ def wxs_mutation_enrichment(
     target_ids: list[str],
 ) -> dict[str, Any]:
     from scipy.stats import fisher_exact
-    from statsmodels.stats.contingency_tables import Table2x2
     from statsmodels.stats.multitest import multipletests
-
-    path = Path(output_root) / "wxs" / "wxs_discovery_features.csv"
-    frame = pd.read_csv(path).set_index("case_id")
-    frame.index = frame.index.map(str)
-    features = [name for name in frame.columns if name.startswith("mutation::")]
     from utils.llm_utils import load_yaml_file
 
-    driver_genes = {
-        str(gene).upper()
-        for gene in load_yaml_file(Path(config_dir) / "wxs.yaml")["biological_support"]["driver_genes"]
-    }
+    frame = pd.read_csv(Path(output_root) / "wxs" / "wxs_interpretation_features.csv").set_index("case_id")
+    frame.index = frame.index.map(str)
+    genes = list(frame.columns.astype(str))
+    config = load_yaml_file(Path(config_dir) / "wxs.yaml")["biological_support"]
+    driver_genes = {str(gene).upper() for gene in config["driver_genes"]}
+    report_top_n = int(config["exploratory_report_top_n"])
+    missing_drivers = sorted(driver_genes - {gene.upper() for gene in genes})
+    if missing_drivers:
+        raise ValueError(f"WXS interpretation matrix is missing configured drivers: {missing_drivers}")
     universe = {str(member) for item in all_cluster_states for member in item["member_ids"]}
+    missing = sorted(universe - set(frame.index))
+    if missing:
+        raise ValueError(f"WXS interpretation matrix is missing candidate patients: {missing}")
+
     rows_by_set = {}
+    artifact_paths = {}
+    artifact_dir = Path(output_root) / "wxs" / "review_enrichment"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     for set_id in target_ids:
         members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
-        set_ids = sorted(members & universe & set(frame.index))
-        rest_ids = sorted((universe - members) & set(frame.index))
+        set_ids = sorted(members & universe)
+        rest_ids = sorted(universe - members)
         if not set_ids or not rest_ids:
             rows_by_set[set_id] = {
                 "analysis_status": "not_estimable", "set_n": len(set_ids), "rest_n": len(rest_ids),
-                "reason": "Fisher enrichment requires at least one observed patient in both set and rest.",
-                "gene_enrichment": [],
-                "driver_panel": {"configured_genes": sorted(driver_genes), "available_genes": [],
-                                 "not_in_selected_features": sorted(driver_genes), "results": []},
+                "reason": "Fisher enrichment requires at least one patient in both set and rest.",
+                "tested_gene_n": 0,
+                "driver_panel": {"configured_genes": sorted(driver_genes), "results": []},
+                "exploratory_top_genes": [],
             }
             continue
+
         rows = []
-        for gene in features:
+        for gene in genes:
             set_positive = int(frame.loc[set_ids, gene].astype(bool).sum())
             rest_positive = int(frame.loc[rest_ids, gene].astype(bool).sum())
             table = np.asarray([
                 [set_positive, len(set_ids) - set_positive],
                 [rest_positive, len(rest_ids) - rest_positive],
             ])
-            odds_ratio, p_value = fisher_exact(table)
-            ci = Table2x2(table).oddsratio_confint()
-            gene_name = gene.removeprefix("mutation::")
             rows.append({
-                "gene": gene_name,
-                "driver_panel_member": gene_name.upper() in driver_genes,
+                "gene": gene,
+                "driver_panel_member": gene.upper() in driver_genes,
                 "set_mutated_n": set_positive,
                 "set_n": len(set_ids),
                 "rest_mutated_n": rest_positive,
                 "rest_n": len(rest_ids),
-                "odds_ratio": float(odds_ratio),
-                "odds_ratio_ci95": [float(ci[0]), float(ci[1])],
-                "p_value": float(p_value),
-                "q_value": None,
+                **odds_ratio_with_ci(table),
+                "p_value": float(fisher_exact(table).pvalue),
+                "q_global": None,
+                "q_driver": None,
             })
-        q_values = multipletests([row["p_value"] for row in rows], method="fdr_bh")[1]
-        for row, q_value in zip(rows, q_values):
-            row["q_value"] = float(q_value)
-        rows.sort(key=lambda item: (item["q_value"], -abs(item["odds_ratio"] - 1)))
-        available_drivers = {row["gene"].upper() for row in rows} & driver_genes
+        for row, q_value in zip(rows, multipletests([row["p_value"] for row in rows], method="fdr_bh")[1]):
+            row["q_global"] = float(q_value)
+        driver_rows = [row for row in rows if row["driver_panel_member"]]
+        for row, q_value in zip(driver_rows, multipletests([row["p_value"] for row in driver_rows], method="fdr_bh")[1]):
+            row["q_driver"] = float(q_value)
+        rows.sort(key=lambda row: (row["q_global"], row["p_value"], row["gene"]))
+        membership_hash = hashlib.sha256(
+            json.dumps({"target": set_ids, "rest": rest_ids}, separators=(",", ":")).encode()
+        ).hexdigest()[:16]
+        safe_set_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", set_id)
+        artifact_path = artifact_dir / f"{safe_set_id}_{membership_hash}.csv"
+        pd.DataFrame([
+            {
+                **{key: value for key, value in row.items() if key != "odds_ratio_ci95"},
+                "odds_ratio_ci95_lower": row["odds_ratio_ci95"][0],
+                "odds_ratio_ci95_upper": row["odds_ratio_ci95"][1],
+            }
+            for row in rows
+        ]).to_csv(artifact_path, index=False)
+        artifact_paths[set_id] = str(artifact_path)
         rows_by_set[set_id] = {
             "analysis_status": "success", "set_n": len(set_ids), "rest_n": len(rest_ids),
-            "gene_enrichment": rows,
-            "driver_panel": {
-                "configured_genes": sorted(driver_genes),
-                "available_genes": sorted(available_drivers),
-                "not_in_selected_features": sorted(driver_genes - available_drivers),
-                "results": [row for row in rows if row["driver_panel_member"]],
-            },
+            "tested_gene_n": len(rows),
+            "driver_panel": {"configured_genes": sorted(driver_genes), "results": driver_rows},
+            "exploratory_top_genes": [row for row in rows if not row["driver_panel_member"]][:report_top_n],
         }
-    return tool_result("wxs_mutation_enrichment", {"set": rows_by_set})
+    return tool_result("wxs_mutation_enrichment", {"set": rows_by_set}, artifacts=artifact_paths)
 
 
 def clinical_labels(patient_states_by_id: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, str]]:
@@ -656,55 +856,93 @@ def confounder_representation_effect(
     target_ids: list[str],
 ) -> dict[str, Any]:
     from statsmodels.stats.multitest import multipletests
+    from skbio import DistanceMatrix
+    from skbio.stats.distance import permanova, permdisp
     from utils.llm_utils import load_yaml_file
 
-    patient_ids, matrices = affinity_matrices(output_root)
+    patient_ids, matrices = modality_distance_matrices(output_root)
+    candidate_root = Path(output_root) / "candidate_subtype"
+    fused_distance = np.asarray(np.load(candidate_root / "fused_distance.npy"), dtype=float)
+    if (
+        fused_distance.shape != (len(patient_ids), len(patient_ids))
+        or not np.isfinite(fused_distance).all()
+        or not np.allclose(fused_distance, fused_distance.T, atol=1e-8)
+        or np.min(fused_distance) < 0
+        or not np.allclose(np.diag(fused_distance), 0.0, atol=1e-8)
+    ):
+        raise ValueError("Fused native distance does not match patient order or is invalid")
     index = {case_id: position for position, case_id in enumerate(patient_ids)}
     factors = technical_values(patient_states_by_id, output_root)
     settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["confounder"]
     permutations = int(settings["permutations"])
+    seed = int(settings["random_seed"])
     categorical_factors = ("tissue_source_site", "ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel")
     continuous_factors = ("ct_slice_thickness", "ct_pixel_spacing", "ct_z_spacing", "study_year")
     results = {}
+    permanova_rows = []
+    permdisp_rows = []
+    regression_rows = []
     for factor in categorical_factors:
         available = [case_id for case_id in patient_ids if factors.get(case_id, {}).get(factor) not in (None, "")]
-        labels = np.asarray([str(factors[case_id][factor]) for case_id in available])
-        if len(np.unique(labels)) < 2:
-            results[factor] = {
-                "modality": "fused" if factor == "tissue_source_site" else "ct",
-                "variable_type": "categorical", "test": "not_estimable",
-                "n": len(labels), "levels": int(len(np.unique(labels))),
-                "permutation_p": None, "q_value": None,
-            }
-            continue
-        modality = "fused" if factor in {"tissue_source_site"} else "ct"
-        positions = [index[item] for item in available]
-        affinity = matrices[modality][np.ix_(positions, positions)]
-        distance = np.clip(1 - affinity, 0, 1)
-        kernel = distance_kernel(distance)
-        n = len(labels)
-        levels = np.unique(labels)
-        total = float(np.trace(kernel))
-        def pseudo_f(groups: np.ndarray) -> tuple[float, float]:
-            between = sum(float(kernel[np.ix_(groups == level, groups == level)].sum()) / int(np.sum(groups == level)) for level in np.unique(groups))
-            residual = total - between
-            df_group = len(np.unique(groups)) - 1
-            df_resid = n - len(np.unique(groups))
-            r2 = between / total if total > 0 else 0.0
-            statistic = (between / df_group) / (residual / df_resid) if df_group > 0 and df_resid > 0 and residual > 0 else 0.0
-            return r2, statistic
-        r2, observed = pseudo_f(labels)
-        rng = np.random.default_rng(20260920)
-        exceed = sum(pseudo_f(rng.permutation(labels))[1] >= observed for _ in range(permutations))
-        results[factor] = {
+        labels = [str(factors[case_id][factor]) for case_id in available]
+        levels, counts = np.unique(labels, return_counts=True)
+        modality = "fused" if factor == "tissue_source_site" else "ct"
+        source = fused_distance if modality == "fused" else matrices["ct"]
+        positions = [index[case_id] for case_id in available]
+        local_distance = source[np.ix_(positions, positions)]
+        result = {
             "modality": modality,
             "variable_type": "categorical",
-            "test": "permutation_permanova",
-            "n": n,
-            "levels": int(len(levels)),
-            "r_squared": float(r2),
-            "permutation_p": (exceed + 1) / (permutations + 1),
+            "n": len(available),
+            "levels": len(levels),
+            "level_counts": dict(zip(map(str, levels), map(int, counts))),
+            "permanova": {"test": "not_estimable", "pseudo_f": None, "r_squared": None, "permutation_p": None, "q_value": None},
+            "permdisp": {"test": "not_estimable", "f_statistic": None, "permutation_p": None, "q_value": None},
         }
+        if len(levels) < 2 or len(available) <= len(levels):
+            results[factor] = result
+            continue
+        dm = DistanceMatrix(local_distance, ids=available)
+        grouping = pd.Series(labels, index=available)
+        permanova_result = permanova(dm, grouping=grouping, permutations=permutations, seed=seed)
+        pseudo_f = float(permanova_result["test statistic"])
+        permanova_p = float(permanova_result["p-value"])
+        ratio = pseudo_f * (len(levels) - 1) / (len(available) - len(levels))
+        permanova_r_squared = ratio / (1 + ratio) if np.isfinite(pseudo_f) else None
+        result["permanova"] = {
+            "test": "permanova",
+            "pseudo_f": pseudo_f,
+            "r_squared": float(permanova_r_squared) if permanova_r_squared is not None else None,
+            "permutation_p": permanova_p,
+            "q_value": None,
+        }
+        permanova_rows.append((factor, permanova_p))
+        try:
+            permdisp_result = permdisp(
+                dm, grouping=grouping, test="median", permutations=permutations, seed=seed
+            )
+            dispersion_f = float(permdisp_result["test statistic"])
+            dispersion_p = float(permdisp_result["p-value"])
+            if not np.isfinite(dispersion_f) or not np.isfinite(dispersion_p):
+                raise ValueError("PERMDISP returned a non-finite statistic or p-value")
+            result["permdisp"] = {
+                "test": "median",
+                "f_statistic": dispersion_f,
+                "permutation_p": dispersion_p,
+                "q_value": None,
+            }
+            permdisp_rows.append((factor, dispersion_p))
+        except (ValueError, np.linalg.LinAlgError) as error:
+            results[factor] = {
+                **result,
+                "permdisp": {
+                    "test": "not_estimable", "reason": str(error),
+                    "f_statistic": None, "permutation_p": None, "q_value": None,
+                },
+            }
+            continue
+        else:
+            results[factor] = result
     for factor in continuous_factors:
         available = [
             case_id for case_id in patient_ids
@@ -714,25 +952,39 @@ def confounder_representation_effect(
         values = np.asarray([float(factors[case_id][factor]) for case_id in available])
         if len(values) < 3 or len(np.unique(values)) < 2:
             results[factor] = {
-                "modality": "ct", "variable_type": "continuous", "test": "not_estimable",
-                "n": len(values), "permutation_p": None, "q_value": None,
+                "modality": "ct", "variable_type": "continuous", "n": len(values),
+                "distance_regression": {
+                    "test": "not_estimable", "pseudo_f": None, "r_squared": None,
+                    "permutation_p": None, "q_value": None,
+                },
             }
             continue
-        positions = [index[item] for item in available]
-        affinity = matrices["ct"][np.ix_(positions, positions)]
-        kernel = distance_kernel(np.clip(1 - affinity, 0, 1))
+        positions = [index[case_id] for case_id in available]
+        kernel = distance_kernel(matrices["ct"][np.ix_(positions, positions)])
         centered = values - values.mean()
         total = float(np.trace(kernel))
-        if total <= 0:
+        predictor_ss = float(centered @ centered)
+        if len(values) <= 2 or len(np.unique(values)) < 2 or total <= 0 or predictor_ss <= 0:
             results[factor] = {
                 "modality": "ct", "variable_type": "continuous", "test": "not_estimable",
-                "n": len(values), "permutation_p": None, "q_value": None,
+                "n": len(values), "distance_regression": {
+                    "pseudo_f": None, "r_squared": None, "permutation_p": None, "q_value": None,
+                },
             }
             continue
-        model_ss = float(centered @ kernel @ centered / (centered @ centered))
+        model_ss = float(centered @ kernel @ centered / predictor_ss)
         residual_ss = total - model_ss
-        observed = np.inf if residual_ss <= 0 else model_ss / (residual_ss / (len(values) - 2))
-        rng = np.random.default_rng(20260920)
+        if residual_ss <= 0:
+            results[factor] = {
+                "modality": "ct", "variable_type": "continuous", "n": len(values),
+                "distance_regression": {
+                    "test": "not_estimable", "pseudo_f": None, "r_squared": None,
+                    "permutation_p": None, "q_value": None,
+                },
+            }
+            continue
+        observed = model_ss / (residual_ss / (len(values) - 2))
+        rng = np.random.default_rng(seed)
         exceed = 0
         for _ in range(permutations):
             shuffled = rng.permutation(centered)
@@ -740,18 +992,28 @@ def confounder_representation_effect(
             permuted_residual_ss = total - permuted_ss
             permuted_f = np.inf if permuted_residual_ss <= 0 else permuted_ss / (permuted_residual_ss / (len(values) - 2))
             exceed += permuted_f >= observed
+        p_value = (exceed + 1) / (permutations + 1)
         results[factor] = {
             "modality": "ct",
             "variable_type": "continuous",
-            "test": "permutation_distance_based_regression",
             "n": len(values),
-            "r_squared": model_ss / total,
-            "permutation_p": (exceed + 1) / (permutations + 1),
+            "distance_regression": {
+                "test": "permutation_distance_regression",
+                "pseudo_f": float(observed),
+                "r_squared": float(model_ss / total),
+                "permutation_p": p_value,
+                "q_value": None,
+            },
         }
-    tested = [row for row in results.values() if row["permutation_p"] is not None]
-    if tested:
-        for row, q_value in zip(tested, multipletests([row["permutation_p"] for row in tested], method="fdr_bh")[1]):
-            row["q_value"] = float(q_value)
+        regression_rows.append((factor, p_value))
+    for family, field, rows in (
+        ("permanova", "q_value", permanova_rows),
+        ("permdisp", "q_value", permdisp_rows),
+        ("distance_regression", "q_value", regression_rows),
+    ):
+        if rows:
+            for (factor, _), q_value in zip(rows, multipletests([p_value for _, p_value in rows], method="fdr_bh")[1]):
+                results[factor][family][field] = float(q_value)
     return tool_result("confounder_representation_effect", {"partition": results})
 
 
@@ -759,7 +1021,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "representation_concordance": {
         "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
-        "description": "Compare four-view affinity/network geometries using descriptive Generalized RV; this is not a test on native feature distances.",
+        "description": "Compare four-view native patient-distance geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment within each view without reclustering.",
         "function": representation_concordance,
     },
     "structural_diagnostics": {
@@ -771,13 +1033,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "rna_pathway_enrichment": {
         "aspect": "rna_pathway_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
-        "description": "Run Hallmark preranked GSEA on the full filtered log2 RNA transcriptome for each requested set versus rest.",
+        "description": "Run Hallmark preranked GSEA using PyDESeq2 target-versus-rest Wald statistics from raw RNA counts.",
         "function": rna_pathway_enrichment,
     },
     "wxs_mutation_enrichment": {
         "aspect": "wxs_mutation_enrichment",
         "dimension": "biological_support", "scopes": ("set",),
-        "description": "Run Fisher exact mutation enrichment with odds ratios, confidence intervals, and BH-FDR for requested sets.",
+        "description": "Run all-gene Fisher mutation tests on the full nonsynonymous interpretation matrix; return all configured ccRCC drivers, top exploratory results, and a complete result artifact.",
         "function": wxs_mutation_enrichment,
     },
     "known_label_echo": {
@@ -795,7 +1057,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "confounder_representation_effect": {
         "aspect": "confounder_representation_effect",
         "dimension": "confounder_exclusion", "scopes": ("partition",),
-        "description": "Estimate permutation-based distance-model variance explained by measured technical factors in the related affinity representation.",
+        "description": "Test categorical technical factors with PERMANOVA and PERMDISP on fused or CT native distances, and continuous factors with CT distance-based regression; apply separate BH families.",
         "function": confounder_representation_effect,
     },
 }
@@ -819,6 +1081,7 @@ def compact_tool_result(raw: Mapping[str, Any], tool_name: str) -> dict[str, Any
         "status": str(raw["status"]),
         "metrics": metrics,
         "metric_refs": refs,
+        **({"artifact_paths": dict(raw["artifact_paths"])} if raw.get("artifact_paths") else {}),
         "warnings": list(raw.get("warnings", [])),
         "missing_reason": str(raw.get("missing_reason", "")),
         "errors": list(raw.get("errors", [])),

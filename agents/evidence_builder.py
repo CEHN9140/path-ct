@@ -450,28 +450,33 @@ def save_modality_affinity_artifacts(
     output_root: str,
     patient_ids: list[str],
     modality_affinities: Mapping[str, Any],
+    modality_distances: Mapping[str, Any],
     audit: Mapping[str, Any],
-) -> dict[str, str]:
+) -> dict[str, dict[str, str]]:
     import numpy as np
 
     candidate_dir = Path(output_root) / "candidate_subtype"
     candidate_dir.mkdir(parents=True, exist_ok=True)
-    if set(modality_affinities) != {"ct", "wsi", "rna", "wxs"}:
+    modalities = {"ct", "wsi", "rna", "wxs"}
+    if set(modality_affinities) != modalities or set(modality_distances) != modalities:
         raise ValueError(
-            "Candidate generation requires exactly CT, WSI, RNA, and WXS affinities"
+            "Candidate generation requires CT, WSI, RNA, and WXS affinities and distances"
         )
-    paths = {}
+    paths, distance_paths = {}, {}
     for modality, matrix in modality_affinities.items():
         path = candidate_dir / f"{modality}_affinity.npy"
         np.save(path, np.asarray(matrix, dtype=float))
         paths[modality] = str(path)
+        path = candidate_dir / f"{modality}_distance.npy"
+        np.save(path, np.asarray(modality_distances[modality], dtype=float))
+        distance_paths[modality] = str(path)
     (candidate_dir / "affinity_patient_order.json").write_text(
         json.dumps(patient_ids, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (candidate_dir / "feature_engineering_audit.json").write_text(
         json.dumps(dict(audit), ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    return paths
+    return {"affinity_paths": paths, "distance_paths": distance_paths}
 
 
 def filter_four_view_states(
@@ -570,11 +575,15 @@ def build_evidence_states(
                 "wxs_discovery_feature_path": wxs_artifacts[
                     "wxs_discovery_feature_path"
                 ],
+                "wxs_interpretation_feature_path": wxs_artifacts[
+                    "wxs_interpretation_feature_path"
+                ],
                 "wxs_validation_feature_path": wxs_artifacts[
                     "wxs_validation_feature_path"
                 ],
                 "wxs_discovery_audit_path": wxs_artifacts["wxs_discovery_audit_path"],
                 "wxs_patient_order_path": wxs_artifacts["wxs_patient_order_path"],
+                "rna_raw_counts_path": rna_cache["raw_counts_path"],
             }
         )
 
@@ -594,7 +603,7 @@ def build_evidence_states(
     )
     signature = hash_payload(
         {
-            "cache_version": 7,
+            "cache_version": 8,
             "patient_ids": patient_ids,
             "input_files": input_files,
             "rna_signature": rna_signature,
@@ -625,11 +634,13 @@ def build_evidence_states(
         else {}
     )
     paths = dict(manifest.get("paths", {}))
+    distance_paths = dict(manifest.get("distance_paths", {}))
     if (
         manifest.get("cache_signature") != signature
         or manifest.get("patient_ids") != patient_ids
         or set(paths) != {"ct", "wsi", "rna", "wxs"}
-        or not all(Path(path).is_file() for path in paths.values())
+        or set(distance_paths) != {"ct", "wsi", "rna", "wxs"}
+        or not all(Path(path).is_file() for path in [*paths.values(), *distance_paths.values()])
         or not (candidate_dir / "feature_engineering_audit.json").is_file()
     ):
         features = build_modality_affinity_artifacts(
@@ -642,23 +653,28 @@ def build_evidence_states(
             output_root=output_root,
             patient_ids=patient_ids,
             modality_affinities=features["modality_affinities"],
+            modality_distances=features["modality_distances"],
             audit=features["audit"],
         )
         manifest = {
-            "cache_version": 7,
+            "cache_version": 8,
             "cache_signature": signature,
             "patient_ids": patient_ids,
-            "paths": paths,
+            "paths": paths["affinity_paths"],
+            "distance_paths": paths["distance_paths"],
         }
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        distance_paths = paths["distance_paths"]
+        paths = paths["affinity_paths"]
 
     for state in updated_states:
         if state.get("qc") == "success":
             state.setdefault("omics_evidence", {}).update(
                 {
                     "modality_affinity_paths": paths,
+                    "modality_distance_paths": distance_paths,
                     "modality_affinity_cache_signature": signature,
                     "modality_affinity_patient_order_path": str(
                         candidate_dir / "affinity_patient_order.json"

@@ -41,6 +41,7 @@ def build_rna_affinity(
     matrix = np.divide(matrix, std, out=np.zeros_like(matrix), where=std > 0)
     if len(case_ids) == 1:
         return {
+            "distance": np.zeros((1, 1), dtype=float),
             "affinity": np.ones((1, 1), dtype=float),
             "patient_ids": case_ids,
             "feature_count": int(matrix.shape[1]),
@@ -49,6 +50,7 @@ def build_rna_affinity(
     distance = cdist(matrix, matrix, metric="correlation")
     affinity = distance_to_affinity(distance, config)
     return {
+        "distance": np.asarray(distance, dtype=float),
         "affinity": np.asarray(affinity, dtype=float),
         "patient_ids": case_ids,
         "feature_count": int(matrix.shape[1]) if matrix.ndim == 2 else 0,
@@ -77,33 +79,42 @@ def rna_feature_config(config_dir: str = "") -> dict[str, Any]:
 def rna_signature_extra(config_dir: str = "") -> dict[str, Any]:
     config = rna_feature_config(config_dir)
     return {
+        "cache_version": 8,
         **config,
         "modality": "RNA_Seq",
         "feature_mode": "protein_coding_low_expression_filtered_top_mad",
+        "biological_review_counts": "unstranded_integer_counts_summed_by_gene_name",
     }
 
 
-def read_rna_expression_series(file_path: str, *, protein_coding_only: bool = True) -> pd.Series:
+def read_rna_quantification(file_path: str, *, protein_coding_only: bool = True) -> dict[str, pd.Series]:
     rna_df = pd.read_csv(file_path, sep="\t", header=None, names=range(9))
     rna_df.columns = rna_df.iloc[1]
     rna_df = rna_df.iloc[6:].reset_index(drop=True)
-    if "gene_name" not in rna_df.columns or "tpm_unstranded" not in rna_df.columns:
-        raise ValueError(f"{file_path} lack 'gene_name' or 'tpm_unstranded' column")
-    required_columns = ["gene_name", "gene_type", "tpm_unstranded"]
+    required_columns = ["gene_name", "unstranded", "tpm_unstranded"]
     if protein_coding_only and "gene_type" not in rna_df.columns:
         raise ValueError(f"{file_path} lack 'gene_type' column")
-    rna_df = rna_df.loc[:, [name for name in required_columns if name in rna_df.columns]].copy()
+    if any(name not in rna_df.columns for name in required_columns):
+        raise ValueError(f"{file_path} lacks a required STAR Counts column")
+    rna_df = rna_df.loc[:, required_columns + (["gene_type"] if protein_coding_only else [])].copy()
     rna_df["gene_name"] = rna_df["gene_name"].astype(str).str.strip()
     rna_df = rna_df[rna_df["gene_name"] != ""].copy()
     if protein_coding_only:
         rna_df["gene_type"] = rna_df["gene_type"].astype(str).str.strip()
         rna_df = rna_df[rna_df["gene_type"] == "protein_coding"].copy()
-    rna_df["tpm_unstranded"] = pd.to_numeric(
-        rna_df["tpm_unstranded"], errors="coerce"
-    ).fillna(0.0)
-    series = rna_df.groupby("gene_name", sort=False)["tpm_unstranded"].max()
-    series.name = Path(file_path).name
-    return series
+    tpm = pd.to_numeric(rna_df["tpm_unstranded"], errors="coerce").fillna(0.0)
+    raw_counts = pd.to_numeric(rna_df["unstranded"], errors="coerce")
+    counts = raw_counts.to_numpy(dtype=float)
+    if (
+        not np.isfinite(counts).all()
+        or np.any(counts < 0)
+        or not np.allclose(counts, np.rint(counts))
+    ):
+        raise ValueError(f"{file_path} raw counts must be finite, nonnegative, and integer-valued")
+    return {
+        "tpm": pd.Series(tpm.to_numpy(), index=rna_df["gene_name"]).groupby(level=0, sort=False).max(),
+        "raw_counts": pd.Series(np.rint(counts).astype(np.int64), index=rna_df["gene_name"]).groupby(level=0, sort=False).sum(),
+    }
 
 
 def build_rna_cohort_cache(
@@ -116,6 +127,7 @@ def build_rna_cohort_cache(
     output_dir = ensure_dir(Path(output_root) / "rna")
     manifest_path = output_dir / "manifest.json"
     case_features_path = output_dir / "case_features.csv"
+    raw_counts_path = output_dir / "case_raw_counts.csv"
     pathway_features_path = output_dir / "case_pathway_features.csv"
     gene_mad_path = output_dir / "gene_mad.csv"
     top_genes_path = output_dir / "top_genes.csv"
@@ -130,6 +142,7 @@ def build_rna_cohort_cache(
         signature=signature,
         required_paths=[
             case_features_path,
+            raw_counts_path,
             pathway_features_path,
             gene_mad_path,
             top_genes_path,
@@ -137,13 +150,19 @@ def build_rna_cohort_cache(
     )
     if manifest is None:
         case_series_map: dict[str, pd.Series] = {}
+        case_count_map: dict[str, pd.Series] = {}
         for case_id, file_path in case_file_rows:
-            case_series_map[case_id] = read_rna_expression_series(
+            quantification = read_rna_quantification(
                 file_path,
                 protein_coding_only=bool(feature_config["protein_coding_only"]),
             )
+            case_series_map[case_id] = quantification["tpm"]
+            case_count_map[case_id] = quantification["raw_counts"]
 
         raw_tpm_df = pd.DataFrame(case_series_map).fillna(0.0)
+        raw_counts_df = pd.DataFrame(case_count_map).T.fillna(0).astype(np.int64)
+        raw_counts_df = raw_counts_df.loc[:, raw_counts_df.sum(axis=0) > 0]
+        raw_counts_df.index.name = "case_id"
         if not raw_tpm_df.empty:
             expressed_fraction = (raw_tpm_df >= float(feature_config["min_tpm"])).mean(axis=1)
             raw_tpm_df = raw_tpm_df.loc[
@@ -181,8 +200,10 @@ def build_rna_cohort_cache(
         gene_mad_df.to_csv(gene_mad_path, index=False)
         top_genes_df.to_csv(top_genes_path, index=False)
         case_features_df.to_csv(case_features_path, index=False)
+        raw_counts_df.reset_index().to_csv(raw_counts_path, index=False)
         pathway_features_df.to_csv(pathway_features_path, index=False)
         manifest = {
+            "cache_version": 8,
             "signature": signature,
             "modality": "RNA_Seq",
             "cohort_case_count": len(case_file_rows),
@@ -198,6 +219,7 @@ def build_rna_cohort_cache(
             ],
             "files": {
                 "case_features": str(case_features_path),
+                "raw_counts": str(raw_counts_path),
                 "pathway_features": str(pathway_features_path),
                 "gene_mad": str(gene_mad_path),
                 "top_genes": str(top_genes_path),
@@ -208,6 +230,7 @@ def build_rna_cohort_cache(
         "manifest": manifest,
         "manifest_path": str(manifest_path),
         "case_features_path": str(case_features_path),
+        "raw_counts_path": str(raw_counts_path),
         "pathway_features_path": str(pathway_features_path),
         "gene_mad_path": str(gene_mad_path),
         "top_genes_path": str(top_genes_path),
