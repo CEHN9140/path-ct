@@ -81,6 +81,10 @@ If the currently available evidence is already sufficient to make a defensible d
 
 If the evidence is not sufficient, but a material unresolved question can still be addressed, request that evidence rather than accepting or dropping prematurely.
 
+Before terminal acceptance, identify the strongest currently unresolved challenge to treating each candidate as an independent unit. Examples include an unassessed candidate-specific boundary, a weak neighboring boundary, missing per-view boundary evidence, a plausible technical or site alternative, a heterogeneous set-versus-rest contrast, or small sample size that limits complementary evidence. These are examples, not a checklist or required analyses. Ask whether resolving the particular uncertainty could reasonably change accept, drop, split, or merge. If so, and an available EvidenceRequest can directly address it, request that evidence before terminal disposition. Do not request evidence merely because it remains available.
+
+Terminal actions cover every current set, and evidence requests cannot be combined with actions in one RouterPlan. If at least one current candidate has a material unresolved question that an available request could reasonably resolve and change its disposition, use evidence-request mode for this round and return no terminal actions for any candidate. Request only the decision-relevant evidence for the unresolved candidate or candidates; do not expand automatically to every set or dimension.
+
 ---
 
 ## Split
@@ -152,6 +156,14 @@ If unfavorable evidence leaves the candidate scientifically plausible but does n
 
 Scientific plausibility and retention are not the same standard.
 
+## Evidence roles in independent candidate retention
+
+Different evidence dimensions answer different scientific questions. Evidence answering one question must not silently substitute for another. Biological-support evidence primarily establishes phenotype: it can describe a molecular program or mutation pattern and explain what biological state a candidate represents. A phenotype does not by itself establish that the current membership or boundary deserves retention as an independent candidate.
+
+Cross-modal and structural evidence primarily informs whether the current membership, boundary, or granularity is scientifically defensible in the multimodal patient representation. Confounder evidence evaluates whether technical, acquisition, site, or related factors remain a plausible substantial alternative explanation. Known-label evidence provides taxonomy context; it does not independently establish novelty, validity, independence, or retention.
+
+For terminal `accept`, the integrated evidence must positively justify both an interpretable candidate identity and continued treatment of its current membership/boundary as an independent candidate unit. These are reasoning requirements, not fixed gates: do not require a fixed number of dimensions, tools, findings, or modalities.
+
 ---
 
 # Biological support
@@ -191,11 +203,11 @@ Low concordance can reflect complementary information.
 
 High concordance does not prove that all modalities support the same subtype boundary.
 
-A weak boundary is not automatically a merge instruction.
+A weak boundary is not automatically a merge instruction. The mandatory partition structural screen is primarily diagnostic for granularity and candidate boundaries. A dominant single-cluster internal scale, including `screen_candidate_k = 1`, means only that the screen did not identify a dominant internal subdivision signal. No internal split signal is not positive evidence for an independent boundary. It does not establish separation from neighboring candidates, reproducibility across modalities, multimodal boundary coherence, or independent retention. Inability to justify a merge likewise does not support accepting both candidates.
 
 A feasible internal subdivision is not automatically a split instruction.
 
-However, structural evidence should not be reduced to a harmless descriptive limitation.
+However, structural evidence should not be reduced to a harmless descriptive limitation. When the report describes modest inter-set contrast, a weak nearest-pair boundary, or missing per-view boundary assessment, do not reinterpret that limitation as positive structural support. If this uncertainty could change retention and an available set-level or pair-level request directly addresses it, acquire that evidence before terminal acceptance.
 
 If the current candidate has only weak membership or boundary support and the remaining evidence does not positively justify treating it as an independent candidate, this may weigh against retention even when some biological interpretation is available.
 
@@ -221,6 +233,8 @@ The relevant question is whether technical, acquisition, site, or related factor
 
 If such an alternative explanation is material and could change the retention decision, request further evidence when an appropriate EvidenceRequest remains available.
 
+The retention burden is not to prove that a technical factor caused the partition. Failure to prove causation does not convert a material alternative explanation into neutral or favorable evidence. Ask whether the technical, acquisition, or site explanation remains sufficiently plausible and substantial that independent identity is not positively justified. If candidate-specific confounder evidence remains available and could change the decision, acquiring it is appropriate. A candidate may be dropped when the full evidence does not positively justify independent retention, without proving confounder causation.
+
 If relevant evidence has been acquired and the alternative explanation remains sufficiently competitive that the candidate's independent identity is not positively justified, `drop` can be appropriate even without proof of technical causation.
 
 ---
@@ -236,6 +250,8 @@ TCGA m1-m4 and ClearCode34 overlap the RNA discovery view and must not be treate
 Strong correspondence may indicate that a candidate recapitulates an established distinction.
 
 Weak correspondence does not prove novelty.
+
+Weak correspondence is contextual only; it is not positive evidence of novelty, independence, validity, or retention.
 
 Known-label evidence should refine interpretation of the candidate, not automatically determine acceptance or rejection.
 
@@ -261,6 +277,8 @@ Useful questions include:
 These are reasoning questions, not a checklist.
 
 Do not assign categorical states, scores, or vote counts to them.
+
+Use this short deliberation sequence internally: identify the positive phenotype evidence; assess evidence for independent identity of the current membership/boundary; identify the strongest counterevidence; decide whether an available request could resolve a decision-changing uncertainty; then choose request, structural revision, accept, or drop. Do not emit these steps as categorical states or scores.
 
 No fixed number of dimensions must support a candidate.
 
@@ -391,7 +409,7 @@ Each evidence request contains exactly:
 - `target_ids`
 - `question`
 
-Terminal example:
+Terminal example (the first candidate has candidate-specific positive phenotype and boundary evidence; the second has interpretable biology but insufficient support for independent retention):
 
 ```json
 {
@@ -404,7 +422,7 @@ Terminal example:
         "ER:partitionhash:biological_support:rna_pathway_enrichment:set:targethash",
         "ER:partitionhash:cross_modal_consistency:structural_diagnostics:partition:partitionhash"
       ],
-      "reason": "The full interpreted evidence positively supports retaining this set as an independent discovery-stage candidate. The biological reports describe a coherent phenotype, and the relevant structural and alternative-explanation evidence does not leave the candidate's independent identity insufficiently justified. The stated limitations remain important for downstream stability analysis but do not erase the positive basis for retention."
+      "reason": "The RNA and mutation reports describe a coherent candidate-specific phenotype, while the relevant structural report positively supports this set's current boundary relative to its neighboring candidate. The technical association is limited and the candidate-specific evidence does not leave a substantial alternative explanation unresolved. Together these findings positively justify retaining this set as an independent discovery-stage candidate; the remaining limitations still matter for downstream stability analysis."
     },
     {
       "action": "drop",
@@ -414,7 +432,7 @@ Terminal example:
         "ER:partitionhash:biological_support:rna_pathway_enrichment:set:targethash",
         "ER:partitionhash:cross_modal_consistency:structural_diagnostics:partition:partitionhash"
       ],
-      "reason": "The available reports describe some biological differences, but the full evidence does not positively justify treating this set as an independent candidate in the current run. The weak distinctness and unresolved alternative explanations remain material, and no additional available evidence is needed to make that retention decision. Dropping this set does not imply that its observed biology is false or that these patients cannot participate in an accepted candidate in another run."
+      "reason": "The RNA report describes an interpretable phenotype, but the structural report shows weak support for this set's boundary and the available reports do not resolve a plausible technical alternative. No available request could materially resolve these concerns, so the evidence does not positively justify retaining this partition unit independently, even though its biology may be real. Dropping it does not imply that these observations are false or that the patients cannot participate in an accepted candidate in another run."
     }
   ],
   "evidence_requests": []
@@ -436,3 +454,5 @@ Evidence request example:
   ]
 }
 ```
+
+For example, after coherent biological findings but a weak, unresolved neighboring boundary, request only evidence that can clarify that candidate or pair boundary when the corresponding request remains available. Keep `actions` empty in that round. This illustrates a decision-relevant follow-up, not a mandatory cross-modal test for every candidate.

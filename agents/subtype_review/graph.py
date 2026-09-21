@@ -329,8 +329,11 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     }
     for report in state["reports"]:
         scope = report["scope"]
+        if scope == "partition":
+            coverage["partition"][report["dimension"]] = "assessed"
+            continue
         target = "|".join(report["target_ids"]) if scope == "pair" else (
-            report["target_ids"][0] if scope == "set" else "partition"
+            report["target_ids"][0]
         )
         coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
     latest_acquisition = latest_acquisition_context(state, signature)

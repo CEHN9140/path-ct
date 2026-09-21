@@ -83,6 +83,16 @@ def test_router_reason_must_match_selected_action():
     assert "must not state or imply that a different action is better supported" in router
 
 
+def test_router_prompt_distinguishes_phenotype_from_independent_retention():
+    router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
+    assert "phenotype does not by itself establish" in router
+    assert "no internal split signal is not positive evidence" in router
+    assert "strongest currently unresolved challenge" in router
+    assert "if at least one current candidate has a material unresolved question" in router
+    assert "failure to prove causation does not convert" in router
+    assert "weak correspondence does not prove novelty" in router
+
+
 def test_router_requires_explicit_decision_state_fields():
     router = (PROMPT_DIR / "router.md").read_text(encoding="utf-8")
 
