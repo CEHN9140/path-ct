@@ -373,6 +373,10 @@ def validate_router_plan(
     ):
         raise ValueError("Terminal disposition requires a partition structural screen")
 
+    nominated_pairs = structural_pair_followup_targets(
+        state, partition_signature(current_sets(state))
+    )
+
     for action in plan.actions:
         if not action.evidence_report_refs:
             raise ValueError("Every terminal action must cite at least one Evidence Report")
@@ -385,6 +389,37 @@ def validate_router_plan(
                 "Terminal action must cite all target-specific set/pair Evidence Reports "
                 f"acquired for this candidate; missing {sorted(missing_refs)}"
             )
+        reason = action.reason.casefold()
+        if action.action == "accept" and any(phrase in reason for phrase in (
+            "accept is not justified", "accept is not supported", "cannot justify accept",
+            "does not justify accept", "retention remains unsupported",
+            "independent retention is unsupported",
+        )):
+            raise ValueError(
+                "Router action contradicts its own rationale: accept was emitted while "
+                "the reason explicitly rejects retention."
+            )
+        if action.action == "drop" and any(phrase in reason for phrase in (
+            "drop is not justified", "dropping is not justified", "candidate should be retained",
+        )):
+            raise ValueError(
+                "Router action contradicts its own rationale: drop was emitted while "
+                "the reason explicitly rejects dropping."
+            )
+        if action.action == "drop":
+            target = action.target_ids[0]
+            candidate_pairs = {pair for pair in nominated_pairs if target in pair}
+            if candidate_pairs and not any(
+                row.get("dimension") == "cross_modal_consistency"
+                and row.get("scope") == "pair"
+                and tuple(sorted(map(str, row.get("target_ids", [])))) in candidate_pairs
+                and "boundary_representation" in row.get("request_foci", [])
+                for row in state["reports"]
+            ):
+                raise ValueError(
+                    f"Drop is premature for {target}: the partition structural screen nominates "
+                    "neighboring pair alternatives, but none has received boundary_representation review."
+                )
         if action.action == "accept":
             target = action.target_ids[0]
             if not any(
@@ -452,6 +487,23 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     }
     partition_screen_done = ("structural_diagnostics", "partition", ()) in completed
     structural_pairs = structural_pair_followup_targets(state, signature)
+    screen = next((row for row in state["tool_evidence"]
+                   if row["partition_signature"] == signature
+                   and row["tool_name"] == "structural_diagnostics"
+                   and row["scope"] == "partition"), None)
+    structural_pair_candidates = []
+    if screen is not None:
+        for row in screen.get("metrics", {}).get("partition", {}).get("nearest_pair_affinities", []):
+            targets = sorted(map(str, row.get("target_ids", [])))
+            affinity = row.get("mean_between_affinity")
+            if len(targets) == 2 and affinity is not None:
+                structural_pair_candidates.append({
+                    "target_ids": targets,
+                    "mean_between_affinity": float(affinity),
+                })
+        structural_pair_candidates.sort(
+            key=lambda item: (-item["mean_between_affinity"], item["target_ids"])
+        )
     set_ids = [set_id(item) for item in current]
     available_aspects = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
@@ -562,6 +614,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "evidence_dimension_contracts": copy.deepcopy(EVIDENCE_ROLE_CONTRACTS),
         "available_evidence_requests": router_request_options,
         "completed_evidence_requests": completed_evidence_requests,
+        "structural_pair_candidates": structural_pair_candidates,
         "latest_acquisition_closure": closure_payload,
         "terminal_accountability_report_refs_by_target": {
             target: sorted(refs) for target, refs in terminal_accountability.items()
@@ -583,6 +636,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "evidence_dimension_contracts": payload["evidence_dimension_contracts"],
             "available_evidence_requests": router_request_options,
             "completed_evidence_requests": completed_evidence_requests,
+            "structural_pair_candidates": structural_pair_candidates,
             "latest_acquisition_closure": closure_payload,
             "terminal_accountability_report_refs_by_target": {
                 target: sorted(refs) for target, refs in terminal_accountability.items()
@@ -674,6 +728,15 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "Terminal evidence_report_refs must include every target-specific report "
                         "listed in terminal_accountability_report_refs_by_target. Do not change "
                         "the scientific action solely because a required reference was omitted."
+                    )
+                elif "Drop is premature" in str(exc):
+                    feedback["instruction"] = (
+                        "The proposed terminal drop is premature because the partition structural screen "
+                        "nominates a neighboring pair and none has received boundary_representation review. "
+                        "Request boundary_representation for one nominated pair, preferably the highest-affinity "
+                        "unreviewed pair. If that boundary remains materially questionable and boundary_structure "
+                        "is available, acquire boundary_structure before terminal disposition. Do not force merge "
+                        "and do not exhaustively review every pair."
                     )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),

@@ -168,6 +168,8 @@ Do not request boundary structure when the existing boundary evidence already re
 
 Weak boundary evidence alone is insufficient for merge.
 
+`structural_pair_candidates` is the compact set of neighboring pairs nominated by the partition-level candidate-consensus screen. Each entry is a triage signal, not a merge threshold or conclusion. If a candidate appears in this list, do not claim that no plausible neighboring pair exists. Before terminally dropping it, review at least one nominated pair with `boundary_representation`, preferring the highest-affinity unreviewed pair unless existing evidence makes another pair more decision-relevant. One completed pair review may cover both endpoints; do not exhaustively review every nominated pair. If boundary representation is weak or conflicting and `boundary_structure` remains available, acquire it before terminal disposition. Neither weak membership nor weak boundary evidence alone justifies merge; merge still requires positive evidence that removing the boundary yields a more defensible representation.
+
 Pair evidence remains specific to that pair and does not establish full-partition membership support for either candidate.
 
 # Structural Rescue Logic
@@ -204,6 +206,8 @@ The following are not positive evidence for `accept`:
 - workflow prohibition of a structural action.
 
 Workflow legality is never scientific support.
+
+The emitted action and the conclusion stated in its `reason` must agree. Never emit `accept` when the reason says acceptance or independent retention is not justified or supported. Never emit `drop` when the reason says dropping is not justified or that the candidate should be retained. If the conclusion changes, change the action.
 
 Do not mention workflow legality, unavailable actions, unavailable tools, evidence exhaustion, or round budget as scientific justification in an action reason.
 

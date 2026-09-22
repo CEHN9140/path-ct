@@ -370,3 +370,84 @@ def test_completed_request_retry_feedback_names_existing_report(tmp_path):
     assert "already been answered" in invalid["reason"]
     assert invalid["existing_report_refs"] == ["ER:boundary"]
     assert any(item["report_ref"] == "ER:boundary" for item in feedback["completed_evidence_requests"])
+
+
+def test_structural_pair_candidates_are_visible_and_drop_requires_one_review(tmp_path):
+    sets = [
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+        {"set_id": "C3", "member_ids": ["P5", "P6"]},
+    ]
+    state = initial_review_state(sets)
+    signature = partition_signature(sets)
+    state["reports"] = [report("ER:partition", "cross_modal_consistency", "partition", [])]
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": signature,
+        "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]],
+            "nearest_pair_affinities": [
+                {"target_ids": ["C1", "C3"], "mean_between_affinity": 0.2},
+                {"target_ids": ["C1", "C2"], "mean_between_affinity": 0.3},
+                {"target_ids": ["C2", "C3"], "mean_between_affinity": 0.1},
+            ]}},
+    }]
+    captured = {}
+    class Router:
+        config = {"router_plan_validation_retries": 0}
+        def invoke(self, payload):
+            captured.update(payload)
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+                "focus": "transcriptomic_phenotype", "question": "Assess phenotype.",
+            }]}
+    router_node(state, {"router_model": Router(), "tool_registry": TOOL_REGISTRY,
+                        "patient_states_by_id": {}, "data_root": str(tmp_path),
+                        "config_dir": "configs", "artifact_root": str(tmp_path)})
+    assert captured["structural_pair_candidates"] == [
+        {"target_ids": ["C1", "C2"], "mean_between_affinity": 0.3},
+        {"target_ids": ["C1", "C3"], "mean_between_affinity": 0.2},
+        {"target_ids": ["C2", "C3"], "mean_between_affinity": 0.1},
+    ]
+
+    drop = RouterAction(action="drop", target_ids=["C1"], evidence_report_refs=["ER:partition"], reason="unsupported")
+    with pytest.raises(ValueError, match="Drop is premature"):
+        validate_router_plan(RouterPlan(actions=[drop, RouterAction(
+            action="drop", target_ids=["C2"], evidence_report_refs=["ER:partition"], reason="unsupported"
+        ), RouterAction(action="drop", target_ids=["C3"], evidence_report_refs=["ER:partition"], reason="unsupported")]), state, set())
+
+    state["reports"].append(report("ER:C1-C2-boundary", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_representation"))
+    validate_router_plan(RouterPlan(actions=[
+        RouterAction(action="drop", target_ids=[target], evidence_report_refs=["ER:partition"], reason="unsupported")
+        for target in ("C1", "C2", "C3")
+    ]), state, set())
+
+
+def test_accept_reason_cannot_explicitly_reject_acceptance():
+    state = initial_review_state([
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+    ])
+    state["reports"] = [
+        report("ER:partition", "cross_modal_consistency", "partition", []),
+        report("ER:membership", "cross_modal_consistency", "set", ["C1"], focus="membership_representation"),
+        report("ER:biology", "biological_support", "set", ["C1"]),
+    ]
+    state["tool_evidence"] = [{"tool_name": "structural_diagnostics", "scope": "partition",
+        "target_ids": [], "partition_signature": partition_signature(state["partition"]["sets"])}]
+    action = RouterAction(action="accept", target_ids=["C1"],
+                          evidence_report_refs=["ER:membership", "ER:biology"],
+                          reason="The evidence is conflicting, so accept is not justified.")
+    with pytest.raises(ValueError, match="contradicts its own rationale"):
+        validate_router_plan(RouterPlan(actions=[action]), state, set())
+
+
+def test_set_between_distance_matches_nearest_competing_label():
+    from agents.subtype_review.tools import current_membership_alignment
+    distance = np.array([
+        [0.0, 0.1, 0.2, 0.2, 0.9],
+        [0.1, 0.0, 0.2, 0.2, 0.8],
+        [0.2, 0.2, 0.0, 0.2, 0.7],
+        [0.2, 0.2, 0.2, 0.0, 0.9],
+        [0.9, 0.8, 0.7, 0.9, 0.0],
+    ])
+    result = current_membership_alignment(distance, np.array(["C1", "C1", "C1", "C2", "C3"]), "C1")
+    assert np.isclose(result["mean_between_distance"], np.mean([0.2, 0.2, 0.2]))

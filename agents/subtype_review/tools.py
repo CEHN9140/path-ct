@@ -141,17 +141,18 @@ def current_membership_alignment(
     if target_label is not None:
         target_positions = np.flatnonzero(mask)
         other_labels = sorted(set(labels[~mask]))
-        target_within_values = [
-            distance[i, j]
-            for i, j in combinations(target_positions, 2)
-        ]
-        target_between_values = [
-            distance[i, j]
-            for i in target_positions
-            for j in np.flatnonzero(~mask)
-        ]
-        target_within = np.asarray(target_within_values)
-        target_between = np.asarray(target_between_values)
+        within_means = []
+        nearest_between_means = []
+        for i in target_positions:
+            same_positions = np.flatnonzero((labels == labels[i]) & (np.arange(len(labels)) != i))
+            if len(same_positions):
+                within_means.append(float(distance[i, same_positions].mean()))
+            if other_labels:
+                nearest_between_means.append(min(
+                    float(distance[i, labels == label].mean()) for label in other_labels
+                ))
+        target_within = np.asarray(within_means)
+        target_between = np.asarray(nearest_between_means)
         if other_labels:
             mean_to_other = {
                 label: float(distance[np.ix_(target_positions, labels == label)].mean())

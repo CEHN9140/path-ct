@@ -68,7 +68,8 @@ METRIC_SEMANTICS = {
         "comparison": "Defines whether alignment uses full current partition labels or the selected candidate pair.",
         "native_view_membership_alignment": "Current-label representation measured independently in CT, WSI, RNA, and WXS native patient-distance geometries; synthesize the views jointly rather than using vote counting or unanimity.",
         "nearest_competing_set/mean_distance_to_each_other_set": "The competing current set with the smallest target-to-set native distance and the corresponding distances.",
-        "mean_within_distance/mean_between_distance": "Mean native distance among same-label or different-label patient pairs under the current membership comparison.",
+        "mean_within_distance": "Mean per-patient average distance to the patient's own current label, excluding self, corresponding to the within-label quantity used by silhouette interpretation.",
+        "mean_between_distance": "Mean per-patient distance to the nearest competing current label, corresponding to the b(i) quantity used by silhouette interpretation; for set scope this is not the pooled distance to all other candidates.",
     },
     ("cross_modal_consistency", "structural_diagnostics"): {
         "geometry_basis": "Candidate-generation consensus geometry used to construct the current candidate partition; it is not external validation or a stability score.",
