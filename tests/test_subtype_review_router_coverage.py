@@ -114,8 +114,11 @@ def test_accept_with_membership_report_passes_role_contract():
         "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
         "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
         "request_foci": ["membership_representation"],
+    }, {
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
     }])
-    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership"]), terminal_action("drop", "C2")])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership", "ER:biology"]), terminal_action("drop", "C2")])
     validate_router_plan(plan, state, set())
 
 
@@ -126,6 +129,27 @@ def test_drop_does_not_require_fixed_membership_report():
     }])
     plan = RouterPlan(actions=[terminal_action("drop", refs=["ER:biology"]), terminal_action("drop", "C2")])
     validate_router_plan(plan, state, set())
+
+
+def test_accept_with_membership_but_without_biology_fails():
+    state = terminal_validation_state([{
+        "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership"]), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="biological_support"):
+        validate_router_plan(plan, state, set())
+
+
+def test_accept_with_biology_but_without_membership_fails():
+    state = terminal_validation_state([{
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:biology"]), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="membership_representation"):
+        validate_router_plan(plan, state, set())
 
 
 def test_report_focus_provenance_survives_router_summary():
@@ -235,7 +259,7 @@ def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():
     assert c2["available_question_foci"] == ["internal_subdivision", "membership_representation"]
     pair = next(item for item in options if item["dimension"] == "cross_modal_consistency"
                 and item["scope"] == "pair" and item["target_ids"] == ["C1", "C2"])
-    assert pair["available_question_foci"] == ["boundary_representation", "boundary_structure"]
+    assert pair["available_question_foci"] == ["boundary_representation"]
     assert "available_aspects" not in str(options)
     assert "representation_concordance" not in str(options)
     assert "structural_diagnostics" not in str(options)
@@ -256,6 +280,12 @@ def pair_options_after_completed_tools(completed_pair_tools):
         "tool_name": tool_name, "scope": "pair", "target_ids": ["C1", "C2"],
         "partition_signature": signature,
     } for tool_name in completed_pair_tools)
+    if "representation_concordance" in completed_pair_tools:
+        state["reports"].append({
+            "report_ref": "ER:pair-boundary", "dimension": "cross_modal_consistency",
+            "aspect": "affinity_geometry_concordance", "scope": "pair",
+            "target_ids": ["C1", "C2"], "request_foci": ["boundary_representation"],
+        })
     captured = {}
 
     class Router:
@@ -282,6 +312,13 @@ def test_pair_boundary_representation_leaves_union_structure_available():
     assert "representation_concordance" not in str(options)
     assert "structural_diagnostics" not in str(options)
     assert "affinity_geometry_concordance" not in str(options)
+
+
+def test_pair_boundary_structure_is_gated_until_boundary_representation():
+    options = pair_options_after_completed_tools([])
+    pair = next(item for item in options if item["dimension"] == "cross_modal_consistency"
+                and item["scope"] == "pair" and item["target_ids"] == ["C1", "C2"])
+    assert pair["available_question_foci"] == ["boundary_representation"]
 
 
 def test_completed_pair_boundary_and_union_structure_remove_pair_capability():

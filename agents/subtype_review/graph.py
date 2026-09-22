@@ -302,6 +302,14 @@ def validate_router_plan(
                     "Evidence Report; pair-boundary, structural, biological, confounder, "
                     "or partition evidence cannot substitute for it."
                 )
+            if not any(
+                is_set_biological_support_report(reports.get(ref), target)
+                for ref in action.evidence_report_refs
+            ):
+                raise ValueError(
+                    "Accept requires a target-specific set-scope biological_support "
+                    "Evidence Report establishing an interpretable candidate identity."
+                )
 
 
 def is_set_membership_report(report: Mapping[str, Any] | None, target: str) -> bool:
@@ -311,6 +319,30 @@ def is_set_membership_report(report: Mapping[str, Any] | None, target: str) -> b
         and report.get("scope") == "set"
         and list(report.get("target_ids", [])) == [target]
         and "membership_representation" in report.get("request_foci", [])
+    )
+
+
+def is_set_biological_support_report(
+    report: Mapping[str, Any] | None, target: str,
+) -> bool:
+    return bool(
+        report
+        and report.get("dimension") == "biological_support"
+        and report.get("scope") == "set"
+        and list(report.get("target_ids", [])) == [target]
+    )
+
+
+def has_pair_boundary_representation(
+    reports: list[Mapping[str, Any]], targets: list[str],
+) -> bool:
+    targets = sorted(map(str, targets))
+    return any(
+        row.get("dimension") == "cross_modal_consistency"
+        and row.get("scope") == "pair"
+        and sorted(map(str, row.get("target_ids", []))) == targets
+        and "boundary_representation" in row.get("request_foci", [])
+        for row in reports
     )
 
 
@@ -343,6 +375,12 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 if name == "structural_diagnostics" and (
                     (scope == "partition" and partition_screen_done)
                     or (scope in {"set", "pair"} and not partition_screen_done)
+                ):
+                    continue
+                if (
+                    scope == "pair"
+                    and "boundary_structure" in metadata.get("question_foci", {}).get(scope, ())
+                    and not has_pair_boundary_representation(state["reports"], list(target_ids))
                 ):
                     continue
                 key = (name, scope, tuple(target_ids))
