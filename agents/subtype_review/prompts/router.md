@@ -22,11 +22,11 @@ Keep membership representation and internal subdivision as separate questions. M
 
 Independent retention needs a candidate-specific evidential basis. Accept only when integrated interpreted evidence positively supports both an interpretable identity and continued treatment of current membership as an independent unit. These are reasoning requirements, not fixed evidence gates. Partition-level structural screening and internal-subdivision evidence cannot serve as the positive membership-independence basis. If independence remains unresolved and an available request could change disposition, request it before accepting; no particular tool or report type is mandatory.
 
-When evidence that directly bears on membership or boundary provides little or conflicting support for the current unit, do not neutralize it merely because the candidate has an interpretable biological phenotype, lacks a proven technical artifact, or has no supported split. If independent retention is not positively justified after decision-relevant evidence is exhausted, drop remains appropriate even when the candidate is biologically interpretable. Dropping means only that the current partition unit is not retained in this run; it does not imply that its biology is false.
+When membership or boundary evidence is weak or conflicting, do not neutralize it with biology, absent artifact, or absent split support. If independent retention is not positively justified after decision-relevant evidence and material direct counterevidence are considered, drop remains appropriate; dropping does not imply false biology.
 
 Failure to merit direct acceptance is not sufficient for dropping. Check plausible over-segmentation or under-segmentation first; if decision-relevant structural evidence remains available, resolve it before terminal drop. Drop requires unsupported independent retention and exhausted structural rescue.
 
-Request set-scope confounder evidence only when whether the partition concern applies to a candidate could change its disposition. Such evidence can weaken retention but cannot establish independence; if membership is unsupported and no structural revision is plausible, it cannot change a drop decision. Drop does not require proving candidate-specific confounding.
+Request set-scope confounder evidence only when it could change its disposition. Such evidence can weaken retention but cannot establish independence; if membership is unsupported and no structural revision is plausible, drop does not require proving candidate-specific confounding.
 
 Technical association is not proof of artifact or causation. Strong correspondence does not independently validate a candidate; weak correspondence does not establish novelty. Known-label evidence remains contextual.
 
@@ -44,11 +44,15 @@ Use `split` only when an exact-set structural Evidence Report justifies meaningf
 
 A partition-level `candidate_k=1` screen is triage evidence, not a hard veto against exact-set subdivision review. Request split evidence only when under-segmentation is plausible and could change disposition, such as inconsistent multimodal representation, biological heterogeneity, or a plausible coherent subset. Do not request it merely because it is available.
 
+Partition `candidate_k=1` does not establish that an individual set lacks a feasible split; exact-set evidence is required.
+
 Pair-based merge review has two distinct stages: boundary representation asks whether a specific pair's current labels form a distinguishable boundary in patient geometries; union structure asks whether the pair forms one coherent candidate or retains meaningful subdivision. If interpreted boundary evidence materially questions the boundary, request a second pair-level `cross_modal_consistency` question focused on `boundary_structure` before terminal disposition only when merge is legal, the result could plausibly change the disposition of either candidate, and that focus remains available for the exact pair. In that case, resolve union structure before terminally disposing of either candidate or declaring the evidence exhausted.
 
 Pair review is not a prerequisite for dropping a weak candidate and is not mandatory for every candidate or every weak pair. Request only a specific neighbor as a plausible alternative representation of the same candidate unit; availability alone is not a reason for pair review. Do not request all available pair boundaries by default; do not sequentially examine additional neighbors. If merge is unavailable, assess boundary only. Resolve union structure before terminally disposing when it could plausibly change the disposition.
 
 A weak boundary alone does not justify merge. A single-cluster-dominated union alone does not justify merge. Nearest-neighbor status alone does not justify merge. Merge requires an exact-pair structural Evidence Report and decision-relevant evidence that the union is more defensible than preserving separate units. No fixed evidence dimensions are mandatory; consider relevant evidence when available. The Verifier does not recommend merge; do not require the Evidence Report to say that merge is supported.
+
+Split and merge are provisional structural revisions, not final validation claims. A merged union must return through normal review before accept or drop; do not reject it merely because final biological identity is not yet established.
 
 For a plausible merge pair, review boundary representation, then exact-pair union structure when materially weak and decision-relevant, then compare preserve, merge, and reject alternatives. The Verifier does not recommend merge; pair evidence is not an automatic merge instruction.
 

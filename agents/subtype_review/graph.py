@@ -199,6 +199,8 @@ def validate_router_plan(
     state: Mapping[str, Any],
     available: set[tuple[str, str, tuple[str, ...]]],
     required_terminal_refs: Mapping[str, set[str]] | None = None,
+    structural_rescue_keys: set[tuple[str, str, tuple[str, ...]]] | None = None,
+    merge_legal: bool = True,
 ) -> None:
     current = {set_id(item) for item in current_sets(state)}
     if plan.evidence_requests:
@@ -269,6 +271,28 @@ def validate_router_plan(
         raise ValueError("Terminal disposition may only accept or drop sets")
     if len(targets) != len(set(targets)) or set(targets) != current:
         raise ValueError("Terminal actions must cover each current set exactly once")
+    rescue_keys = structural_rescue_keys or set()
+    dropped = {target for action in plan.actions if action.action == "drop" for target in action.target_ids}
+    unresolved_set_rescues = sorted(
+        key for key in rescue_keys
+        if key[1] == "set" and key[0] == "cross_modal_consistency"
+        and key[2] and key[2][0] in dropped
+    )
+    if unresolved_set_rescues:
+        raise ValueError(
+            "Cannot terminally drop a candidate while exact-set structural rescue remains available: "
+            f"{unresolved_set_rescues}"
+        )
+    if merge_legal:
+        unresolved_pair_rescues = sorted(
+            key for key in rescue_keys
+            if key[1] == "pair" and set(key[2]) & dropped
+        )
+        if unresolved_pair_rescues:
+            raise ValueError(
+                "Cannot terminally drop a candidate while a plausible merge-pair structural rescue "
+                f"remains available: {unresolved_pair_rescues}"
+            )
     if not any(
         row["dimension"] == "cross_modal_consistency"
         and row["aspect"] == "structural_diagnostics"
@@ -334,6 +358,16 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         {key: item[key] for key in ("dimension", "scope", "target_ids", "available_question_foci")}
         for item in request_options
     ]
+    structural_rescue_keys = {
+        (item["dimension"], item["scope"], tuple(item["target_ids"]))
+        for item in router_request_options
+        if (
+            (item["scope"] == "set" and "internal_subdivision" in item["available_question_foci"])
+            or (item["scope"] == "pair" and set(item["available_question_foci"]) & {
+                "boundary_representation", "boundary_structure"
+            })
+        )
+    }
     coverage = {
         "set": {item: {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS} for item in set_ids},
         "pair": {},
@@ -407,7 +441,12 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 request_payload["validation_feedback"] = validation_feedback
             plan = RouterPlan.model_validate(parse_json_content(model.invoke(request_payload)))
             try:
-                validate_router_plan(plan, state, available, required_terminal_refs=required_closure)
+                validate_router_plan(
+                    plan, state, available,
+                    required_terminal_refs=required_closure,
+                    structural_rescue_keys=structural_rescue_keys,
+                    merge_legal=merge_legal,
+                )
                 break
             except ValueError as exc:
                 if attempt >= retries:
@@ -466,7 +505,12 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             target_ids=[],
             question="Screen the current partition for unsupported internal splits and weak pair boundaries.",
         )])
-        validate_router_plan(plan, state, available, required_terminal_refs=required_closure)
+        validate_router_plan(
+            plan, state, available,
+            required_terminal_refs=required_closure,
+            structural_rescue_keys=structural_rescue_keys,
+            merge_legal=merge_legal,
+        )
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="router",
