@@ -10,7 +10,6 @@ from agents.subtype_review.llm import (
     LLMUsageTracker,
     build_default_reviser,
     build_default_router,
-    build_default_router_audit,
     build_default_verifier,
     review_signature_manifest,
 )
@@ -44,11 +43,6 @@ def run_subtype_review(
             runtime_trace_path=runtime_trace_path,
         ),
         "router_model": build_default_router(
-            review_config, config_dir,
-            usage_tracker=usage_tracker,
-            runtime_trace_path=runtime_trace_path,
-        ),
-        "router_audit_model": build_default_router_audit(
             review_config, config_dir,
             usage_tracker=usage_tracker,
             runtime_trace_path=runtime_trace_path,

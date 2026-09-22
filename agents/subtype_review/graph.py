@@ -22,7 +22,6 @@ from agents.subtype_review.schemas import (
     ReviewState,
     RevisionPlan,
     RouterAction,
-    RouterDecisionAudit,
     RouterPlan,
     set_id,
 )
@@ -200,7 +199,6 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "max_rounds": 10,
             "pending_evidence_requests": [],
             "trace": [],
-            "router_audit_feedback": None,
         },
     }
 
@@ -299,7 +297,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     state = copy.deepcopy(state)
     values = runtime.context if isinstance(runtime, Runtime) else runtime
     control = dict(state["control"])
-    audit_feedback = control.pop("router_audit_feedback", None)
     current = current_sets(state)
     signature = partition_signature(current)
     completed = {
@@ -401,8 +398,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "round": control["round"],
         "budget_exhausted": budget_exhausted,
     }
-    if audit_feedback:
-        payload["decision_audit_feedback"] = audit_feedback
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="router",
@@ -556,42 +551,9 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         control["next"] = "reviser"
     else:
         control["status"] = "complete"
-        control["next"] = "router_audit" if values.get("router_audit_model") else "end"
+        control["next"] = "end"
     state["control"] = control
     return {"control": control, "router_plan": state["router_plan"], "history": state["history"]}
-
-
-def router_audit_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
-    state = copy.deepcopy(state)
-    values = runtime.context if isinstance(runtime, Runtime) else runtime
-    model = values.get("router_audit_model")
-    if model is None:
-        state["control"]["status"] = "complete"
-        state["control"]["next"] = "end"
-        return {"control": state["control"]}
-    payload = {
-        "partition": state["partition"],
-        "router_plan": state["router_plan"],
-        "evidence_reports": summarize_reports(state["reports"]),
-        "round": state["control"]["round"],
-    }
-    raw = model.invoke(payload)
-    data = raw if isinstance(raw, Mapping) else parse_json_content(getattr(raw, "content", raw))
-    audit = RouterDecisionAudit.model_validate(data)
-    append_runtime_trace(
-        values.get("runtime_trace_path"), node="router_audit", event="decision_audit",
-        round_id=state["control"]["round"],
-        payload={"valid": audit.valid, "feedback": audit.feedback},
-    )
-    if audit.valid:
-        state["control"]["status"] = "complete"
-        state["control"]["next"] = "end"
-        state["control"]["router_audit_feedback"] = None
-    else:
-        state["control"]["status"] = "reviewing"
-        state["control"]["next"] = "router"
-        state["control"]["router_audit_feedback"] = audit.feedback
-    return {"control": state["control"]}
 
 
 def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
@@ -1108,15 +1070,11 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
 def build_review_graph() -> Any:
     graph = StateGraph(ReviewState, context_schema=ReviewContext)
     graph.add_node("router", router_node)
-    graph.add_node("router_audit", router_audit_node)
     graph.add_node("verifier", verifier_node)
     graph.add_node("reviser", reviser_node)
     graph.add_edge(START, "router")
     graph.add_conditional_edges("router", lambda state: state["control"]["next"], {
-        "verifier": "verifier", "reviser": "reviser", "router_audit": "router_audit", "end": END,
-    })
-    graph.add_conditional_edges("router_audit", lambda state: state["control"]["next"], {
-        "router": "router", "end": END,
+        "verifier": "verifier", "reviser": "reviser", "end": END,
     })
     graph.add_edge("verifier", "router")
     graph.add_edge("reviser", "router")

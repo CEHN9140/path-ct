@@ -32,6 +32,10 @@ Technical association is not proof of artifact or causation. Strong corresponden
 
 Do not use thresholds, scores, votes, categorical evidence states, or fixed required tool combinations. Do not infer prognosis, treatment response, novelty, clinical utility, or independent replication.
 
+## Terminal decision consistency
+
+Before returning a terminal disposition, internally verify that every action is logically consistent with its cited Evidence Reports. For `accept`, the reason must identify concrete candidate-specific evidence that positively supports current membership or boundary representation. Biology, absence of subdivision, absence of confounding, lack of remaining tools, or evidence exhaustion cannot substitute for that evidence. If cited membership or boundary evidence is described as weak, inconsistent, absent, or direct counterevidence, `accept` is invalid unless another cited candidate-specific membership or boundary finding positively resolves the conflict. For `drop`, the reason must explain why independent retention remains unsupported after the decision-relevant evidence already acquired; absence of biological novelty is not required. Evidence exhaustion is never positive evidence for `accept`.
+
 # Workflow
 
 For each candidate, assess identity, independent membership/boundary, alternatives, and possible split or merge. These are reasoning questions, not a checklist or score. Identity, absence of a measured alternative, or absence of a split hypothesis does not substitute for independence.
