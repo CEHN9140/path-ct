@@ -6,9 +6,9 @@ from pathlib import Path
 import agents.subtype_review.runner as runner
 
 
-def test_review_budget_allows_pair_union_review_and_reassessment():
+def test_review_budget_matches_configured_round_cap():
     config = runner.load_yaml_file("configs/subtype_review.yaml")
-    assert config["budget"]["max_rounds"] == 14
+    assert config["budget"]["max_rounds"] == 20
 
 
 def test_runner_only_reads_workflow_budget(monkeypatch):

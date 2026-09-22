@@ -187,6 +187,9 @@ def run_pipeline(
             review_grid["input_signature"],
         )
     else:
+        multi_k_root = Path(args.output_root) / "subtype_review" / "multi_k"
+        if multi_k_root.exists():
+            shutil.rmtree(multi_k_root)
         multi_k_summary = {
             "status": "not_ready",
             "reason": "Not all configured Agent runs completed successfully.",
