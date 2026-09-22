@@ -169,8 +169,13 @@ def test_pair_report_is_accountable_to_both_involved_targets():
 
 def test_structural_revision_does_not_require_terminal_accountability_refs():
     state = terminal_validation_state([{
+        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
+        "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_representation"],
+    }, {
         "report_ref": "ER:struct", "dimension": "cross_modal_consistency",
         "aspect": "structural_diagnostics", "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_structure"],
     }])
     state["partition"]["sets"].append({"set_id": "C3", "member_ids": ["P5", "P6"], "revision_lineage": []})
     state["tool_evidence"] = [{
@@ -178,7 +183,7 @@ def test_structural_revision_does_not_require_terminal_accountability_refs():
         "partition_signature": partition_signature(state["partition"]["sets"]),
         "metrics": {},
     }]
-    action = RouterAction(action="merge", target_ids=["C1", "C2"], evidence_report_refs=["ER:struct"], reason="reason")
+    action = RouterAction(action="merge", target_ids=["C1", "C2"], evidence_report_refs=["ER:boundary", "ER:struct"], reason="reason")
     plan = RouterPlan(actions=[action])
     validate_router_plan(plan, state, set(), terminal_accountability_refs_by_target={"C1": {"ER:other"}, "C2": {"ER:other"}})
 

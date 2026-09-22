@@ -1,3 +1,5 @@
+import pytest
+
 from agents.subtype_review.graph import initial_review_state, partition_signature, validate_router_plan
 from agents.subtype_review.schemas import RouterAction, RouterPlan
 
@@ -61,8 +63,30 @@ def test_controlled_action_fixtures_cover_accept_drop_split_merge():
     merge_sets = split_sets + [{"set_id": "C3", "member_ids": ["P7", "P8"]}]
     merge_state = state_with_reports(
         merge_sets,
-        [partition, report("ER:C1-C2-structure", "cross_modal_consistency", "pair", ["C1", "C2"])],
+        [
+            partition,
+            report("ER:C1-C2-boundary", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_representation"),
+            report("ER:C1-C2-structure", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_structure"),
+        ],
     )
     merge = RouterAction(action="merge", target_ids=["C1", "C2"],
-                         evidence_report_refs=["ER:C1-C2-structure"], reason="revise boundary")
+                         evidence_report_refs=["ER:C1-C2-boundary", "ER:C1-C2-structure"], reason="revise boundary")
     validate_router_plan(RouterPlan(actions=[merge]), merge_state, set())
+
+
+def test_merge_requires_both_pair_review_stages():
+    sets = [
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+        {"set_id": "C3", "member_ids": ["P5", "P6"]},
+    ]
+    state = state_with_reports(sets, [
+        report("ER:partition", "cross_modal_consistency", "partition", []),
+        report("ER:structure", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_structure"),
+    ])
+    action = RouterAction(
+        action="merge", target_ids=["C1", "C2"],
+        evidence_report_refs=["ER:structure"], reason="revise boundary",
+    )
+    with pytest.raises(ValueError, match="boundary_representation"):
+        validate_router_plan(RouterPlan(actions=[action]), state, set())

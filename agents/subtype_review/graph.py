@@ -332,11 +332,24 @@ def validate_router_plan(
                 raise ValueError("Split child count must be a feasible structural solution")
         else:
             targets = sorted(action.target_ids)
-            report = next((row for row in cited if row["dimension"] == "cross_modal_consistency"
-                           and row["aspect"] == "structural_diagnostics" and row["scope"] == "pair"
-                           and row["target_ids"] == targets), None)
-            if report is None:
-                raise ValueError("Merge requires its exact-pair structural Evidence Report")
+            pair_reports = [
+                row for row in cited
+                if row["dimension"] == "cross_modal_consistency"
+                and row["scope"] == "pair"
+                and sorted(row["target_ids"]) == targets
+            ]
+            if not any("boundary_representation" in row.get("request_foci", []) for row in pair_reports):
+                raise ValueError(
+                    "Merge requires its exact-pair boundary_representation Evidence Report"
+                )
+            if not any(
+                row.get("aspect") == "structural_diagnostics"
+                and "boundary_structure" in row.get("request_foci", [])
+                for row in pair_reports
+            ):
+                raise ValueError(
+                    "Merge requires its exact-pair boundary_structure Evidence Report"
+                )
             if len(current) - 1 < 2:
                 raise ValueError("Merge cannot collapse the subtype partition to a single whole-cohort set")
         return
