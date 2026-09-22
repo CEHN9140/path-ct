@@ -26,11 +26,7 @@ from agents.subtype_review.schemas import (
     set_id,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
-from agents.subtype_review.evidence_semantics import (
-    EVIDENCE_ROLE_CONTRACTS,
-    MEMBERSHIP_POSITIVE_CONCLUSION,
-    guidance_for,
-)
+from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS, guidance_for
 from agents.subtype_review.tools import (
     TOOL_REGISTRY,
     candidate_consensus_geometry,
@@ -442,13 +438,6 @@ def validate_router_plan(
                     "Evidence Report; pair-boundary, structural, biological, confounder, "
                     "or partition evidence cannot substitute for it."
                 )
-            if not any(has_positive_membership_role_conclusion(row, target)
-                       for row in membership_reports):
-                raise ValueError(
-                    "Accept requires an exact-set membership_representation Evidence Report "
-                    "whose standardized membership-role conclusion explicitly provides positive support "
-                    "for the current membership."
-                )
             if not any(
                 is_set_biological_support_report(reports.get(ref), target)
                 for ref in action.evidence_report_refs
@@ -466,18 +455,6 @@ def is_set_membership_report(report: Mapping[str, Any] | None, target: str) -> b
         and report.get("scope") == "set"
         and list(report.get("target_ids", [])) == [target]
         and "membership_representation" in report.get("request_foci", [])
-    )
-
-
-def has_positive_membership_role_conclusion(
-    report: Mapping[str, Any] | None,
-    target: str,
-) -> bool:
-    return bool(
-        is_set_membership_report(report, target)
-        and str(report.get("dimension_interpretation", "")).rstrip().endswith(
-            MEMBERSHIP_POSITIVE_CONCLUSION
-        )
     )
 
 
@@ -767,16 +744,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "unreviewed pair. If that boundary remains materially questionable and boundary_structure "
                         "is available, acquire boundary_structure before terminal disposition. Do not force merge "
                         "and do not exhaustively review every pair."
-                    )
-                elif "standardized membership-role conclusion explicitly provides positive support" in str(exc):
-                    feedback["instruction"] = (
-                        "The proposed accept is not supported by the target's exact-set "
-                        "membership_representation Evidence Report. Pair-level boundary or union "
-                        "evidence cannot upgrade or replace a non-positive exact-set membership. "
-                        "Do not preserve accept merely because merge or split was not supported. "
-                        "If a decision-relevant structural alternative remains, request that evidence. "
-                        "If a supported split or merge exists, revise the partition. Otherwise reconsider "
-                        "terminal drop using the current evidence."
                     )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),
@@ -1081,58 +1048,14 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             actual_key_set = set(actual_keys)
             duplicates = sorted({key for key in actual_keys if actual_keys.count(key) > 1})
             if actual_key_set == expected_keys and len(actual_keys) == len(expected_keys) and not duplicates:
-                candidate_reports = dict(zip(actual_keys, batch.reports))
-                role_conclusion_errors = []
-                for key, report in candidate_reports.items():
-                    dimension, aspect, scope, targets = key
-                    contract = guidance_for(dimension, aspect, scope).get(
-                        "role_conclusion_contract"
+                reports_by_key = dict(zip(actual_keys, batch.reports))
+                if audit_attempt:
+                    append_runtime_trace(
+                        values.get("runtime_trace_path"), node="verifier",
+                        event="verifier_audit_coverage_repaired", round_id=state["control"]["round"],
+                        payload={"wave": wave, "attempt": audit_attempt + 1},
                     )
-                    if contract is None:
-                        continue
-                    text = report.dimension_interpretation.rstrip()
-                    required = contract["required_conclusions"]
-                    ending_matches = [conclusion for conclusion in required if text.endswith(conclusion)]
-                    occurrence_n = sum(text.count(conclusion) for conclusion in required)
-                    if len(ending_matches) != 1 or occurrence_n != 1:
-                        role_conclusion_errors.append({
-                            "dimension": dimension,
-                            "aspect": aspect,
-                            "scope": scope,
-                            "target_ids": list(targets),
-                            "required_conclusions": required,
-                        })
-                if not role_conclusion_errors:
-                    reports_by_key = candidate_reports
-                    if audit_attempt:
-                        append_runtime_trace(
-                            values.get("runtime_trace_path"), node="verifier",
-                            event="verifier_audit_coverage_repaired", round_id=state["control"]["round"],
-                            payload={"wave": wave, "attempt": audit_attempt + 1},
-                        )
-                    break
-
-                append_runtime_trace(
-                    values.get("runtime_trace_path"), node="verifier",
-                    event="verifier_audit_role_conclusion_invalid", round_id=state["control"]["round"],
-                    payload={"wave": wave, "attempt": audit_attempt + 1,
-                             "role_conclusion_errors": role_conclusion_errors},
-                )
-                if audit_attempt >= max_coverage_retries:
-                    raise ValueError(
-                        "Verifier Evidence Report role-conclusion contract remained invalid after audit retries"
-                    )
-                audit_feedback = {
-                    "error": "Evidence Report role-conclusion contract is invalid.",
-                    "role_conclusion_errors": role_conclusion_errors,
-                    "instruction": (
-                        "For every report with a role_conclusion_contract, preserve the scientific "
-                        "interpretation and end dimension_interpretation with exactly one required "
-                        "conclusion sentence copied verbatim. Do not change report targets, scope, "
-                        "aspect, or evidence content."
-                    ),
-                }
-                continue
+                break
 
             missing = sorted(expected_keys - actual_key_set)
             extra = sorted(actual_key_set - expected_keys)

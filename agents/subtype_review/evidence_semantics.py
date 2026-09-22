@@ -3,33 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-MEMBERSHIP_POSITIVE_CONCLUSION = (
-    "Membership-role conclusion: the current exact-set membership is "
-    "positively represented in the native multimodal patient geometries."
-)
-MEMBERSHIP_NOT_POSITIVE_CONCLUSION = (
-    "Membership-role conclusion: the current exact-set membership is "
-    "not positively represented in the native multimodal patient geometries."
-)
-
-ROLE_CONCLUSION_CONTRACTS = {
-    ("affinity_geometry_concordance", "set"): {
-        "required_conclusions": [
-            MEMBERSHIP_POSITIVE_CONCLUSION,
-            MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
-        ],
-        "interpretation_rule": (
-            "End dimension_interpretation with exactly one required conclusion. "
-            "Use the positive conclusion only when the joint native-view synthesis "
-            "affirmatively supports the current exact-set membership as an independent "
-            "unit. Weak, limited, mixed, conflicting, non-separating, or materially "
-            "contradicted evidence does not constitute positive membership support. "
-            "Do not use modality vote counting, unanimity, majority rules, or fixed "
-            "numeric thresholds."
-        ),
-    },
-}
-
 
 DIMENSION_GUIDES = {
     "biological_support": "Does the candidate exhibit a coherent and interpretable biological phenotype relative to the rest of the current partition?",
@@ -231,7 +204,4 @@ def guidance_for(dimension: str, aspect: str, scope: str | None = None) -> dict[
     scope_key = (aspect, scope)
     if scope_key in SCOPE_INTERPRETATIONS:
         guidance["scope_interpretation"] = SCOPE_INTERPRETATIONS[scope_key]
-    role_contract = ROLE_CONCLUSION_CONTRACTS.get((aspect, scope))
-    if role_contract is not None:
-        guidance["role_conclusion_contract"] = role_contract
     return guidance
