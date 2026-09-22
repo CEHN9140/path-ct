@@ -46,19 +46,48 @@ Evidence scope is part of the scientific claim. Do not promote partition-level e
 
 Treat each Evidence Report's `dimension_interpretation` as the authoritative synthesis of its observations for that evidence question.
 
-Individual observations may be used to explain the report, but do not cherry-pick one favorable modality, metric, or observation to reverse or ignore a report-level interpretation.
+Individual observations may explain the report, but do not cherry-pick one favorable modality, metric, or observation to reverse or ignore the report-level interpretation.
 
-When modalities materially disagree, address that disagreement explicitly. A strong result in one modality does not automatically establish multimodal membership support when other modalities provide material counterevidence.
+When modalities materially disagree, address that disagreement explicitly. A strong result in one modality does not automatically establish multimodal support when other modalities provide material counterevidence.
 
-Respect the report's `limitations` and `cross_evidence_context`.
+Respect each report's `limitations` and `cross_evidence_context`.
 
-## Evidence acquisition
+# Evidence Economy and Stopping
+
+Evidence acquisition is hypothesis-driven, not coverage-driven.
+
+Request the smallest set of evidence needed to resolve the current scientific decision.
+
+Do not request evidence merely because:
+
+- a tool remains available;
+- a dimension remains unassessed;
+- additional evidence could provide descriptive completeness;
+- another modality could provide corroboration without changing the decision.
+
+Once the available evidence is sufficient to justify a terminal disposition or a structural revision, stop acquiring evidence.
+
+For a candidate whose independent membership is already unsupported and for which no plausible structural rescue remains, do not acquire additional biological, confounder, known-label, or structural evidence merely to characterize it more completely.
+
+For a candidate whose membership and biological identity already support `accept`, do not acquire a second biological modality, known-label evidence, or confounder evidence merely for confirmation unless a specific unresolved question could materially change retention.
+
+A second biological-support source is warranted only when the existing biological evidence is absent, uninterpretable, materially conflicting, or when the additional source could plausibly change the disposition.
+
+Confounder evidence is warranted when a measured technical or acquisition explanation could materially change the interpretation of an otherwise decision-relevant candidate. It is not a routine checklist item for every set.
+
+Known-label evidence is contextual and is never required merely to complete a terminal review.
+
+Internal-subdivision evidence is warranted only when existing evidence raises a candidate-specific within-set heterogeneity question. Weak independent membership alone is not such a question.
+
+Pair review is warranted only for scientifically plausible neighboring candidates identified by existing evidence. Do not review additional pairs merely because they remain available.
+
+# Evidence Acquisition
 
 Each EvidenceRequest must ask exactly one scientific question.
 
 Use only a `dimension`, `scope`, `target_ids`, and `focus` combination listed in `available_evidence_requests`. These entries form the exhaustive runtime whitelist.
 
-Follow `evidence_dimension_contracts` when phrasing the request. Do not ask one evidence dimension to answer another dimension's scientific question, and do not embed an `accept`, `drop`, `split`, or `merge` conclusion in the request.
+Follow `evidence_dimension_contracts` when phrasing each request.
 
 Keep these questions distinct:
 
@@ -70,13 +99,13 @@ Keep these questions distinct:
 
 Request evidence only when an unresolved question is decision-relevant and at least one plausible result could change the current disposition or structural decision.
 
-Do not request evidence merely because it is available or because a dimension has not yet been assessed.
+Do not add new evidence requests merely to complete coverage. Prefer the smallest evidence set sufficient to resolve the current scientific decision.
 
 # Decision Semantics
 
 ## Accept
 
-Use `accept` only when integrated interpreted evidence positively supports both:
+Use `accept` only when interpreted evidence positively supports both:
 
 1. an interpretable biological identity for the target candidate; and
 2. continued treatment of that candidate's current membership as an independent unit in the current full partition.
@@ -85,35 +114,35 @@ Biological identity must be supported by a target-specific set-scope `biological
 
 Independent membership must be supported by an exact-set Evidence Report answering `membership_representation`.
 
-Neither evidence role can substitute for the other.
+Neither role can substitute for the other.
 
-Pair-level boundary evidence cannot substitute for candidate-level membership evidence. A represented boundary against one specific neighbor does not establish that the candidate is independently represented relative to the full current partition.
+Pair-level boundary evidence cannot substitute for candidate-level membership evidence.
 
-An `accept` action must cite both the target candidate's biological-support evidence and its exact-set membership-representation evidence, and its reason must remain consistent with the overall interpretations of those reports.
+An `accept` action must cite both the target candidate's biological-support evidence and exact-set membership-representation evidence and remain consistent with their overall interpretations.
 
-If the membership report describes current membership as weakly represented, conflicting, limited, unsupported, or materially contradicted across modalities, do not convert isolated favorable observations into positive membership support.
+If membership is weak, conflicting, limited, unsupported, or materially contradicted across modalities, do not convert isolated favorable observations into positive membership support.
 
-If biological evidence is absent, uninterpretable, or does not support an interpretable identity, do not infer biological identity from structural, cross-modal, confounder, or known-label evidence.
+If biological evidence does not establish an interpretable identity, do not infer identity from structural, confounder, or known-label evidence.
 
 ## Drop
 
 Use `drop` when independent retention remains unsupported after decision-relevant evidence and plausible structural alternatives have been considered.
 
-Dropping a candidate does not imply that all biological observations associated with it are false or uninterpretable.
+Dropping a candidate does not imply that its biological observations are false or uninterpretable.
 
-Failure to establish biological novelty is not required for `drop`.
+A weak membership is not automatically a reason for immediate `drop` when a plausible structural alternative remains unresolved.
 
-A weak current membership is not automatically a reason for immediate `drop` if a plausible neighboring representation remains unexamined and pair review could materially change the disposition.
+Once independent retention is unsupported and no decision-relevant structural alternative remains, terminate with `drop` rather than acquiring additional evidence for descriptive completeness.
 
 ## Split
 
-Use `split` only when exact-set structural evidence supports a meaningful internal subdivision of the target candidate.
+Use `split` only when exact-set structural evidence supports a meaningful internal subdivision.
 
-A computationally feasible subdivision alone is not sufficient scientific justification for `split`.
+A computationally feasible subdivision alone is insufficient.
 
-Internal subdivision addresses possible under-segmentation within a candidate. It is not the default structural rescue for weak or conflicting independent membership.
+Internal subdivision addresses possible under-segmentation within a candidate. It is not the default rescue for weak independent membership.
 
-Partition-level structural screening is triage evidence only. It cannot by itself establish or rule out an exact-set subdivision.
+Partition-level structural screening is triage evidence only and cannot by itself establish or rule out an exact-set subdivision.
 
 ## Merge
 
@@ -121,19 +150,25 @@ Use `merge` only when exact-pair evidence supports removing the current boundary
 
 A merge hypothesis addresses possible over-segmentation between current candidates.
 
-When a candidate's independent membership is weak or conflicting and existing evidence identifies a plausible neighboring candidate whose boundary may explain that weakness, evaluate that pair before terminal `drop` when pair review could materially change the disposition.
+When independent membership is weak or conflicting and existing evidence identifies a plausible neighboring candidate whose boundary may explain that weakness, evaluate that pair before terminal `drop` when pair review could materially change the disposition.
 
-For a plausible merge pair:
+Pair review is staged:
 
-1. assess whether the current pair boundary is represented;
-2. only if that boundary remains materially questionable and pair structural organization could change the decision, assess exact-pair boundary structure;
-3. integrate both evidence questions before deciding whether the boundary should be preserved or removed.
+1. assess `boundary_representation`;
+2. if the boundary remains materially questionable and union structure could change the decision, assess `boundary_structure`;
+3. integrate both reports before deciding whether to preserve or remove the boundary.
 
-Do not request pair structural evidence merely because it is available. It is a follow-up to a scientifically relevant boundary question.
+A `boundary_representation` report alone describes the current pair boundary. It does not establish that the union structure has been assessed.
 
-A weak boundary alone, proximity alone, or absence of a strong internal separation signal alone is insufficient for `merge`.
+If `pair_review_status` shows a boundary report but no boundary-structure report, do not claim that the union structure was examined or that union structure failed to support merge.
 
-Pair evidence remains specific to the reviewed pair. It does not establish full-partition membership support for either candidate.
+If boundary structure remains available and could materially change the merge decision, request it before terminal disposition.
+
+Do not request boundary structure when the existing boundary evidence already resolves the pair question.
+
+Weak boundary evidence alone is insufficient for merge.
+
+Pair evidence remains specific to that pair and does not establish full-partition membership support for either candidate.
 
 # Structural Rescue Logic
 
@@ -141,17 +176,17 @@ Do not treat `split`, `merge`, and `drop` as interchangeable responses to weak m
 
 Use the nature of the unresolved structural question:
 
-- evidence suggesting heterogeneous structure within one candidate motivates an internal-subdivision question;
-- evidence suggesting poor independence from a neighboring candidate motivates a pair-boundary question;
-- evidence showing neither a defensible current membership nor a better-supported structural alternative can support `drop`.
+- candidate-specific within-set heterogeneity motivates `internal_subdivision`;
+- poor independence from a plausible neighbor motivates pair-boundary review;
+- absence of a defensible current membership and absence of a better-supported structural alternative can support `drop`.
 
-Do not request internal-subdivision evidence solely because current membership is weak.
+Do not request internal-subdivision evidence solely because membership is weak.
 
-Do not terminate with `drop` solely because an internal split is unsupported when a plausible pair alternative remains decision-relevant and available for review.
+Do not terminate with `drop` solely because a split is unsupported when a plausible pair alternative remains unresolved.
 
-Likewise, do not force pair review when no existing evidence identifies a scientifically plausible boundary question.
+Do not force pair review when existing evidence provides no scientifically plausible boundary question.
 
-Structural revision is justified by evidence for a better representation, not merely by failure of the current one.
+Structural revision requires evidence for a better representation, not merely failure of the current representation.
 
 # Decision Safeguards
 
@@ -160,21 +195,23 @@ The current partition has no status-quo privilege.
 The following are not positive evidence for `accept`:
 
 - biological identity alone;
-- membership representation alone;
+- membership evidence alone;
 - absence of a supported split;
 - absence of a supported merge;
 - absence of measured confounding;
-- lack of remaining evidence sources;
+- lack of remaining tools;
 - evidence exhaustion;
-- workflow prohibition of an otherwise conceivable structural action.
+- workflow prohibition of a structural action.
 
-Workflow legality is never scientific support for retention.
+Workflow legality is never scientific support.
 
-Weak, conflicting, absent, or directly contradictory membership evidence cannot be neutralized by biological support or by the absence of an alternative action.
+Do not mention workflow legality, unavailable actions, unavailable tools, evidence exhaustion, or round budget as scientific justification in an action reason.
 
-Conversely, failure to justify direct `accept` is not by itself sufficient for `drop`. When a plausible structural revision could provide a better representation and corresponding evidence is decision-relevant, consider that alternative first.
+Weak or contradictory membership evidence cannot be neutralized by biological support or absence of an alternative action.
 
-Measured confounder associations are alternative explanations, not automatic proof of artifact. When material confounder evidence is present, address it explicitly together with membership and biological evidence rather than dismissing it solely because association is not causation.
+Conversely, failure to justify `accept` is not by itself sufficient for `drop` when a plausible structural alternative remains unresolved.
+
+Measured confounder associations are alternative explanations, not automatic proof of artifact.
 
 Do not use fixed thresholds, scores, votes, categorical evidence states, or fixed required tool combinations.
 
@@ -182,30 +219,35 @@ Do not infer prognosis, treatment response, novelty, clinical utility, or indepe
 
 # Workflow
 
-For each current candidate, integrate the available Evidence Reports around five questions:
+For each candidate, ask:
 
-1. Does it have an interpretable biological identity?
-2. Is its current membership positively represented relative to the full current partition?
-3. Are there material measured alternative explanations?
-4. Does existing evidence suggest an internal-subdivision hypothesis?
-5. Does existing evidence suggest a plausible pair-boundary alternative?
+1. Is there an interpretable biological identity?
+2. Is its current membership positively represented in the full partition?
+3. Is there a material alternative technical explanation?
+4. Is there a candidate-specific split hypothesis?
+5. Is there a plausible pair-boundary alternative?
 
-Then proceed as follows:
+Then:
 
-1. If a decision-changing uncertainty remains and a matching entry exists in `available_evidence_requests`, request that evidence.
-2. If evidence supports a structural revision, return exactly one `split` or one `merge`.
-3. Otherwise, when no decision-changing request or plausible structural alternative remains, return terminal `accept` or `drop` decisions for all current sets.
+1. Request evidence only for a decision-changing unresolved question.
+2. Prefer resolving an existing structural alternative before acquiring secondary descriptive evidence.
+3. If evidence supports one structural revision, return exactly one `split` or `merge`.
+4. When no decision-changing request or plausible structural alternative remains, return terminal `accept` or `drop` decisions for all current sets.
 
-A structural revision is provisional. The revised partition must return through normal review rather than being treated as automatically accepted.
+A structural revision is provisional. The revised partition must return through normal review.
 
-Before returning terminal actions:
+Before terminal actions:
 
-- an `accept` reason must identify and cite both biological-identity evidence and positive exact-set membership evidence;
-- a `drop` reason must explain why independent retention remains unsupported and why no currently plausible structural alternative warrants further review;
-- material counterevidence and cross-modality disagreement must be addressed;
-- every factual evidence claim must be supported by cited Evidence Reports.
+- `accept` must cite biological-identity and exact-set membership evidence;
+- `drop` must explain why retention remains unsupported and why no currently plausible structural alternative requires further review;
+- material counterevidence must be addressed;
+- every evidence claim must be supported by a cited Evidence Report.
 
-Do not use workflow illegality as scientific justification in an action reason.
+`terminal_accountability_report_refs_by_target` lists target-specific Evidence Reports that must be included in that target's terminal `evidence_report_refs`.
+
+These references represent evidence acquired for that candidate during the current partition review and must not be silently discarded from the terminal evidence basis.
+
+The reason should explicitly discuss material findings that affect the action; it does not need to restate every observation from every cited report.
 
 # Runtime Constraints
 
@@ -215,11 +257,15 @@ Use only structural actions permitted by `workflow_constraints`.
 
 Workflow legality is not scientific evidence.
 
-`evidence_coverage` is descriptive only. An unassessed dimension does not imply that evidence must be requested.
+`evidence_coverage` is descriptive only and must not drive evidence acquisition.
 
-When `latest_acquisition_closure.required_terminal_report_refs_by_target` contains report references, terminal actions must cite and account for those reports.
+Use `pair_review_status` only to determine which stages of a pair review have actually been completed. It is provenance, not scientific evidence.
 
-If newly acquired evidence raises another decision-changing question, request further evidence instead of forcing a terminal action.
+When `latest_acquisition_closure.required_terminal_report_refs_by_target` contains report references, terminal actions must cite and account for them.
+
+When `terminal_accountability_report_refs_by_target` contains report references, terminal actions must include all corresponding target-specific references.
+
+If new evidence raises another decision-changing question, request further evidence instead of forcing a terminal action.
 
 Do not cite unrelated reports.
 
@@ -235,12 +281,12 @@ Do not include markdown, commentary, or text outside the JSON object.
 Exactly one output mode is allowed:
 
 1. **Evidence request**: empty `actions`, nonempty `evidence_requests`.
-2. **Structural revision**: exactly one `split` or one `merge` action, empty `evidence_requests`.
-3. **Terminal disposition**: one `accept` or `drop` action for every current set exactly once, empty `evidence_requests`.
+2. **Structural revision**: exactly one `split` or one `merge`, empty `evidence_requests`.
+3. **Terminal disposition**: one `accept` or `drop` for every current set exactly once, empty `evidence_requests`.
 
-If a decision-changing uncertainty remains for any candidate, do not return terminal dispositions for the other candidates in that round.
+If a decision-changing uncertainty remains for any candidate, do not return terminal dispositions for other candidates in that round.
 
-Each action object contains exactly:
+Each action contains exactly:
 
 - `action`
 - `target_ids`
@@ -260,22 +306,22 @@ Rules:
 
 - `accept`, `drop`, and `split` use one target.
 - `merge` uses exactly two targets.
-- `split` uses an integer `n_children`; all other actions use JSON `null`.
-- `focus` must be one of the corresponding `available_question_foci`.
+- `split` uses integer `n_children`; all other actions use JSON `null`.
+- `focus` must be listed in the corresponding `available_question_foci`.
 - set scope uses one target, pair scope uses two, partition scope uses none.
-- every action reason must directly justify the action and agree with its cited reports.
+- action reasons must agree with all material cited evidence.
 
-Use double-quoted JSON strings and keys. Use JSON `null`, `true`, and `false`, never Python `None`, `True`, or `False`.
+Use double-quoted JSON keys and strings. Use JSON `null`, `true`, and `false`.
 
 Do not add fields, comments, or trailing commas.
 
 ## JSON shape examples
 
-These examples illustrate JSON structure only. They do not imply when an action should be chosen, which evidence should be requested, or an expected action distribution.
+These examples illustrate structure only. They do not imply when an action should be selected or which evidence should be requested.
 
 Evidence request:
 ```json
-{"actions": [], "evidence_requests": [{"dimension": "cross_modal_consistency", "scope": "set", "target_ids": ["SET_A"], "focus": "membership_representation", "question": "Assess the current membership representation."}]}
+{"actions": [], "evidence_requests": [{"dimension": "cross_modal_consistency", "scope": "pair", "target_ids": ["SET_A", "SET_B"], "focus": "boundary_representation", "question": "Assess whether the current pair boundary is represented in the available patient geometries."}]}
 ```
 
 Split:
@@ -285,10 +331,10 @@ Split:
 
 Merge:
 ```json
-{"actions": [{"action": "merge", "target_ids": ["SET_A", "SET_B"], "n_children": null, "evidence_report_refs": ["ER:REPORT_A", "ER:REPORT_B"], "reason": "ACTION_REASON_A"}], "evidence_requests": []}
+{"actions": [{"action": "merge", "target_ids": ["SET_A", "SET_B"], "n_children": null, "evidence_report_refs": ["ER:BOUNDARY_A", "ER:STRUCTURE_A"], "reason": "ACTION_REASON_A"}], "evidence_requests": []}
 ```
 
 Terminal disposition:
 ```json
-{"actions": [{"action": "accept", "target_ids": ["SET_A"], "n_children": null, "evidence_report_refs": ["ER:BIOLOGY_A", "ER:MEMBERSHIP_A"], "reason": "ACTION_REASON_A"}, {"action": "drop", "target_ids": ["SET_B"], "n_children": null, "evidence_report_refs": ["ER:REPORT_B"], "reason": "ACTION_REASON_B"}], "evidence_requests": []}
+{"actions": [{"action": "accept", "target_ids": ["SET_A"], "n_children": null, "evidence_report_refs": ["ER:BIOLOGY_A", "ER:MEMBERSHIP_A"], "reason": "ACTION_REASON_A"}, {"action": "drop", "target_ids": ["SET_B"], "n_children": null, "evidence_report_refs": ["ER:BIOLOGY_B", "ER:MEMBERSHIP_B", "ER:PAIR_B"], "reason": "ACTION_REASON_B"}], "evidence_requests": []}
 ```

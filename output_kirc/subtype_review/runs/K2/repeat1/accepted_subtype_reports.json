@@ -62,7 +62,10 @@
           "observations": [
             {
               "metric": "screen_candidate_k",
-              "value": 1,
+              "value": {
+                "K2_C0001": 1,
+                "K2_C0002": 1
+              },
               "meaning": "Algorithmic eigengap screening resolution for each candidate set; candidate_k=1 means the dominant spectral gap is at the single-cluster resolution.",
               "finding": "Both K2_C0001 and K2_C0002 screen at candidate_k=1, so the partition-level screen does not show a dominant multi-cluster subdivision signal for either set."
             },
@@ -72,8 +75,8 @@
                 "K2_C0001": 0.9821501193539688,
                 "K2_C0002": 0.9876297696301665
               },
-              "meaning": "Magnitude of the dominant spectral eigengap at the screened resolution for each candidate set.",
-              "finding": "The dominant gaps are large and located at k=1 for both sets, describing dominance of the single-cluster resolution rather than evidence of internal multi-cluster substructure."
+              "meaning": "Magnitude of the dominant spectral eigengap at the screened resolution.",
+              "finding": "Both sets show a large leading gap at the single-cluster resolution, indicating dominance of the one-cluster solution rather than internal multi-cluster substructure."
             },
             {
               "metric": "eigengaps",
@@ -91,8 +94,8 @@
                   "4": 0.004421813061701418
                 }
               },
-              "meaning": "Profile of spectral eigengaps across candidate resolutions, interpreted together with the dominant gap's location and magnitude.",
-              "finding": "For both sets the leading gap at k=1 is far larger than subsequent gaps, consistent with a single-cluster resolution dominating the spectral profile; no secondary gap of comparable magnitude indicates a clear internal subdivision."
+              "meaning": "Profile of spectral eigengaps across candidate resolutions; the dominant gap's location and magnitude are interpreted together.",
+              "finding": "In both sets the first eigengap dwarfs subsequent gaps, consistent with a single dominant resolution and no prominent higher-k subdivision signal in this screen."
             },
             {
               "metric": "mean_within_affinity",
@@ -101,13 +104,15 @@
                 "K2_C0002": 0.009358445939785257
               },
               "meaning": "Average fused affinity among patients assigned to the same candidate set.",
-              "finding": "Within-set mean affinities are low and similar across the two sets, indicating weak average internal fused affinity at this partition-level screen."
+              "finding": "Within-set mean affinities are low and similar across the two sets, describing weak internal fused-graph cohesion at this scale."
             },
             {
               "metric": "mean_between_affinity",
-              "value": 0.009024334574817062,
-              "meaning": "Average fused affinity across the current pair boundary between K2_C0001 and K2_C0002.",
-              "finding": "The between-set mean affinity for the nearest pair is close to the within-set mean affinities, so this pair-review entry point does not show a strongly separated boundary."
+              "value": {
+                "K2_C0001|K2_C0002": 0.009024334574817062
+              },
+              "meaning": "Average fused affinity across the boundary between the nearest candidate pair.",
+              "finding": "The between-set affinity for the nearest pair (K2_C0001, K2_C0002) is close to the within-set affinities, so this pair is relatively close in the fused geometry; this is a pair-review entry point, not a merge conclusion."
             },
             {
               "metric": "nearest_pair_targets",
@@ -117,8 +122,8 @@
                   "K2_C0002"
                 ]
               ],
-              "meaning": "Relatively close candidate pairs identified for possible pair review; a pair-review entry point, not a merge conclusion.",
-              "finding": "K2_C0001 and K2_C0002 are identified as the nearest pair, but this is only a triage pointer and does not itself establish merge or retention."
+              "meaning": "Relatively close candidate pairs identified for possible pair review.",
+              "finding": "K2_C0001 and K2_C0002 are the nearest pair in this partition, indicating their boundary is the most relevant one to inspect further."
             },
             {
               "metric": "member_n",
@@ -126,17 +131,17 @@
                 "K2_C0001": 55,
                 "K2_C0002": 48
               },
-              "meaning": "Number of patients represented in the structural calculation for each candidate set.",
-              "finding": "The structural screen covers 55 patients in K2_C0001 and 48 in K2_C0002."
+              "meaning": "Number of patients represented in the structural calculation for each set.",
+              "finding": "Both sets are moderately sized (55 and 48 members), so the structural screen is based on non-trivial patient counts."
             }
           ],
-          "dimension_interpretation": "This partition-level structural screen addresses whether the current partition shows an obvious internal subdivision signal or a close boundary for pair review. Both candidate sets screen at candidate_k=1 with a large leading eigengap at k=1, which describes dominance of the single-cluster resolution and does not provide evidence of internal multi-cluster substructure. The nearest-pair affinity between K2_C0001 and K2_C0002 is close to the within-set affinities, so the boundary is not strongly separated at this level. These are triage measurements only: they do not establish biological meaning or clinical validity, and they do not by themselves support retention, split, or merge. No feasible k>=2 internal solutions are reported here, so partition-level screening does not provide internal-subdivision solution measurements.",
-          "cross_evidence_context": "No prior Evidence Reports were supplied, so this report stands alone as the initial partition structural screen.",
+          "dimension_interpretation": "This partition-level structural screen addresses whether the current partition shows an obvious internal subdivision signal or a notably close boundary. Both candidate sets screen at candidate_k=1 with a large leading eigengap at the single-cluster resolution, so the screen does not reveal a dominant multi-cluster subdivision signal within either set. The nearest-pair affinity between K2_C0001 and K2_C0002 is close to the within-set affinities, identifying that boundary as the relatively closest pair for possible pair review. These are triage observations about internal structure and boundary proximity in the fused patient geometry; they do not by themselves establish biological meaning, clinical validity, or a retention, split, or merge decision.",
+          "cross_evidence_context": "No prior Evidence Reports were supplied for this round, so these partition structural diagnostics stand alone as the current structural evidence.",
           "limitations": [
-            "Partition structural diagnostics are triage evidence and do not independently establish retention, split, or merge.",
-            "The screen reports candidate_k=1 for both sets; absence of a dominant multi-cluster subdivision signal is not positive or negative evidence about independence from neighboring candidates.",
-            "Weak pair separation between K2_C0001 and K2_C0002 does not recommend merge.",
-            "No feasible k>=2 internal solutions or native-view separation measurements are provided, so internal-subdivision feasibility cannot be assessed from this result.",
+            "Partition structural diagnostics are triage evidence only and do not independently establish retention, split, or merge.",
+            "The internal screen is a partition-level eigengap screening; candidate_k=1 indicates no dominant multi-cluster signal in this screen, not proof that no finer structure exists.",
+            "No feasible k>=2 internal solutions or native-view separation measurements were produced at this scope, so finer-granularity hypotheses are not evaluated here.",
+            "Weak pair separation does not recommend merge, and the nearest-pair affinity is a review entry point rather than a merge conclusion.",
             "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity."
           ],
           "tool_refs": [
@@ -182,13 +187,13 @@
               "metric": "comparison",
               "value": "full_partition_labels",
               "meaning": "Defines whether alignment uses full current partition labels or the selected candidate pair.",
-              "finding": "Current-label alignment was computed under the full current multi-cluster partition."
+              "finding": "Current-label alignment was computed under the full current partition labels."
             },
             {
               "metric": "alignment_patient_n",
               "value": 103,
               "meaning": "Number of patients contributing to the full-partition current-label alignment calculation.",
-              "finding": "All 103 patients in the partition contributed to the alignment calculation."
+              "finding": "Alignment was based on 103 patients across the full partition."
             },
             {
               "metric": "current_membership_alignment.ct",
@@ -198,10 +203,13 @@
                 "negative_fraction": 0.10416666666666667,
                 "mean_within_distance": 26.492928469044305,
                 "mean_between_distance": 28.434038393133143,
-                "nearest_competing_set": "K2_C0001"
+                "nearest_competing_set": "K2_C0001",
+                "mean_distance_to_each_other_set": {
+                  "K2_C0001": 28.434038393133143
+                }
               },
-              "meaning": "Mean native-distance silhouette for the current labels in the CT geometry; set scope reports the target cluster's samples from the full partition calculation.",
-              "finding": "In CT geometry, K2_C0002 has a weakly positive mean silhouette (0.069) with 10.4% negative silhouettes, and its mean within-distance (26.49) is below its mean distance to K2_C0001 (28.43), indicating weak but directionally consistent membership representation."
+              "meaning": "Mean native-distance silhouette for the current labels in the CT modality; set scope reports the target cluster's samples from the full partition calculation.",
+              "finding": "In CT geometry, K2_C0002 has a small positive mean silhouette (0.069) and median silhouette (0.084), with 10.4% negative silhouettes; mean within distance (26.49) is below mean distance to K2_C0001 (28.43), indicating weak but positive membership representation in CT."
             },
             {
               "metric": "current_membership_alignment.rna",
@@ -211,10 +219,13 @@
                 "negative_fraction": 0.2708333333333333,
                 "mean_within_distance": 0.9457662534013366,
                 "mean_between_distance": 1.0515324991147195,
-                "nearest_competing_set": "K2_C0001"
+                "nearest_competing_set": "K2_C0001",
+                "mean_distance_to_each_other_set": {
+                  "K2_C0001": 1.0515324991147195
+                }
               },
-              "meaning": "Mean native-distance silhouette for the current labels in the RNA geometry; set scope reports the target cluster's samples from the full partition calculation.",
-              "finding": "In RNA geometry, K2_C0002 has a weakly positive mean silhouette (0.096) with 27.1% negative silhouettes, and its mean within-distance (0.946) is below its mean distance to K2_C0001 (1.052), indicating weak but directionally consistent membership representation."
+              "meaning": "Mean native-distance silhouette for the current labels in the RNA modality; set scope reports the target cluster's samples from the full partition calculation.",
+              "finding": "In RNA geometry, K2_C0002 has a small positive mean silhouette (0.096) and median silhouette (0.121), with 27.1% negative silhouettes; mean within distance (0.95) is below mean distance to K2_C0001 (1.05), indicating weak but positive membership representation in RNA."
             },
             {
               "metric": "current_membership_alignment.wsi",
@@ -224,10 +235,13 @@
                 "negative_fraction": 0.08333333333333333,
                 "mean_within_distance": 0.22350347151375113,
                 "mean_between_distance": 0.27865285243964844,
-                "nearest_competing_set": "K2_C0001"
+                "nearest_competing_set": "K2_C0001",
+                "mean_distance_to_each_other_set": {
+                  "K2_C0001": 0.27865285243964844
+                }
               },
-              "meaning": "Mean native-distance silhouette for the current labels in the WSI geometry; set scope reports the target cluster's samples from the full partition calculation.",
-              "finding": "In WSI geometry, K2_C0002 has a positive mean silhouette (0.204) with only 8.3% negative silhouettes, and its mean within-distance (0.224) is clearly below its mean distance to K2_C0001 (0.279), indicating the strongest membership representation among the modalities."
+              "meaning": "Mean native-distance silhouette for the current labels in the WSI modality; set scope reports the target cluster's samples from the full partition calculation.",
+              "finding": "In WSI geometry, K2_C0002 has a positive mean silhouette (0.204) and median silhouette (0.210), with 8.3% negative silhouettes; mean within distance (0.22) is below mean distance to K2_C0001 (0.28), indicating clearer membership representation in WSI."
             },
             {
               "metric": "current_membership_alignment.wxs",
@@ -237,10 +251,13 @@
                 "negative_fraction": 0.020833333333333332,
                 "mean_within_distance": 0.6295656028368795,
                 "mean_between_distance": 0.8595165945165946,
-                "nearest_competing_set": "K2_C0001"
+                "nearest_competing_set": "K2_C0001",
+                "mean_distance_to_each_other_set": {
+                  "K2_C0001": 0.8595165945165946
+                }
               },
-              "meaning": "Mean native-distance silhouette for the current labels in the WXS geometry; set scope reports the target cluster's samples from the full partition calculation.",
-              "finding": "In WXS geometry, K2_C0002 has a positive mean silhouette (0.275) with only 2.1% negative silhouettes, and its mean within-distance (0.630) is clearly below its mean distance to K2_C0001 (0.860), indicating strong membership representation."
+              "meaning": "Mean native-distance silhouette for the current labels in the WXS modality; set scope reports the target cluster's samples from the full partition calculation.",
+              "finding": "In WXS geometry, K2_C0002 has a positive mean silhouette (0.275) and median silhouette (0.325), with only 2.1% negative silhouettes; mean within distance (0.63) is well below mean distance to K2_C0001 (0.86), indicating the clearest membership representation among the modalities."
             },
             {
               "metric": "geometry_concordance",
@@ -251,9 +268,9 @@
                     0.18575845846095287,
                     0.33061672229600075
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.552,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 },
                 "ct__wsi": {
                   "grv": 0.21806738617074073,
@@ -261,9 +278,9 @@
                     0.2086366274997472,
                     0.4283486165238144
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.004,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 },
                 "ct__wxs": {
                   "grv": 0.16063308423128098,
@@ -271,9 +288,9 @@
                     0.15555499905081493,
                     0.34991404422359157
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.209,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 },
                 "rna__wxs": {
                   "grv": 0.17568992766631653,
@@ -281,9 +298,9 @@
                     0.17745362241626578,
                     0.3440905179079114
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.026,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 },
                 "wsi__rna": {
                   "grv": 0.169405249247921,
@@ -291,9 +308,9 @@
                     0.15951610375418376,
                     0.3611757484027435
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.024,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 },
                 "wsi__wxs": {
                   "grv": 0.10208373043050897,
@@ -301,29 +318,29 @@
                     0.09611576995083908,
                     0.24678053279738738
                   ],
+                  "bootstrap_valid_n": 1000,
                   "permutation_p": 0.491,
-                  "permutations": 999,
-                  "bootstrap_valid_n": 1000
+                  "permutations": 999
                 }
               },
               "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
-              "finding": "Global geometry concordance (GRV) between modality pairs is modest (0.10-0.22); ct-wsi, rna-wxs, and wsi-rna show permutation p <= 0.026, while ct-rna (p=0.552), ct-wxs (p=0.209), and wsi-wxs (p=0.491) do not show significant shared structure."
+              "finding": "GRV values across modality pairs are modest (0.10-0.22). CT-WSI, RNA-WXS, and WSI-RNA pairs show permutation p-values <= 0.026, while CT-RNA (p=0.552), CT-WXS (p=0.209), and WSI-WXS (p=0.491) do not reach small permutation p-values."
             },
             {
               "metric": "geometry_concordance_patient_n",
               "value": 48,
               "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for set scope this is the target candidate size.",
-              "finding": "GRV calculations for K2_C0002 used 48 patients."
+              "finding": "GRV calculations for K2_C0002 were based on 48 patients."
             }
           ],
-          "dimension_interpretation": "Current-label alignment for K2_C0002 is positive across all four modalities, with mean silhouettes of 0.069 (CT), 0.096 (RNA), 0.204 (WSI), and 0.275 (WXS), and low negative fractions (2.1-27.1%); in each modality the mean within-distance is below the mean distance to the nearest competing set K2_C0001. This indicates that the current membership of K2_C0002 is expressed in native patient geometry, most strongly in WXS and WSI and more weakly in CT and RNA. Global GRV values are modest (0.10-0.22) and significant for ct-wsi, rna-wxs, and wsi-rna but not for ct-rna, ct-wxs, or wsi-wxs; GRV describes global patient-geometry similarity and is not itself current-boundary support. No internal subdivision solutions were requested or reported, so this evidence addresses membership representation only.",
-          "cross_evidence_context": "The prior structural_diagnostics report found candidate_k=1 for both sets with weak pair separation between K2_C0001 and K2_C0002. The present alignment results show K2_C0002 membership is more consistently expressed across modalities than K2_C0001, which is consistent with the weak pair separation noted structurally but addresses membership representation rather than partition-level spectral structure.",
+          "dimension_interpretation": "For K2_C0002, current-label alignment under the full partition is positive across all modalities, with the strongest representation in WXS (mean silhouette 0.275, 2.1% negative) and WSI (0.204, 8.3% negative), and weaker but positive representation in CT (0.069) and RNA (0.096). In every modality the nearest competing set is K2_C0001, and mean within distance is below mean distance to K2_C0001, indicating the current membership boundary is expressed in native patient geometry, more clearly than for K2_C0001. Global geometry concordance (GRV) is modest across modality pairs, with some pairs showing small permutation p-values and others not. Per the guidance, GRV describes global patient-geometry similarity and is not itself current-boundary support; the current-label alignment is the direct evidence about membership representation. This evidence bears on membership representation but does not by itself determine accept or drop.",
+          "cross_evidence_context": "The prior structural_diagnostics report found weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002. The present native-geometry alignment shows K2_C0002's membership is positively separated from K2_C0001 across modalities, with the nearest competing set being K2_C0001 in every modality. This is directionally consistent with the close-boundary observation while indicating that, of the two sets, K2_C0002's membership is the better expressed in native geometry. No prior affinity_geometry_concordance report was supplied for this round.",
           "limitations": [
             "Current-label alignment is computed under the full current partition and does not by itself determine accept or drop.",
             "GRV describes global patient-geometry similarity and is not itself current-boundary support.",
-            "Weak pair separation does not recommend merge, and no internal subdivision solutions were evaluated here.",
-            "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
-            "Alignment strength varies by modality, so no single geometry provides a definitive representation of current membership."
+            "Silhouette values are small to moderate and modality-dependent, so interpretation should not rely on any single modality.",
+            "Permutation p-values are one-sided exchangeability evidence, not action thresholds.",
+            "No reclustering was performed, and no feasible k>=2 internal subdivision solutions were evaluated here."
           ],
           "tool_refs": [
             "representation_concordance"
@@ -425,114 +442,186 @@
               "metric": "alignment_patient_n",
               "value": 103,
               "meaning": "Number of patients contributing to the full-partition current-label alignment calculation.",
-              "finding": "All 103 patients in the partition contributed to the pair alignment calculation."
+              "finding": "Alignment was based on 103 patients across the two candidate sets."
             },
             {
               "metric": "current_membership_alignment.ct.mean_silhouette",
               "value": 0.013268371581069182,
-              "meaning": "Mean native-distance silhouette for the current labels in the CT geometry; pair scope reports the pair boundary under the current membership comparison.",
-              "finding": "In CT geometry the pair boundary shows a near-zero mean silhouette (0.013) with 43.7% negative silhouettes, and the mean within-distance (28.12) is only marginally below the mean between-distance (28.43), indicating little within-label versus between-label distinction for this boundary."
+              "meaning": "Mean native-distance silhouette for the current labels in the CT modality; pair scope reports the boundary between the two current candidate sets.",
+              "finding": "In CT geometry the pair boundary shows a near-zero mean silhouette (0.013), with mean within distance (28.12) close to mean between distance (28.43) and a high negative fraction (43.7%), indicating little within-label versus between-label distinction for the current boundary in CT."
+            },
+            {
+              "metric": "current_membership_alignment.ct.median_silhouette",
+              "value": 0.020055306871612482,
+              "meaning": "Robust location of native-distance silhouettes for the reported pair in the CT modality.",
+              "finding": "The CT median silhouette (0.020) is near zero, consistent with the weak mean separation."
+            },
+            {
+              "metric": "current_membership_alignment.ct.negative_fraction",
+              "value": 0.4368932038834951,
+              "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the CT modality.",
+              "finding": "43.7% of CT silhouettes are negative, so a substantial share of patients are closer to the competing set than to their own."
             },
             {
               "metric": "current_membership_alignment.rna.mean_silhouette",
               "value": 0.07864900142601604,
-              "meaning": "Mean native-distance silhouette for the current labels in the RNA geometry; pair scope reports the pair boundary under the current membership comparison.",
-              "finding": "In RNA geometry the pair boundary shows a weakly positive mean silhouette (0.079) with 28.2% negative silhouettes, and the mean within-distance (0.965) is below the mean between-distance (1.052), indicating weak but directionally consistent separation of the two current sets."
+              "meaning": "Mean native-distance silhouette for the current labels in the RNA modality; pair scope reports the boundary between the two current candidate sets.",
+              "finding": "In RNA geometry the pair boundary shows a small positive mean silhouette (0.079), with mean within distance (0.965) below mean between distance (1.052) and a negative fraction of 28.2%, indicating weak but positive boundary representation in RNA."
+            },
+            {
+              "metric": "current_membership_alignment.rna.median_silhouette",
+              "value": 0.09406775740549804,
+              "meaning": "Robust location of native-distance silhouettes for the reported pair in the RNA modality.",
+              "finding": "The RNA median silhouette (0.094) is small and positive, consistent with weak boundary expression."
+            },
+            {
+              "metric": "current_membership_alignment.rna.negative_fraction",
+              "value": 0.2815533980582524,
+              "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the RNA modality.",
+              "finding": "28.2% of RNA silhouettes are negative, indicating a non-trivial minority of patients are closer to the competing set."
             },
             {
               "metric": "current_membership_alignment.wsi.mean_silhouette",
               "value": 0.050463505926913954,
-              "meaning": "Mean native-distance silhouette for the current labels in the WSI geometry; pair scope reports the pair boundary under the current membership comparison.",
-              "finding": "In WSI geometry the pair boundary shows a weakly positive mean silhouette (0.050) with 45.6% negative silhouettes, and the mean within-distance (0.267) is only marginally below the mean between-distance (0.279), indicating weak and inconsistent separation of the two current sets."
+              "meaning": "Mean native-distance silhouette for the current labels in the WSI modality; pair scope reports the boundary between the two current candidate sets.",
+              "finding": "In WSI geometry the pair boundary shows a small positive mean silhouette (0.050), with mean within distance (0.267) below mean between distance (0.279) and a negative fraction of 45.6%, indicating weak and partially inconsistent boundary representation in WSI."
+            },
+            {
+              "metric": "current_membership_alignment.wsi.median_silhouette",
+              "value": 0.02545266812993366,
+              "meaning": "Robust location of native-distance silhouettes for the reported pair in the WSI modality.",
+              "finding": "The WSI median silhouette (0.025) is near zero, consistent with weak boundary expression."
+            },
+            {
+              "metric": "current_membership_alignment.wsi.negative_fraction",
+              "value": 0.4563106796116505,
+              "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the WSI modality.",
+              "finding": "45.6% of WSI silhouettes are negative, so nearly half of patients are closer to the competing set than to their own."
             },
             {
               "metric": "current_membership_alignment.wxs.mean_silhouette",
               "value": 0.09136133855757454,
-              "meaning": "Mean native-distance silhouette for the current labels in the WXS geometry; pair scope reports the pair boundary under the current membership comparison.",
-              "finding": "In WXS geometry the pair boundary shows a weakly positive mean silhouette (0.091) with 26.2% negative silhouettes, and the mean within-distance (0.793) is below the mean between-distance (0.860), indicating weak but directionally consistent separation of the two current sets."
+              "meaning": "Mean native-distance silhouette for the current labels in the WXS modality; pair scope reports the boundary between the two current candidate sets.",
+              "finding": "In WXS geometry the pair boundary shows a small positive mean silhouette (0.091), with mean within distance (0.793) below mean between distance (0.860) and a negative fraction of 26.2%, indicating weak but positive boundary representation in WXS."
             },
             {
-              "metric": "geometry_concordance",
+              "metric": "current_membership_alignment.wxs.median_silhouette",
+              "value": 0.022511135187191424,
+              "meaning": "Robust location of native-distance silhouettes for the reported pair in the WXS modality.",
+              "finding": "The WXS median silhouette (0.023) is near zero, so the positive mean is not strongly reflected in the median patient."
+            },
+            {
+              "metric": "current_membership_alignment.wxs.negative_fraction",
+              "value": 0.2621359223300971,
+              "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the WXS modality.",
+              "finding": "26.2% of WXS silhouettes are negative, indicating a non-trivial minority of patients are closer to the competing set."
+            },
+            {
+              "metric": "geometry_concordance.ct__rna",
               "value": {
-                "ct__rna": {
-                  "bootstrap_ci95": [
-                    0.10717815866755738,
-                    0.19345134370952796
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.09176082119701072,
-                  "permutation_p": 0.071,
-                  "permutations": 999
-                },
-                "ct__wsi": {
-                  "bootstrap_ci95": [
-                    0.15196564274035895,
-                    0.3023532408174187
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.16748079866022086,
-                  "permutation_p": 0.001,
-                  "permutations": 999
-                },
-                "ct__wxs": {
-                  "bootstrap_ci95": [
-                    0.12213121896085298,
-                    0.2304105051275926
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.10263754681339729,
-                  "permutation_p": 0.218,
-                  "permutations": 999
-                },
-                "rna__wxs": {
-                  "bootstrap_ci95": [
-                    0.15518520118859588,
-                    0.26996212542889475
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.14536995600227023,
-                  "permutation_p": 0.001,
-                  "permutations": 999
-                },
-                "wsi__rna": {
-                  "bootstrap_ci95": [
-                    0.1717490700478656,
-                    0.3091668507086497
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.19768774476549061,
-                  "permutation_p": 0.001,
-                  "permutations": 999
-                },
-                "wsi__wxs": {
-                  "bootstrap_ci95": [
-                    0.10267256722382914,
-                    0.21682617399755924
-                  ],
-                  "bootstrap_valid_n": 1000,
-                  "grv": 0.09161367739997614,
-                  "permutation_p": 0.096,
-                  "permutations": 999
-                }
+                "grv": 0.09176082119701072,
+                "bootstrap_ci95": [
+                  0.10717815866755738,
+                  0.19345134370952796
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.071,
+                "permutations": 999
               },
               "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
-              "finding": "Global geometry concordance (GRV) between modality pairs is modest (0.092-0.197); ct-wsi, rna-wxs, and wsi-rna show permutation p <= 0.001, while ct-rna (p=0.071), ct-wxs (p=0.218), and wsi-wxs (p=0.096) do not show significant shared structure. GRV describes global patient-geometry similarity and is not itself current-boundary support."
+              "finding": "CT-RNA geometry concordance is modest (GRV 0.092) with a permutation p of 0.071, not reaching a small permutation p-value."
+            },
+            {
+              "metric": "geometry_concordance.ct__wsi",
+              "value": {
+                "grv": 0.16748079866022086,
+                "bootstrap_ci95": [
+                  0.15196564274035895,
+                  0.3023532408174187
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.001,
+                "permutations": 999
+              },
+              "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+              "finding": "CT-WSI geometry concordance is modest (GRV 0.167) with a small permutation p (0.001)."
+            },
+            {
+              "metric": "geometry_concordance.ct__wxs",
+              "value": {
+                "grv": 0.10263754681339729,
+                "bootstrap_ci95": [
+                  0.12213121896085298,
+                  0.2304105051275926
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.218,
+                "permutations": 999
+              },
+              "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+              "finding": "CT-WXS geometry concordance is modest (GRV 0.103) with a permutation p of 0.218, not reaching a small permutation p-value."
+            },
+            {
+              "metric": "geometry_concordance.rna__wxs",
+              "value": {
+                "grv": 0.14536995600227023,
+                "bootstrap_ci95": [
+                  0.15518520118859588,
+                  0.26996212542889475
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.001,
+                "permutations": 999
+              },
+              "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+              "finding": "RNA-WXS geometry concordance is modest (GRV 0.145) with a small permutation p (0.001)."
+            },
+            {
+              "metric": "geometry_concordance.wsi__rna",
+              "value": {
+                "grv": 0.19768774476549061,
+                "bootstrap_ci95": [
+                  0.1717490700478656,
+                  0.3091668507086497
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.001,
+                "permutations": 999
+              },
+              "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+              "finding": "WSI-RNA geometry concordance is modest (GRV 0.198) with a small permutation p (0.001)."
+            },
+            {
+              "metric": "geometry_concordance.wsi__wxs",
+              "value": {
+                "grv": 0.09161367739997614,
+                "bootstrap_ci95": [
+                  0.10267256722382914,
+                  0.21682617399755924
+                ],
+                "bootstrap_valid_n": 1000,
+                "permutation_p": 0.096,
+                "permutations": 999
+              },
+              "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+              "finding": "WSI-WXS geometry concordance is modest (GRV 0.092) with a permutation p of 0.096, not reaching a small permutation p-value."
             },
             {
               "metric": "geometry_concordance_patient_n",
               "value": 103,
-              "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for pair scope this is the pair patient count.",
-              "finding": "GRV calculations for the K2_C0001|K2_C0002 pair used 103 patients."
+              "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for pair scope this is the combined candidate size.",
+              "finding": "GRV calculations for the candidate pair were based on 103 patients."
             }
           ],
-          "dimension_interpretation": "This pair-scope alignment addresses whether the existing boundary between K2_C0001 and K2_C0002 is represented in each native modality geometry. Current-label alignment is weak and modality-dependent: RNA (0.079) and WXS (0.091) show weakly positive mean silhouettes with mean within-distance below mean between-distance, whereas CT (0.013) and WSI (0.050) are near zero with large negative fractions (43.7% and 45.6%) and only marginal within-versus-between distance differences. Across all four modalities the separation is small in magnitude, so the current boundary is only weakly expressed in the available geometries rather than consistently separated. Global GRV values are modest (0.092-0.197) and significant for ct-wsi, rna-wxs, and wsi-rna but not for ct-rna, ct-wxs, or wsi-wxs; GRV describes global patient-geometry similarity and is not itself current-boundary support. No internal subdivision solutions were requested or reported, so this evidence addresses boundary representation only. These measurements do not themselves determine whether the pair should be merged and do not establish biological meaning or clinical validity.",
-          "cross_evidence_context": "The prior structural_diagnostics report found candidate_k=1 for both sets with weak pair separation between K2_C0001 and K2_C0002. The present pair-scope alignment results are consistent with that picture of a weakly separated boundary, showing small mean silhouettes across modalities, but they address boundary representation in native geometries rather than partition-level spectral structure. The prior set-scope affinity_geometry_concordance reports described membership representation for each set individually; this pair-scope report addresses the shared boundary between them.",
+          "dimension_interpretation": "For the candidate pair K2_C0001 and K2_C0002, current-label alignment directly addresses whether the existing boundary between the two current candidate sets is represented in each native modality geometry. The boundary is weakly expressed and modality-dependent: mean silhouettes are near zero in CT (0.013), WSI (0.050), and WXS (0.091), and only weakly positive in RNA (0.079), with negative fractions ranging from 26.2% (WXS) to 45.6% (WSI). Mean within distance is close to mean between distance in every modality, so the current boundary shows little within-label versus between-label distinction. Global geometry concordance (GRV) is modest across modality pairs (0.092-0.198), with some pairs showing small permutation p-values and others not; per the guidance, GRV describes global patient-geometry similarity and is not itself current-boundary support. This evidence bears on boundary representation but does not by itself determine whether the pair should be merged.",
+          "cross_evidence_context": "The prior structural_diagnostics report found weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002. The present pair-scope native-geometry alignment is directionally consistent with that picture: the boundary between the two sets is weakly expressed across modalities, with near-zero silhouettes and high negative fractions in CT and WSI. The prior set-scope affinity_geometry_concordance reports showed K2_C0001's membership weakly separated (slightly negative silhouettes in CT, WSI, and WXS) while K2_C0002's membership was positively separated across modalities; the pair-scope result here is the direct boundary-level view and does not by itself determine a merge.",
           "limitations": [
-            "Current-label alignment is computed under the full current partition and does not by itself determine accept or drop.",
+            "Current-label alignment is computed under the full current partition and does not by itself determine accept, drop, split, or merge.",
             "GRV describes global patient-geometry similarity and is not itself current-boundary support.",
-            "Weak pair separation does not recommend merge, and no internal subdivision solutions were evaluated here.",
-            "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
-            "Modality-specific alignment is weak and inconsistent, so no single geometry provides a definitive representation of the current boundary."
+            "Silhouette values are small in magnitude and modality-dependent, so interpretation should not rely on any single modality.",
+            "Permutation p-values are one-sided exchangeability evidence, not action thresholds.",
+            "No reclustering was performed, and no feasible k>=2 internal subdivision solutions were evaluated here.",
+            "Weak pair separation does not recommend merge."
           ],
           "tool_refs": [
             "representation_concordance"
@@ -610,6 +699,102 @@
             "boundary_representation"
           ],
           "report_ref": "ER:0155eb9d7205:cross_modal_consistency:affinity_geometry_concordance:pair:fbf65f89cc"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "aspect": "structural_diagnostics",
+          "scope": "pair",
+          "target_ids": [
+            "K2_C0001",
+            "K2_C0002"
+          ],
+          "observations": [
+            {
+              "metric": "member_n",
+              "value": 103,
+              "meaning": "Number of patients represented in the structural calculation for the union of the two candidate sets.",
+              "finding": "The pair structural calculation covers 103 patients (55 in K2_C0001 and 48 in K2_C0002), a non-trivial combined sample."
+            },
+            {
+              "metric": "mean_within_affinity",
+              "value": 0.009322138467715598,
+              "meaning": "Average fused affinity among patients assigned to the same candidate set.",
+              "finding": "Within-set fused affinity is low, describing weak internal fused-graph cohesion at this scale."
+            },
+            {
+              "metric": "mean_between_affinity",
+              "value": 0.009024334574817062,
+              "meaning": "Average fused affinity across the current pair boundary.",
+              "finding": "Between-set affinity is close to the within-set affinity, so the current boundary shows little affinity contrast in the fused graph."
+            },
+            {
+              "metric": "current_boundary_normalized_cut",
+              "value": 0.9934156276612471,
+              "meaning": "Graph normalized-cut cost of the current pair boundary.",
+              "finding": "The normalized-cut cost of the current boundary is near 1, consistent with a boundary that is not strongly expressed in the fused graph."
+            },
+            {
+              "metric": "independent_two_way_spectral_ari",
+              "value": 0.5255918832411369,
+              "meaning": "Agreement between the current pair labels and an independent two-way spectral partition of their union; it is boundary evidence, not an action rule.",
+              "finding": "An independent two-way spectral partition of the union agrees only moderately with the current pair labels (ARI 0.53), indicating the current boundary is only partially recovered by an unsupervised split of the union."
+            },
+            {
+              "metric": "left_volume/right_volume",
+              "value": {
+                "left_volume": 51.42908486964322,
+                "right_volume": 44.93689731767259
+              },
+              "meaning": "Fused-graph volumes of the two current pair sides.",
+              "finding": "The two sides have comparable fused-graph volumes (51.4 vs 44.9), so the boundary is not driven by a gross volume imbalance."
+            },
+            {
+              "metric": "union_eigengap",
+              "value": {
+                "candidate_eigengap": 0.9856097124565774,
+                "candidate_k": 1,
+                "eigengaps": {
+                  "1": 0.9856097124565774,
+                  "2": 0.0012983968095930942,
+                  "3": 0.004147058675506798,
+                  "4": 0.002370567835748516
+                }
+              },
+              "meaning": "Spectral structure of the union of the two sets; it does not itself prescribe merging.",
+              "finding": "The union is dominated by the single-cluster resolution: the leading eigengap (0.986) dwarfs subsequent gaps, so the union lacks a dominant internal subdivision signal."
+            }
+          ],
+          "dimension_interpretation": "This pair-scope structural screen addresses whether the current boundary between K2_C0001 and K2_C0002 is represented in the fused patient geometry and whether their union shows a dominant internal subdivision signal. The boundary is weakly expressed: mean between-set affinity (0.00902) is essentially equal to mean within-set affinity (0.00932), the normalized-cut cost is near 1 (0.993), and an independent two-way spectral partition of the union agrees only moderately with the current labels (ARI 0.53). The union spectral profile is dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.986), so there is no dominant internal subdivision signal within the union. Per the guidance, a weak current boundary together with a single-cluster-dominated union is structurally compatible with removing the boundary, but this is not sufficient by itself to justify merge, and the union structure must never be interpreted as evidence against merge. These are triage observations about boundary proximity and union structure in the fused geometry; they do not by themselves establish biological meaning, clinical validity, or a retention, split, or merge decision.",
+          "cross_evidence_context": "No prior structural_diagnostics report for this pair was supplied in this round; the prior round's partition-level structural screen described weak internal fused-graph cohesion and identified K2_C0001|K2_C0002 as the nearest pair, which is directionally consistent with the weak boundary observed here. The set-scope affinity_geometry_concordance reports showed K2_C0001's membership weakly separated (slightly negative silhouettes in CT, WSI, and WXS) while K2_C0002's membership was positively separated across modalities, and the pair-scope native-geometry report showed a weakly expressed boundary across modalities; those are distinct evidence dimensions and do not directly confirm or contradict this fused-graph structural screen.",
+          "limitations": [
+            "Partition and pair structural diagnostics are triage evidence only and do not independently establish retention, split, or merge.",
+            "The union eigengap screen is a spectral screening; candidate_k=1 indicates no dominant multi-cluster signal in this screen, not proof that no finer structure exists.",
+            "Weak pair separation does not recommend merge, and the union structure must never be interpreted as evidence against merge.",
+            "No feasible k>=2 internal solutions or native-view separation measurements were produced at this scope, so finer-granularity hypotheses are not evaluated here.",
+            "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity."
+          ],
+          "tool_refs": [
+            "structural_diagnostics"
+          ],
+          "metric_refs": [
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.current_boundary_normalized_cut",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.independent_two_way_spectral_ari",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.left_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_between_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_within_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.member_n",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.right_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_eigengap",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_k",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.1",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.2",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.3",
+            "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.4"
+          ],
+          "request_foci": [
+            "boundary_structure"
+          ],
+          "report_ref": "ER:0155eb9d7205:cross_modal_consistency:structural_diagnostics:pair:fbf65f89cc"
         }
       ],
       "biological_support": [
@@ -625,13 +810,13 @@
               "metric": "analysis_status",
               "value": "success",
               "meaning": "Computational estimability of the ranked enrichment analysis for this set-versus-rest contrast.",
-              "finding": "Enrichment analysis was estimable and completed for K2_C0002 versus the rest of the partition."
+              "finding": "Enrichment analysis was computationally estimable for K2_C0002."
             },
             {
               "metric": "finite_ranked_gene_n",
               "value": 19449,
-              "meaning": "Number of genes with finite Wald statistics entering the ranked enrichment analysis.",
-              "finding": "A large ranked gene set (19,449 genes) entered the analysis, supporting stable ranking-based enrichment estimation."
+              "meaning": "Number of finite Wald statistics entering the ranked enrichment analysis.",
+              "finding": "A large number of genes (19,449) contributed finite ranking statistics, supporting a well-populated ranked list."
             },
             {
               "metric": "set_n/rest_n",
@@ -640,7 +825,13 @@
                 "rest_n": 55
               },
               "meaning": "Sample counts for the set-versus-rest contrast; they affect estimability and stability.",
-              "finding": "The contrast compares 48 patients in K2_C0002 against 55 in the rest of the partition."
+              "finding": "The contrast is based on 48 set samples versus 55 rest samples, a moderately sized two-group comparison."
+            },
+            {
+              "metric": "ranking_method",
+              "value": "pydeseq2_wald_statistic",
+              "meaning": "DESeq2 negative-binomial differential-expression Wald statistic; rankings use the unshrunken Wald statistic, not adjusted p-values or shrunken fold changes.",
+              "finding": "Ranking was based on the unshrunken DESeq2 Wald statistic."
             },
             {
               "metric": "top_down_pathways",
@@ -669,23 +860,13 @@
                   "pathway": "HALLMARK_MTORC1_SIGNALING",
                   "nes": -1.6832935063407943,
                   "fdr_q": 0.0020568319406867068
-                },
-                {
-                  "pathway": "HALLMARK_INTERFERON_GAMMA_RESPONSE",
-                  "nes": -1.7235105558362827,
-                  "fdr_q": 0.002159673537721042
-                },
-                {
-                  "pathway": "HALLMARK_INTERFERON_ALPHA_RESPONSE",
-                  "nes": -1.7403996382711873,
-                  "fdr_q": 0.0022496599351260857
                 }
               ],
-              "meaning": "Normalized enrichment direction and strength for pathways ranked downward in the target-versus-rest contrast, with GSEA multiple-testing-adjusted evidence.",
-              "finding": "K2_C0002 shows coordinated down-regulation of oxidative phosphorylation, allograft rejection, DNA repair, ROS, MTORC1 signaling, and interferon alpha/gamma response pathways, with additional immune, complement, and proliferation programs also enriched downward."
+              "meaning": "Normalized enrichment direction and strength relative to the target-versus-rest Wald-statistic ranking, with GSEA multiple-testing-adjusted enrichment evidence.",
+              "finding": "K2_C0002 shows coordinated down-enrichment of oxidative phosphorylation (NES -2.29), allograft rejection (NES -1.79), DNA repair (NES -1.72), reactive oxygen species pathway (NES -1.85), and MTORC1 signaling (NES -1.68), all with small FDR q-values."
             },
             {
-              "metric": "top_up_pathways",
+              "metric": "up_pathways",
               "value": [
                 {
                   "pathway": "HALLMARK_UV_RESPONSE_DN",
@@ -708,24 +889,54 @@
                   "fdr_q": 0.03160270880361174
                 }
               ],
-              "meaning": "Normalized enrichment direction and strength for pathways ranked upward in the target-versus-rest contrast.",
-              "finding": "Several signaling programs are up-regulated in K2_C0002, including UV response DN, TGF-beta, Hedgehog, and WNT beta-catenin signaling."
+              "meaning": "Pathways with positive normalized enrichment relative to the target-versus-rest ranking.",
+              "finding": "K2_C0002 shows up-enrichment of UV response DN (NES 1.84), TGF-beta signaling (NES 1.52), Hedgehog signaling (NES 1.54), and Wnt beta-catenin signaling (NES 1.55)."
             },
             {
-              "metric": "ranking_method",
-              "value": "pydeseq2_wald_statistic",
-              "meaning": "DESeq2 negative-binomial differential-expression Wald statistic; rankings use the unshrunken Wald statistic, not adjusted p-values or shrunken fold changes.",
-              "finding": "Enrichment is based on the unshrunken DESeq2 Wald statistic ranking."
+              "metric": "pathway_coherence",
+              "value": {
+                "down_programs": [
+                  "OXIDATIVE_PHOSPHORYLATION",
+                  "ALLOGRAFT_REJECTION",
+                  "DNA_REPAIR",
+                  "REACTIVE_OXYGEN_SPECIES_PATHWAY",
+                  "MTORC1_SIGNALING",
+                  "INTERFERON_GAMMA_RESPONSE",
+                  "INTERFERON_ALPHA_RESPONSE",
+                  "COMPLEMENT",
+                  "IL6_JAK_STAT3_SIGNALING",
+                  "GLYCOLYSIS",
+                  "E2F_TARGETS",
+                  "MYC_TARGETS_V2",
+                  "MYC_TARGETS_V1",
+                  "G2M_CHECKPOINT",
+                  "ADIPOGENESIS",
+                  "XENOBIOTIC_METABOLISM",
+                  "COAGULATION",
+                  "EPITHELIAL_MESENCHYMAL_TRANSITION",
+                  "INFLAMMATORY_RESPONSE",
+                  "APOPTOSIS",
+                  "UNFOLDED_PROTEIN_RESPONSE"
+                ],
+                "up_programs": [
+                  "UV_RESPONSE_DN",
+                  "TGF_BETA_SIGNALING",
+                  "HEDGEHOG_SIGNALING",
+                  "WNT_BETA_CATENIN_SIGNALING"
+                ]
+              },
+              "meaning": "Coherence of the enriched pathway profile across multiple related programs.",
+              "finding": "The down-enriched profile is dominated by oxidative phosphorylation, interferon/inflammatory, proliferation, and metabolic programs, while developmental signaling pathways are up-enriched, giving a coherent and interpretable transcriptomic phenotype that is largely reciprocal to K2_C0001."
             }
           ],
-          "dimension_interpretation": "K2_C0002 exhibits a coherent and interpretable transcriptomic phenotype relative to the rest of the partition, characterized by down-regulation of oxidative phosphorylation and multiple immune/inflammatory and repair programs (allograft rejection, DNA repair, ROS, MTORC1, interferon alpha/gamma) with up-regulation of several developmental signaling pathways. The direction, magnitude (NES down to ~-2.29), and multiplicity-adjusted evidence (many pathways at FDR q < 0.01) indicate a structured molecular program. This pattern is the reciprocal of the K2_C0001 contrast in a two-set partition and therefore is not an independent biological confirmation. Biological identity alone does not establish that current membership, boundary, or granularity deserves independent retention.",
-          "cross_evidence_context": "No prior biological_support report was supplied. The prior structural_diagnostics report described a partition-level screen with candidate_k=1 for both sets and weak pair separation; that structural triage does not address biological phenotype and is not contradicted or confirmed by this transcriptomic result. The K2_C0002 enrichment profile is directionally opposite to the K2_C0001 profile, consistent with the two being reciprocal views of the same two-set contrast.",
+          "dimension_interpretation": "K2_C0002 exhibits a coherent and interpretable transcriptomic phenotype relative to the rest of the partition. Its dominant feature is down-enrichment of oxidative phosphorylation (NES -2.29, FDR q=0.001), together with down-enrichment of allograft rejection, DNA repair, reactive oxygen species, MTORC1, interferon gamma/alpha response, complement, IL6/JAK/STAT3, glycolysis, E2F/MYC targets, G2M checkpoint, adipogenesis, xenobiotic metabolism, coagulation, EMT, inflammatory response, apoptosis, and unfolded protein response. Developmental signaling pathways (UV response DN, TGF-beta, Hedgehog, Wnt beta-catenin) are up-enriched. This profile is internally coherent and is supported by a large ranked gene list (19,449 genes) and a moderately sized contrast (48 vs 55). Per the evidence role, this characterizes biological identity/phenotype; it does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
+          "cross_evidence_context": "No prior biological_support report was supplied for this round. The prior structural_diagnostics report described weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002; the present transcriptomic phenotype is a distinct evidence dimension and does not directly confirm or contradict that structural screen. Because the partition contains exactly two sets, this set-versus-rest contrast is the reciprocal view of the K2_C0001 contrast, not an independent biological confirmation; the largely mirrored pathway directions are consistent with that reciprocity.",
           "limitations": [
-            "The set-versus-rest contrast is reciprocal with the K2_C0001 contrast in a two-set partition, so the two are not independent biological confirmations.",
-            "Enrichment is based on the unshrunken DESeq2 Wald statistic ranking, not adjusted p-values or shrunken fold changes.",
-            "FDR q-values reflect multiple-testing-adjusted enrichment evidence, not biological importance.",
-            "Biological identity does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
-            "Pathway enrichment is a transcriptomic characterization and does not establish clinical validity or prognosis."
+            "Pathway enrichment characterizes phenotype relative to the rest of the partition; it does not establish that current membership, boundary, or granularity deserves independent retention.",
+            "With exactly two sets, the K2_C0002-versus-rest and K2_C0001-versus-rest contrasts are reciprocal views of the same comparison, not independent confirmations.",
+            "FDR q-values are multiple-testing-adjusted enrichment evidence, not biological importance.",
+            "Rankings use the unshrunken DESeq2 Wald statistic rather than adjusted p-values or shrunken fold changes.",
+            "Enrichment is based on bulk transcriptomic ranking and does not establish clinical validity or mechanism."
           ],
           "tool_refs": [
             "rna_pathway_enrichment"
@@ -1190,6 +1401,19 @@
       "tool_results.rna_pathway_enrichment.metrics.set.K2_C0002.ranking_method",
       "tool_results.rna_pathway_enrichment.metrics.set.K2_C0002.rest_n",
       "tool_results.rna_pathway_enrichment.metrics.set.K2_C0002.set_n",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.current_boundary_normalized_cut",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.independent_two_way_spectral_ari",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.left_volume",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_between_affinity",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_within_affinity",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.member_n",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.right_volume",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_eigengap",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_k",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.1",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.2",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.3",
+      "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.4",
       "tool_results.structural_diagnostics.metrics.partition.internal_structure.K2_C0001.candidate_eigengap",
       "tool_results.structural_diagnostics.metrics.partition.internal_structure.K2_C0001.eigengaps.1",
       "tool_results.structural_diagnostics.metrics.partition.internal_structure.K2_C0001.eigengaps.2",
@@ -1221,7 +1445,10 @@
         "observations": [
           {
             "metric": "screen_candidate_k",
-            "value": 1,
+            "value": {
+              "K2_C0001": 1,
+              "K2_C0002": 1
+            },
             "meaning": "Algorithmic eigengap screening resolution for each candidate set; candidate_k=1 means the dominant spectral gap is at the single-cluster resolution.",
             "finding": "Both K2_C0001 and K2_C0002 screen at candidate_k=1, so the partition-level screen does not show a dominant multi-cluster subdivision signal for either set."
           },
@@ -1231,8 +1458,8 @@
               "K2_C0001": 0.9821501193539688,
               "K2_C0002": 0.9876297696301665
             },
-            "meaning": "Magnitude of the dominant spectral eigengap at the screened resolution for each candidate set.",
-            "finding": "The dominant gaps are large and located at k=1 for both sets, describing dominance of the single-cluster resolution rather than evidence of internal multi-cluster substructure."
+            "meaning": "Magnitude of the dominant spectral eigengap at the screened resolution.",
+            "finding": "Both sets show a large leading gap at the single-cluster resolution, indicating dominance of the one-cluster solution rather than internal multi-cluster substructure."
           },
           {
             "metric": "eigengaps",
@@ -1250,8 +1477,8 @@
                 "4": 0.004421813061701418
               }
             },
-            "meaning": "Profile of spectral eigengaps across candidate resolutions, interpreted together with the dominant gap's location and magnitude.",
-            "finding": "For both sets the leading gap at k=1 is far larger than subsequent gaps, consistent with a single-cluster resolution dominating the spectral profile; no secondary gap of comparable magnitude indicates a clear internal subdivision."
+            "meaning": "Profile of spectral eigengaps across candidate resolutions; the dominant gap's location and magnitude are interpreted together.",
+            "finding": "In both sets the first eigengap dwarfs subsequent gaps, consistent with a single dominant resolution and no prominent higher-k subdivision signal in this screen."
           },
           {
             "metric": "mean_within_affinity",
@@ -1260,13 +1487,15 @@
               "K2_C0002": 0.009358445939785257
             },
             "meaning": "Average fused affinity among patients assigned to the same candidate set.",
-            "finding": "Within-set mean affinities are low and similar across the two sets, indicating weak average internal fused affinity at this partition-level screen."
+            "finding": "Within-set mean affinities are low and similar across the two sets, describing weak internal fused-graph cohesion at this scale."
           },
           {
             "metric": "mean_between_affinity",
-            "value": 0.009024334574817062,
-            "meaning": "Average fused affinity across the current pair boundary between K2_C0001 and K2_C0002.",
-            "finding": "The between-set mean affinity for the nearest pair is close to the within-set mean affinities, so this pair-review entry point does not show a strongly separated boundary."
+            "value": {
+              "K2_C0001|K2_C0002": 0.009024334574817062
+            },
+            "meaning": "Average fused affinity across the boundary between the nearest candidate pair.",
+            "finding": "The between-set affinity for the nearest pair (K2_C0001, K2_C0002) is close to the within-set affinities, so this pair is relatively close in the fused geometry; this is a pair-review entry point, not a merge conclusion."
           },
           {
             "metric": "nearest_pair_targets",
@@ -1276,8 +1505,8 @@
                 "K2_C0002"
               ]
             ],
-            "meaning": "Relatively close candidate pairs identified for possible pair review; a pair-review entry point, not a merge conclusion.",
-            "finding": "K2_C0001 and K2_C0002 are identified as the nearest pair, but this is only a triage pointer and does not itself establish merge or retention."
+            "meaning": "Relatively close candidate pairs identified for possible pair review.",
+            "finding": "K2_C0001 and K2_C0002 are the nearest pair in this partition, indicating their boundary is the most relevant one to inspect further."
           },
           {
             "metric": "member_n",
@@ -1285,17 +1514,17 @@
               "K2_C0001": 55,
               "K2_C0002": 48
             },
-            "meaning": "Number of patients represented in the structural calculation for each candidate set.",
-            "finding": "The structural screen covers 55 patients in K2_C0001 and 48 in K2_C0002."
+            "meaning": "Number of patients represented in the structural calculation for each set.",
+            "finding": "Both sets are moderately sized (55 and 48 members), so the structural screen is based on non-trivial patient counts."
           }
         ],
-        "dimension_interpretation": "This partition-level structural screen addresses whether the current partition shows an obvious internal subdivision signal or a close boundary for pair review. Both candidate sets screen at candidate_k=1 with a large leading eigengap at k=1, which describes dominance of the single-cluster resolution and does not provide evidence of internal multi-cluster substructure. The nearest-pair affinity between K2_C0001 and K2_C0002 is close to the within-set affinities, so the boundary is not strongly separated at this level. These are triage measurements only: they do not establish biological meaning or clinical validity, and they do not by themselves support retention, split, or merge. No feasible k>=2 internal solutions are reported here, so partition-level screening does not provide internal-subdivision solution measurements.",
-        "cross_evidence_context": "No prior Evidence Reports were supplied, so this report stands alone as the initial partition structural screen.",
+        "dimension_interpretation": "This partition-level structural screen addresses whether the current partition shows an obvious internal subdivision signal or a notably close boundary. Both candidate sets screen at candidate_k=1 with a large leading eigengap at the single-cluster resolution, so the screen does not reveal a dominant multi-cluster subdivision signal within either set. The nearest-pair affinity between K2_C0001 and K2_C0002 is close to the within-set affinities, identifying that boundary as the relatively closest pair for possible pair review. These are triage observations about internal structure and boundary proximity in the fused patient geometry; they do not by themselves establish biological meaning, clinical validity, or a retention, split, or merge decision.",
+        "cross_evidence_context": "No prior Evidence Reports were supplied for this round, so these partition structural diagnostics stand alone as the current structural evidence.",
         "limitations": [
-          "Partition structural diagnostics are triage evidence and do not independently establish retention, split, or merge.",
-          "The screen reports candidate_k=1 for both sets; absence of a dominant multi-cluster subdivision signal is not positive or negative evidence about independence from neighboring candidates.",
-          "Weak pair separation between K2_C0001 and K2_C0002 does not recommend merge.",
-          "No feasible k>=2 internal solutions or native-view separation measurements are provided, so internal-subdivision feasibility cannot be assessed from this result.",
+          "Partition structural diagnostics are triage evidence only and do not independently establish retention, split, or merge.",
+          "The internal screen is a partition-level eigengap screening; candidate_k=1 indicates no dominant multi-cluster signal in this screen, not proof that no finer structure exists.",
+          "No feasible k>=2 internal solutions or native-view separation measurements were produced at this scope, so finer-granularity hypotheses are not evaluated here.",
+          "Weak pair separation does not recommend merge, and the nearest-pair affinity is a review entry point rather than a merge conclusion.",
           "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity."
         ],
         "tool_refs": [
@@ -1341,13 +1570,13 @@
             "metric": "analysis_status",
             "value": "success",
             "meaning": "Computational estimability of the ranked enrichment analysis for this set-versus-rest contrast.",
-            "finding": "Enrichment analysis was estimable and completed for K2_C0002 versus the rest of the partition."
+            "finding": "Enrichment analysis was computationally estimable for K2_C0002."
           },
           {
             "metric": "finite_ranked_gene_n",
             "value": 19449,
-            "meaning": "Number of genes with finite Wald statistics entering the ranked enrichment analysis.",
-            "finding": "A large ranked gene set (19,449 genes) entered the analysis, supporting stable ranking-based enrichment estimation."
+            "meaning": "Number of finite Wald statistics entering the ranked enrichment analysis.",
+            "finding": "A large number of genes (19,449) contributed finite ranking statistics, supporting a well-populated ranked list."
           },
           {
             "metric": "set_n/rest_n",
@@ -1356,7 +1585,13 @@
               "rest_n": 55
             },
             "meaning": "Sample counts for the set-versus-rest contrast; they affect estimability and stability.",
-            "finding": "The contrast compares 48 patients in K2_C0002 against 55 in the rest of the partition."
+            "finding": "The contrast is based on 48 set samples versus 55 rest samples, a moderately sized two-group comparison."
+          },
+          {
+            "metric": "ranking_method",
+            "value": "pydeseq2_wald_statistic",
+            "meaning": "DESeq2 negative-binomial differential-expression Wald statistic; rankings use the unshrunken Wald statistic, not adjusted p-values or shrunken fold changes.",
+            "finding": "Ranking was based on the unshrunken DESeq2 Wald statistic."
           },
           {
             "metric": "top_down_pathways",
@@ -1385,23 +1620,13 @@
                 "pathway": "HALLMARK_MTORC1_SIGNALING",
                 "nes": -1.6832935063407943,
                 "fdr_q": 0.0020568319406867068
-              },
-              {
-                "pathway": "HALLMARK_INTERFERON_GAMMA_RESPONSE",
-                "nes": -1.7235105558362827,
-                "fdr_q": 0.002159673537721042
-              },
-              {
-                "pathway": "HALLMARK_INTERFERON_ALPHA_RESPONSE",
-                "nes": -1.7403996382711873,
-                "fdr_q": 0.0022496599351260857
               }
             ],
-            "meaning": "Normalized enrichment direction and strength for pathways ranked downward in the target-versus-rest contrast, with GSEA multiple-testing-adjusted evidence.",
-            "finding": "K2_C0002 shows coordinated down-regulation of oxidative phosphorylation, allograft rejection, DNA repair, ROS, MTORC1 signaling, and interferon alpha/gamma response pathways, with additional immune, complement, and proliferation programs also enriched downward."
+            "meaning": "Normalized enrichment direction and strength relative to the target-versus-rest Wald-statistic ranking, with GSEA multiple-testing-adjusted enrichment evidence.",
+            "finding": "K2_C0002 shows coordinated down-enrichment of oxidative phosphorylation (NES -2.29), allograft rejection (NES -1.79), DNA repair (NES -1.72), reactive oxygen species pathway (NES -1.85), and MTORC1 signaling (NES -1.68), all with small FDR q-values."
           },
           {
-            "metric": "top_up_pathways",
+            "metric": "up_pathways",
             "value": [
               {
                 "pathway": "HALLMARK_UV_RESPONSE_DN",
@@ -1424,24 +1649,54 @@
                 "fdr_q": 0.03160270880361174
               }
             ],
-            "meaning": "Normalized enrichment direction and strength for pathways ranked upward in the target-versus-rest contrast.",
-            "finding": "Several signaling programs are up-regulated in K2_C0002, including UV response DN, TGF-beta, Hedgehog, and WNT beta-catenin signaling."
+            "meaning": "Pathways with positive normalized enrichment relative to the target-versus-rest ranking.",
+            "finding": "K2_C0002 shows up-enrichment of UV response DN (NES 1.84), TGF-beta signaling (NES 1.52), Hedgehog signaling (NES 1.54), and Wnt beta-catenin signaling (NES 1.55)."
           },
           {
-            "metric": "ranking_method",
-            "value": "pydeseq2_wald_statistic",
-            "meaning": "DESeq2 negative-binomial differential-expression Wald statistic; rankings use the unshrunken Wald statistic, not adjusted p-values or shrunken fold changes.",
-            "finding": "Enrichment is based on the unshrunken DESeq2 Wald statistic ranking."
+            "metric": "pathway_coherence",
+            "value": {
+              "down_programs": [
+                "OXIDATIVE_PHOSPHORYLATION",
+                "ALLOGRAFT_REJECTION",
+                "DNA_REPAIR",
+                "REACTIVE_OXYGEN_SPECIES_PATHWAY",
+                "MTORC1_SIGNALING",
+                "INTERFERON_GAMMA_RESPONSE",
+                "INTERFERON_ALPHA_RESPONSE",
+                "COMPLEMENT",
+                "IL6_JAK_STAT3_SIGNALING",
+                "GLYCOLYSIS",
+                "E2F_TARGETS",
+                "MYC_TARGETS_V2",
+                "MYC_TARGETS_V1",
+                "G2M_CHECKPOINT",
+                "ADIPOGENESIS",
+                "XENOBIOTIC_METABOLISM",
+                "COAGULATION",
+                "EPITHELIAL_MESENCHYMAL_TRANSITION",
+                "INFLAMMATORY_RESPONSE",
+                "APOPTOSIS",
+                "UNFOLDED_PROTEIN_RESPONSE"
+              ],
+              "up_programs": [
+                "UV_RESPONSE_DN",
+                "TGF_BETA_SIGNALING",
+                "HEDGEHOG_SIGNALING",
+                "WNT_BETA_CATENIN_SIGNALING"
+              ]
+            },
+            "meaning": "Coherence of the enriched pathway profile across multiple related programs.",
+            "finding": "The down-enriched profile is dominated by oxidative phosphorylation, interferon/inflammatory, proliferation, and metabolic programs, while developmental signaling pathways are up-enriched, giving a coherent and interpretable transcriptomic phenotype that is largely reciprocal to K2_C0001."
           }
         ],
-        "dimension_interpretation": "K2_C0002 exhibits a coherent and interpretable transcriptomic phenotype relative to the rest of the partition, characterized by down-regulation of oxidative phosphorylation and multiple immune/inflammatory and repair programs (allograft rejection, DNA repair, ROS, MTORC1, interferon alpha/gamma) with up-regulation of several developmental signaling pathways. The direction, magnitude (NES down to ~-2.29), and multiplicity-adjusted evidence (many pathways at FDR q < 0.01) indicate a structured molecular program. This pattern is the reciprocal of the K2_C0001 contrast in a two-set partition and therefore is not an independent biological confirmation. Biological identity alone does not establish that current membership, boundary, or granularity deserves independent retention.",
-        "cross_evidence_context": "No prior biological_support report was supplied. The prior structural_diagnostics report described a partition-level screen with candidate_k=1 for both sets and weak pair separation; that structural triage does not address biological phenotype and is not contradicted or confirmed by this transcriptomic result. The K2_C0002 enrichment profile is directionally opposite to the K2_C0001 profile, consistent with the two being reciprocal views of the same two-set contrast.",
+        "dimension_interpretation": "K2_C0002 exhibits a coherent and interpretable transcriptomic phenotype relative to the rest of the partition. Its dominant feature is down-enrichment of oxidative phosphorylation (NES -2.29, FDR q=0.001), together with down-enrichment of allograft rejection, DNA repair, reactive oxygen species, MTORC1, interferon gamma/alpha response, complement, IL6/JAK/STAT3, glycolysis, E2F/MYC targets, G2M checkpoint, adipogenesis, xenobiotic metabolism, coagulation, EMT, inflammatory response, apoptosis, and unfolded protein response. Developmental signaling pathways (UV response DN, TGF-beta, Hedgehog, Wnt beta-catenin) are up-enriched. This profile is internally coherent and is supported by a large ranked gene list (19,449 genes) and a moderately sized contrast (48 vs 55). Per the evidence role, this characterizes biological identity/phenotype; it does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
+        "cross_evidence_context": "No prior biological_support report was supplied for this round. The prior structural_diagnostics report described weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002; the present transcriptomic phenotype is a distinct evidence dimension and does not directly confirm or contradict that structural screen. Because the partition contains exactly two sets, this set-versus-rest contrast is the reciprocal view of the K2_C0001 contrast, not an independent biological confirmation; the largely mirrored pathway directions are consistent with that reciprocity.",
         "limitations": [
-          "The set-versus-rest contrast is reciprocal with the K2_C0001 contrast in a two-set partition, so the two are not independent biological confirmations.",
-          "Enrichment is based on the unshrunken DESeq2 Wald statistic ranking, not adjusted p-values or shrunken fold changes.",
-          "FDR q-values reflect multiple-testing-adjusted enrichment evidence, not biological importance.",
-          "Biological identity does not by itself establish that current membership, boundary, or granularity deserves independent retention.",
-          "Pathway enrichment is a transcriptomic characterization and does not establish clinical validity or prognosis."
+          "Pathway enrichment characterizes phenotype relative to the rest of the partition; it does not establish that current membership, boundary, or granularity deserves independent retention.",
+          "With exactly two sets, the K2_C0002-versus-rest and K2_C0001-versus-rest contrasts are reciprocal views of the same comparison, not independent confirmations.",
+          "FDR q-values are multiple-testing-adjusted enrichment evidence, not biological importance.",
+          "Rankings use the unshrunken DESeq2 Wald statistic rather than adjusted p-values or shrunken fold changes.",
+          "Enrichment is based on bulk transcriptomic ranking and does not establish clinical validity or mechanism."
         ],
         "tool_refs": [
           "rna_pathway_enrichment"
@@ -1620,13 +1875,13 @@
             "metric": "comparison",
             "value": "full_partition_labels",
             "meaning": "Defines whether alignment uses full current partition labels or the selected candidate pair.",
-            "finding": "Current-label alignment was computed under the full current multi-cluster partition."
+            "finding": "Current-label alignment was computed under the full current partition labels."
           },
           {
             "metric": "alignment_patient_n",
             "value": 103,
             "meaning": "Number of patients contributing to the full-partition current-label alignment calculation.",
-            "finding": "All 103 patients in the partition contributed to the alignment calculation."
+            "finding": "Alignment was based on 103 patients across the full partition."
           },
           {
             "metric": "current_membership_alignment.ct",
@@ -1636,10 +1891,13 @@
               "negative_fraction": 0.10416666666666667,
               "mean_within_distance": 26.492928469044305,
               "mean_between_distance": 28.434038393133143,
-              "nearest_competing_set": "K2_C0001"
+              "nearest_competing_set": "K2_C0001",
+              "mean_distance_to_each_other_set": {
+                "K2_C0001": 28.434038393133143
+              }
             },
-            "meaning": "Mean native-distance silhouette for the current labels in the CT geometry; set scope reports the target cluster's samples from the full partition calculation.",
-            "finding": "In CT geometry, K2_C0002 has a weakly positive mean silhouette (0.069) with 10.4% negative silhouettes, and its mean within-distance (26.49) is below its mean distance to K2_C0001 (28.43), indicating weak but directionally consistent membership representation."
+            "meaning": "Mean native-distance silhouette for the current labels in the CT modality; set scope reports the target cluster's samples from the full partition calculation.",
+            "finding": "In CT geometry, K2_C0002 has a small positive mean silhouette (0.069) and median silhouette (0.084), with 10.4% negative silhouettes; mean within distance (26.49) is below mean distance to K2_C0001 (28.43), indicating weak but positive membership representation in CT."
           },
           {
             "metric": "current_membership_alignment.rna",
@@ -1649,10 +1907,13 @@
               "negative_fraction": 0.2708333333333333,
               "mean_within_distance": 0.9457662534013366,
               "mean_between_distance": 1.0515324991147195,
-              "nearest_competing_set": "K2_C0001"
+              "nearest_competing_set": "K2_C0001",
+              "mean_distance_to_each_other_set": {
+                "K2_C0001": 1.0515324991147195
+              }
             },
-            "meaning": "Mean native-distance silhouette for the current labels in the RNA geometry; set scope reports the target cluster's samples from the full partition calculation.",
-            "finding": "In RNA geometry, K2_C0002 has a weakly positive mean silhouette (0.096) with 27.1% negative silhouettes, and its mean within-distance (0.946) is below its mean distance to K2_C0001 (1.052), indicating weak but directionally consistent membership representation."
+            "meaning": "Mean native-distance silhouette for the current labels in the RNA modality; set scope reports the target cluster's samples from the full partition calculation.",
+            "finding": "In RNA geometry, K2_C0002 has a small positive mean silhouette (0.096) and median silhouette (0.121), with 27.1% negative silhouettes; mean within distance (0.95) is below mean distance to K2_C0001 (1.05), indicating weak but positive membership representation in RNA."
           },
           {
             "metric": "current_membership_alignment.wsi",
@@ -1662,10 +1923,13 @@
               "negative_fraction": 0.08333333333333333,
               "mean_within_distance": 0.22350347151375113,
               "mean_between_distance": 0.27865285243964844,
-              "nearest_competing_set": "K2_C0001"
+              "nearest_competing_set": "K2_C0001",
+              "mean_distance_to_each_other_set": {
+                "K2_C0001": 0.27865285243964844
+              }
             },
-            "meaning": "Mean native-distance silhouette for the current labels in the WSI geometry; set scope reports the target cluster's samples from the full partition calculation.",
-            "finding": "In WSI geometry, K2_C0002 has a positive mean silhouette (0.204) with only 8.3% negative silhouettes, and its mean within-distance (0.224) is clearly below its mean distance to K2_C0001 (0.279), indicating the strongest membership representation among the modalities."
+            "meaning": "Mean native-distance silhouette for the current labels in the WSI modality; set scope reports the target cluster's samples from the full partition calculation.",
+            "finding": "In WSI geometry, K2_C0002 has a positive mean silhouette (0.204) and median silhouette (0.210), with 8.3% negative silhouettes; mean within distance (0.22) is below mean distance to K2_C0001 (0.28), indicating clearer membership representation in WSI."
           },
           {
             "metric": "current_membership_alignment.wxs",
@@ -1675,10 +1939,13 @@
               "negative_fraction": 0.020833333333333332,
               "mean_within_distance": 0.6295656028368795,
               "mean_between_distance": 0.8595165945165946,
-              "nearest_competing_set": "K2_C0001"
+              "nearest_competing_set": "K2_C0001",
+              "mean_distance_to_each_other_set": {
+                "K2_C0001": 0.8595165945165946
+              }
             },
-            "meaning": "Mean native-distance silhouette for the current labels in the WXS geometry; set scope reports the target cluster's samples from the full partition calculation.",
-            "finding": "In WXS geometry, K2_C0002 has a positive mean silhouette (0.275) with only 2.1% negative silhouettes, and its mean within-distance (0.630) is clearly below its mean distance to K2_C0001 (0.860), indicating strong membership representation."
+            "meaning": "Mean native-distance silhouette for the current labels in the WXS modality; set scope reports the target cluster's samples from the full partition calculation.",
+            "finding": "In WXS geometry, K2_C0002 has a positive mean silhouette (0.275) and median silhouette (0.325), with only 2.1% negative silhouettes; mean within distance (0.63) is well below mean distance to K2_C0001 (0.86), indicating the clearest membership representation among the modalities."
           },
           {
             "metric": "geometry_concordance",
@@ -1689,9 +1956,9 @@
                   0.18575845846095287,
                   0.33061672229600075
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.552,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               },
               "ct__wsi": {
                 "grv": 0.21806738617074073,
@@ -1699,9 +1966,9 @@
                   0.2086366274997472,
                   0.4283486165238144
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.004,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               },
               "ct__wxs": {
                 "grv": 0.16063308423128098,
@@ -1709,9 +1976,9 @@
                   0.15555499905081493,
                   0.34991404422359157
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.209,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               },
               "rna__wxs": {
                 "grv": 0.17568992766631653,
@@ -1719,9 +1986,9 @@
                   0.17745362241626578,
                   0.3440905179079114
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.026,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               },
               "wsi__rna": {
                 "grv": 0.169405249247921,
@@ -1729,9 +1996,9 @@
                   0.15951610375418376,
                   0.3611757484027435
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.024,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               },
               "wsi__wxs": {
                 "grv": 0.10208373043050897,
@@ -1739,29 +2006,29 @@
                   0.09611576995083908,
                   0.24678053279738738
                 ],
+                "bootstrap_valid_n": 1000,
                 "permutation_p": 0.491,
-                "permutations": 999,
-                "bootstrap_valid_n": 1000
+                "permutations": 999
               }
             },
             "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
-            "finding": "Global geometry concordance (GRV) between modality pairs is modest (0.10-0.22); ct-wsi, rna-wxs, and wsi-rna show permutation p <= 0.026, while ct-rna (p=0.552), ct-wxs (p=0.209), and wsi-wxs (p=0.491) do not show significant shared structure."
+            "finding": "GRV values across modality pairs are modest (0.10-0.22). CT-WSI, RNA-WXS, and WSI-RNA pairs show permutation p-values <= 0.026, while CT-RNA (p=0.552), CT-WXS (p=0.209), and WSI-WXS (p=0.491) do not reach small permutation p-values."
           },
           {
             "metric": "geometry_concordance_patient_n",
             "value": 48,
             "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for set scope this is the target candidate size.",
-            "finding": "GRV calculations for K2_C0002 used 48 patients."
+            "finding": "GRV calculations for K2_C0002 were based on 48 patients."
           }
         ],
-        "dimension_interpretation": "Current-label alignment for K2_C0002 is positive across all four modalities, with mean silhouettes of 0.069 (CT), 0.096 (RNA), 0.204 (WSI), and 0.275 (WXS), and low negative fractions (2.1-27.1%); in each modality the mean within-distance is below the mean distance to the nearest competing set K2_C0001. This indicates that the current membership of K2_C0002 is expressed in native patient geometry, most strongly in WXS and WSI and more weakly in CT and RNA. Global GRV values are modest (0.10-0.22) and significant for ct-wsi, rna-wxs, and wsi-rna but not for ct-rna, ct-wxs, or wsi-wxs; GRV describes global patient-geometry similarity and is not itself current-boundary support. No internal subdivision solutions were requested or reported, so this evidence addresses membership representation only.",
-        "cross_evidence_context": "The prior structural_diagnostics report found candidate_k=1 for both sets with weak pair separation between K2_C0001 and K2_C0002. The present alignment results show K2_C0002 membership is more consistently expressed across modalities than K2_C0001, which is consistent with the weak pair separation noted structurally but addresses membership representation rather than partition-level spectral structure.",
+        "dimension_interpretation": "For K2_C0002, current-label alignment under the full partition is positive across all modalities, with the strongest representation in WXS (mean silhouette 0.275, 2.1% negative) and WSI (0.204, 8.3% negative), and weaker but positive representation in CT (0.069) and RNA (0.096). In every modality the nearest competing set is K2_C0001, and mean within distance is below mean distance to K2_C0001, indicating the current membership boundary is expressed in native patient geometry, more clearly than for K2_C0001. Global geometry concordance (GRV) is modest across modality pairs, with some pairs showing small permutation p-values and others not. Per the guidance, GRV describes global patient-geometry similarity and is not itself current-boundary support; the current-label alignment is the direct evidence about membership representation. This evidence bears on membership representation but does not by itself determine accept or drop.",
+        "cross_evidence_context": "The prior structural_diagnostics report found weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002. The present native-geometry alignment shows K2_C0002's membership is positively separated from K2_C0001 across modalities, with the nearest competing set being K2_C0001 in every modality. This is directionally consistent with the close-boundary observation while indicating that, of the two sets, K2_C0002's membership is the better expressed in native geometry. No prior affinity_geometry_concordance report was supplied for this round.",
         "limitations": [
           "Current-label alignment is computed under the full current partition and does not by itself determine accept or drop.",
           "GRV describes global patient-geometry similarity and is not itself current-boundary support.",
-          "Weak pair separation does not recommend merge, and no internal subdivision solutions were evaluated here.",
-          "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
-          "Alignment strength varies by modality, so no single geometry provides a definitive representation of current membership."
+          "Silhouette values are small to moderate and modality-dependent, so interpretation should not rely on any single modality.",
+          "Permutation p-values are one-sided exchangeability evidence, not action thresholds.",
+          "No reclustering was performed, and no feasible k>=2 internal subdivision solutions were evaluated here."
         ],
         "tool_refs": [
           "representation_concordance"
@@ -1863,114 +2130,186 @@
             "metric": "alignment_patient_n",
             "value": 103,
             "meaning": "Number of patients contributing to the full-partition current-label alignment calculation.",
-            "finding": "All 103 patients in the partition contributed to the pair alignment calculation."
+            "finding": "Alignment was based on 103 patients across the two candidate sets."
           },
           {
             "metric": "current_membership_alignment.ct.mean_silhouette",
             "value": 0.013268371581069182,
-            "meaning": "Mean native-distance silhouette for the current labels in the CT geometry; pair scope reports the pair boundary under the current membership comparison.",
-            "finding": "In CT geometry the pair boundary shows a near-zero mean silhouette (0.013) with 43.7% negative silhouettes, and the mean within-distance (28.12) is only marginally below the mean between-distance (28.43), indicating little within-label versus between-label distinction for this boundary."
+            "meaning": "Mean native-distance silhouette for the current labels in the CT modality; pair scope reports the boundary between the two current candidate sets.",
+            "finding": "In CT geometry the pair boundary shows a near-zero mean silhouette (0.013), with mean within distance (28.12) close to mean between distance (28.43) and a high negative fraction (43.7%), indicating little within-label versus between-label distinction for the current boundary in CT."
+          },
+          {
+            "metric": "current_membership_alignment.ct.median_silhouette",
+            "value": 0.020055306871612482,
+            "meaning": "Robust location of native-distance silhouettes for the reported pair in the CT modality.",
+            "finding": "The CT median silhouette (0.020) is near zero, consistent with the weak mean separation."
+          },
+          {
+            "metric": "current_membership_alignment.ct.negative_fraction",
+            "value": 0.4368932038834951,
+            "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the CT modality.",
+            "finding": "43.7% of CT silhouettes are negative, so a substantial share of patients are closer to the competing set than to their own."
           },
           {
             "metric": "current_membership_alignment.rna.mean_silhouette",
             "value": 0.07864900142601604,
-            "meaning": "Mean native-distance silhouette for the current labels in the RNA geometry; pair scope reports the pair boundary under the current membership comparison.",
-            "finding": "In RNA geometry the pair boundary shows a weakly positive mean silhouette (0.079) with 28.2% negative silhouettes, and the mean within-distance (0.965) is below the mean between-distance (1.052), indicating weak but directionally consistent separation of the two current sets."
+            "meaning": "Mean native-distance silhouette for the current labels in the RNA modality; pair scope reports the boundary between the two current candidate sets.",
+            "finding": "In RNA geometry the pair boundary shows a small positive mean silhouette (0.079), with mean within distance (0.965) below mean between distance (1.052) and a negative fraction of 28.2%, indicating weak but positive boundary representation in RNA."
+          },
+          {
+            "metric": "current_membership_alignment.rna.median_silhouette",
+            "value": 0.09406775740549804,
+            "meaning": "Robust location of native-distance silhouettes for the reported pair in the RNA modality.",
+            "finding": "The RNA median silhouette (0.094) is small and positive, consistent with weak boundary expression."
+          },
+          {
+            "metric": "current_membership_alignment.rna.negative_fraction",
+            "value": 0.2815533980582524,
+            "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the RNA modality.",
+            "finding": "28.2% of RNA silhouettes are negative, indicating a non-trivial minority of patients are closer to the competing set."
           },
           {
             "metric": "current_membership_alignment.wsi.mean_silhouette",
             "value": 0.050463505926913954,
-            "meaning": "Mean native-distance silhouette for the current labels in the WSI geometry; pair scope reports the pair boundary under the current membership comparison.",
-            "finding": "In WSI geometry the pair boundary shows a weakly positive mean silhouette (0.050) with 45.6% negative silhouettes, and the mean within-distance (0.267) is only marginally below the mean between-distance (0.279), indicating weak and inconsistent separation of the two current sets."
+            "meaning": "Mean native-distance silhouette for the current labels in the WSI modality; pair scope reports the boundary between the two current candidate sets.",
+            "finding": "In WSI geometry the pair boundary shows a small positive mean silhouette (0.050), with mean within distance (0.267) below mean between distance (0.279) and a negative fraction of 45.6%, indicating weak and partially inconsistent boundary representation in WSI."
+          },
+          {
+            "metric": "current_membership_alignment.wsi.median_silhouette",
+            "value": 0.02545266812993366,
+            "meaning": "Robust location of native-distance silhouettes for the reported pair in the WSI modality.",
+            "finding": "The WSI median silhouette (0.025) is near zero, consistent with weak boundary expression."
+          },
+          {
+            "metric": "current_membership_alignment.wsi.negative_fraction",
+            "value": 0.4563106796116505,
+            "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the WSI modality.",
+            "finding": "45.6% of WSI silhouettes are negative, so nearly half of patients are closer to the competing set than to their own."
           },
           {
             "metric": "current_membership_alignment.wxs.mean_silhouette",
             "value": 0.09136133855757454,
-            "meaning": "Mean native-distance silhouette for the current labels in the WXS geometry; pair scope reports the pair boundary under the current membership comparison.",
-            "finding": "In WXS geometry the pair boundary shows a weakly positive mean silhouette (0.091) with 26.2% negative silhouettes, and the mean within-distance (0.793) is below the mean between-distance (0.860), indicating weak but directionally consistent separation of the two current sets."
+            "meaning": "Mean native-distance silhouette for the current labels in the WXS modality; pair scope reports the boundary between the two current candidate sets.",
+            "finding": "In WXS geometry the pair boundary shows a small positive mean silhouette (0.091), with mean within distance (0.793) below mean between distance (0.860) and a negative fraction of 26.2%, indicating weak but positive boundary representation in WXS."
           },
           {
-            "metric": "geometry_concordance",
+            "metric": "current_membership_alignment.wxs.median_silhouette",
+            "value": 0.022511135187191424,
+            "meaning": "Robust location of native-distance silhouettes for the reported pair in the WXS modality.",
+            "finding": "The WXS median silhouette (0.023) is near zero, so the positive mean is not strongly reflected in the median patient."
+          },
+          {
+            "metric": "current_membership_alignment.wxs.negative_fraction",
+            "value": 0.2621359223300971,
+            "meaning": "Fraction of negative native-distance silhouettes for the reported pair in the WXS modality.",
+            "finding": "26.2% of WXS silhouettes are negative, indicating a non-trivial minority of patients are closer to the competing set."
+          },
+          {
+            "metric": "geometry_concordance.ct__rna",
             "value": {
-              "ct__rna": {
-                "bootstrap_ci95": [
-                  0.10717815866755738,
-                  0.19345134370952796
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.09176082119701072,
-                "permutation_p": 0.071,
-                "permutations": 999
-              },
-              "ct__wsi": {
-                "bootstrap_ci95": [
-                  0.15196564274035895,
-                  0.3023532408174187
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.16748079866022086,
-                "permutation_p": 0.001,
-                "permutations": 999
-              },
-              "ct__wxs": {
-                "bootstrap_ci95": [
-                  0.12213121896085298,
-                  0.2304105051275926
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.10263754681339729,
-                "permutation_p": 0.218,
-                "permutations": 999
-              },
-              "rna__wxs": {
-                "bootstrap_ci95": [
-                  0.15518520118859588,
-                  0.26996212542889475
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.14536995600227023,
-                "permutation_p": 0.001,
-                "permutations": 999
-              },
-              "wsi__rna": {
-                "bootstrap_ci95": [
-                  0.1717490700478656,
-                  0.3091668507086497
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.19768774476549061,
-                "permutation_p": 0.001,
-                "permutations": 999
-              },
-              "wsi__wxs": {
-                "bootstrap_ci95": [
-                  0.10267256722382914,
-                  0.21682617399755924
-                ],
-                "bootstrap_valid_n": 1000,
-                "grv": 0.09161367739997614,
-                "permutation_p": 0.096,
-                "permutations": 999
-              }
+              "grv": 0.09176082119701072,
+              "bootstrap_ci95": [
+                0.10717815866755738,
+                0.19345134370952796
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.071,
+              "permutations": 999
             },
             "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
-            "finding": "Global geometry concordance (GRV) between modality pairs is modest (0.092-0.197); ct-wsi, rna-wxs, and wsi-rna show permutation p <= 0.001, while ct-rna (p=0.071), ct-wxs (p=0.218), and wsi-wxs (p=0.096) do not show significant shared structure. GRV describes global patient-geometry similarity and is not itself current-boundary support."
+            "finding": "CT-RNA geometry concordance is modest (GRV 0.092) with a permutation p of 0.071, not reaching a small permutation p-value."
+          },
+          {
+            "metric": "geometry_concordance.ct__wsi",
+            "value": {
+              "grv": 0.16748079866022086,
+              "bootstrap_ci95": [
+                0.15196564274035895,
+                0.3023532408174187
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.001,
+              "permutations": 999
+            },
+            "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+            "finding": "CT-WSI geometry concordance is modest (GRV 0.167) with a small permutation p (0.001)."
+          },
+          {
+            "metric": "geometry_concordance.ct__wxs",
+            "value": {
+              "grv": 0.10263754681339729,
+              "bootstrap_ci95": [
+                0.12213121896085298,
+                0.2304105051275926
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.218,
+              "permutations": 999
+            },
+            "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+            "finding": "CT-WXS geometry concordance is modest (GRV 0.103) with a permutation p of 0.218, not reaching a small permutation p-value."
+          },
+          {
+            "metric": "geometry_concordance.rna__wxs",
+            "value": {
+              "grv": 0.14536995600227023,
+              "bootstrap_ci95": [
+                0.15518520118859588,
+                0.26996212542889475
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.001,
+              "permutations": 999
+            },
+            "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+            "finding": "RNA-WXS geometry concordance is modest (GRV 0.145) with a small permutation p (0.001)."
+          },
+          {
+            "metric": "geometry_concordance.wsi__rna",
+            "value": {
+              "grv": 0.19768774476549061,
+              "bootstrap_ci95": [
+                0.1717490700478656,
+                0.3091668507086497
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.001,
+              "permutations": 999
+            },
+            "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+            "finding": "WSI-RNA geometry concordance is modest (GRV 0.198) with a small permutation p (0.001)."
+          },
+          {
+            "metric": "geometry_concordance.wsi__wxs",
+            "value": {
+              "grv": 0.09161367739997614,
+              "bootstrap_ci95": [
+                0.10267256722382914,
+                0.21682617399755924
+              ],
+              "bootstrap_valid_n": 1000,
+              "permutation_p": 0.096,
+              "permutations": 999
+            },
+            "meaning": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
+            "finding": "WSI-WXS geometry concordance is modest (GRV 0.092) with a permutation p of 0.096, not reaching a small permutation p-value."
           },
           {
             "metric": "geometry_concordance_patient_n",
             "value": 103,
-            "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for pair scope this is the pair patient count.",
-            "finding": "GRV calculations for the K2_C0001|K2_C0002 pair used 103 patients."
+            "meaning": "Number of patients contributing to the GRV geometry-concordance calculation; for pair scope this is the combined candidate size.",
+            "finding": "GRV calculations for the candidate pair were based on 103 patients."
           }
         ],
-        "dimension_interpretation": "This pair-scope alignment addresses whether the existing boundary between K2_C0001 and K2_C0002 is represented in each native modality geometry. Current-label alignment is weak and modality-dependent: RNA (0.079) and WXS (0.091) show weakly positive mean silhouettes with mean within-distance below mean between-distance, whereas CT (0.013) and WSI (0.050) are near zero with large negative fractions (43.7% and 45.6%) and only marginal within-versus-between distance differences. Across all four modalities the separation is small in magnitude, so the current boundary is only weakly expressed in the available geometries rather than consistently separated. Global GRV values are modest (0.092-0.197) and significant for ct-wsi, rna-wxs, and wsi-rna but not for ct-rna, ct-wxs, or wsi-wxs; GRV describes global patient-geometry similarity and is not itself current-boundary support. No internal subdivision solutions were requested or reported, so this evidence addresses boundary representation only. These measurements do not themselves determine whether the pair should be merged and do not establish biological meaning or clinical validity.",
-        "cross_evidence_context": "The prior structural_diagnostics report found candidate_k=1 for both sets with weak pair separation between K2_C0001 and K2_C0002. The present pair-scope alignment results are consistent with that picture of a weakly separated boundary, showing small mean silhouettes across modalities, but they address boundary representation in native geometries rather than partition-level spectral structure. The prior set-scope affinity_geometry_concordance reports described membership representation for each set individually; this pair-scope report addresses the shared boundary between them.",
+        "dimension_interpretation": "For the candidate pair K2_C0001 and K2_C0002, current-label alignment directly addresses whether the existing boundary between the two current candidate sets is represented in each native modality geometry. The boundary is weakly expressed and modality-dependent: mean silhouettes are near zero in CT (0.013), WSI (0.050), and WXS (0.091), and only weakly positive in RNA (0.079), with negative fractions ranging from 26.2% (WXS) to 45.6% (WSI). Mean within distance is close to mean between distance in every modality, so the current boundary shows little within-label versus between-label distinction. Global geometry concordance (GRV) is modest across modality pairs (0.092-0.198), with some pairs showing small permutation p-values and others not; per the guidance, GRV describes global patient-geometry similarity and is not itself current-boundary support. This evidence bears on boundary representation but does not by itself determine whether the pair should be merged.",
+        "cross_evidence_context": "The prior structural_diagnostics report found weak internal fused-graph cohesion and a close boundary between K2_C0001 and K2_C0002. The present pair-scope native-geometry alignment is directionally consistent with that picture: the boundary between the two sets is weakly expressed across modalities, with near-zero silhouettes and high negative fractions in CT and WSI. The prior set-scope affinity_geometry_concordance reports showed K2_C0001's membership weakly separated (slightly negative silhouettes in CT, WSI, and WXS) while K2_C0002's membership was positively separated across modalities; the pair-scope result here is the direct boundary-level view and does not by itself determine a merge.",
         "limitations": [
-          "Current-label alignment is computed under the full current partition and does not by itself determine accept or drop.",
+          "Current-label alignment is computed under the full current partition and does not by itself determine accept, drop, split, or merge.",
           "GRV describes global patient-geometry similarity and is not itself current-boundary support.",
-          "Weak pair separation does not recommend merge, and no internal subdivision solutions were evaluated here.",
-          "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity.",
-          "Modality-specific alignment is weak and inconsistent, so no single geometry provides a definitive representation of the current boundary."
+          "Silhouette values are small in magnitude and modality-dependent, so interpretation should not rely on any single modality.",
+          "Permutation p-values are one-sided exchangeability evidence, not action thresholds.",
+          "No reclustering was performed, and no feasible k>=2 internal subdivision solutions were evaluated here.",
+          "Weak pair separation does not recommend merge."
         ],
         "tool_refs": [
           "representation_concordance"
@@ -2048,6 +2387,102 @@
           "boundary_representation"
         ],
         "report_ref": "ER:0155eb9d7205:cross_modal_consistency:affinity_geometry_concordance:pair:fbf65f89cc"
+      },
+      {
+        "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics",
+        "scope": "pair",
+        "target_ids": [
+          "K2_C0001",
+          "K2_C0002"
+        ],
+        "observations": [
+          {
+            "metric": "member_n",
+            "value": 103,
+            "meaning": "Number of patients represented in the structural calculation for the union of the two candidate sets.",
+            "finding": "The pair structural calculation covers 103 patients (55 in K2_C0001 and 48 in K2_C0002), a non-trivial combined sample."
+          },
+          {
+            "metric": "mean_within_affinity",
+            "value": 0.009322138467715598,
+            "meaning": "Average fused affinity among patients assigned to the same candidate set.",
+            "finding": "Within-set fused affinity is low, describing weak internal fused-graph cohesion at this scale."
+          },
+          {
+            "metric": "mean_between_affinity",
+            "value": 0.009024334574817062,
+            "meaning": "Average fused affinity across the current pair boundary.",
+            "finding": "Between-set affinity is close to the within-set affinity, so the current boundary shows little affinity contrast in the fused graph."
+          },
+          {
+            "metric": "current_boundary_normalized_cut",
+            "value": 0.9934156276612471,
+            "meaning": "Graph normalized-cut cost of the current pair boundary.",
+            "finding": "The normalized-cut cost of the current boundary is near 1, consistent with a boundary that is not strongly expressed in the fused graph."
+          },
+          {
+            "metric": "independent_two_way_spectral_ari",
+            "value": 0.5255918832411369,
+            "meaning": "Agreement between the current pair labels and an independent two-way spectral partition of their union; it is boundary evidence, not an action rule.",
+            "finding": "An independent two-way spectral partition of the union agrees only moderately with the current pair labels (ARI 0.53), indicating the current boundary is only partially recovered by an unsupervised split of the union."
+          },
+          {
+            "metric": "left_volume/right_volume",
+            "value": {
+              "left_volume": 51.42908486964322,
+              "right_volume": 44.93689731767259
+            },
+            "meaning": "Fused-graph volumes of the two current pair sides.",
+            "finding": "The two sides have comparable fused-graph volumes (51.4 vs 44.9), so the boundary is not driven by a gross volume imbalance."
+          },
+          {
+            "metric": "union_eigengap",
+            "value": {
+              "candidate_eigengap": 0.9856097124565774,
+              "candidate_k": 1,
+              "eigengaps": {
+                "1": 0.9856097124565774,
+                "2": 0.0012983968095930942,
+                "3": 0.004147058675506798,
+                "4": 0.002370567835748516
+              }
+            },
+            "meaning": "Spectral structure of the union of the two sets; it does not itself prescribe merging.",
+            "finding": "The union is dominated by the single-cluster resolution: the leading eigengap (0.986) dwarfs subsequent gaps, so the union lacks a dominant internal subdivision signal."
+          }
+        ],
+        "dimension_interpretation": "This pair-scope structural screen addresses whether the current boundary between K2_C0001 and K2_C0002 is represented in the fused patient geometry and whether their union shows a dominant internal subdivision signal. The boundary is weakly expressed: mean between-set affinity (0.00902) is essentially equal to mean within-set affinity (0.00932), the normalized-cut cost is near 1 (0.993), and an independent two-way spectral partition of the union agrees only moderately with the current labels (ARI 0.53). The union spectral profile is dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.986), so there is no dominant internal subdivision signal within the union. Per the guidance, a weak current boundary together with a single-cluster-dominated union is structurally compatible with removing the boundary, but this is not sufficient by itself to justify merge, and the union structure must never be interpreted as evidence against merge. These are triage observations about boundary proximity and union structure in the fused geometry; they do not by themselves establish biological meaning, clinical validity, or a retention, split, or merge decision.",
+        "cross_evidence_context": "No prior structural_diagnostics report for this pair was supplied in this round; the prior round's partition-level structural screen described weak internal fused-graph cohesion and identified K2_C0001|K2_C0002 as the nearest pair, which is directionally consistent with the weak boundary observed here. The set-scope affinity_geometry_concordance reports showed K2_C0001's membership weakly separated (slightly negative silhouettes in CT, WSI, and WXS) while K2_C0002's membership was positively separated across modalities, and the pair-scope native-geometry report showed a weakly expressed boundary across modalities; those are distinct evidence dimensions and do not directly confirm or contradict this fused-graph structural screen.",
+        "limitations": [
+          "Partition and pair structural diagnostics are triage evidence only and do not independently establish retention, split, or merge.",
+          "The union eigengap screen is a spectral screening; candidate_k=1 indicates no dominant multi-cluster signal in this screen, not proof that no finer structure exists.",
+          "Weak pair separation does not recommend merge, and the union structure must never be interpreted as evidence against merge.",
+          "No feasible k>=2 internal solutions or native-view separation measurements were produced at this scope, so finer-granularity hypotheses are not evaluated here.",
+          "Structural or cross-modal evidence does not by itself establish biological meaning or clinical validity."
+        ],
+        "tool_refs": [
+          "structural_diagnostics"
+        ],
+        "metric_refs": [
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.current_boundary_normalized_cut",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.independent_two_way_spectral_ari",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.left_volume",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_between_affinity",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.mean_within_affinity",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.member_n",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.right_volume",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_eigengap",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.candidate_k",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.1",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.2",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.3",
+          "tool_results.structural_diagnostics.metrics.pair.K2_C0001|K2_C0002.union_eigengap.eigengaps.4"
+        ],
+        "request_foci": [
+          "boundary_structure"
+        ],
+        "report_ref": "ER:0155eb9d7205:cross_modal_consistency:structural_diagnostics:pair:fbf65f89cc"
       }
     ]
   }

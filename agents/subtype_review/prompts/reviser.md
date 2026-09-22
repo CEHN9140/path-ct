@@ -29,8 +29,8 @@ For a `split`:
 
 - preserve the exact target;
 - preserve the exact `n_children`;
-- set `structural_basis` exactly to `["fused"]`;
-- set `execution_strategy` exactly to `"fused_similarity_spectral"`;
+- set `structural_basis` exactly to `["candidate_consensus"]`;
+- set `execution_strategy` exactly to `"candidate_consensus_spectral"`;
 - include only relevant entries from `available_metric_refs`, or an empty array if none are needed.
 
 For a `merge`:
@@ -38,7 +38,9 @@ For a `merge`:
 - preserve the exact target pair;
 - include only relevant entries from `available_metric_refs`, or an empty array if none are needed.
 
-Python performs the actual spectral split or set union.
+Python performs the actual structural operation using the candidate-generation geometry associated with the current partition.
+
+A structural revision is provisional. Do not interpret the revision as acceptance, biological validation, or final subtype assignment.
 
 If `validation_feedback` is supplied, repair only the execution-plan contract violation. Do not reinterpret evidence or change the Router's authorized action.
 
@@ -103,7 +105,7 @@ Use double-quoted JSON strings and keys, valid JSON values, no extra fields, no 
 For a Router split action:
 
 ```json
-{"split_plans": [{"action": "split", "target_id": "SET_A", "n_children": 2, "structural_basis": ["fused"], "execution_strategy": "fused_similarity_spectral", "metric_refs": ["METRIC_REF_A"], "rationale": "RATIONALE_A"}], "merge_plans": [], "rationale": "PLAN_RATIONALE"}
+{"split_plans": [{"action": "split", "target_id": "SET_A", "n_children": 2, "structural_basis": ["candidate_consensus"], "execution_strategy": "candidate_consensus_spectral", "metric_refs": ["METRIC_REF_A"], "rationale": "RATIONALE_A"}], "merge_plans": [], "rationale": "PLAN_RATIONALE"}
 ```
 
 For a Router merge action:

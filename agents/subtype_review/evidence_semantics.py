@@ -66,15 +66,20 @@ METRIC_SEMANTICS = {
         "bootstrap_ci95/bootstrap_valid_n": "Paired patient bootstrap uncertainty interval and number of nondegenerate replicates.",
         "permutation_p/permutations": "One-sided permutation evidence under exchangeable patient correspondence between the two geometries; not an action threshold.",
         "comparison": "Defines whether alignment uses full current partition labels or the selected candidate pair.",
+        "integrated_membership_alignment.mean_silhouette/median_silhouette/negative_fraction": "Primary current-label alignment in the integrated fused multimodal geometry; set scope summarizes target samples under full partition labels.",
+        "integrated_membership_alignment.mean_within_distance/mean_between_distance": "Within-label and between-label distances in the integrated fused geometry.",
+        "integrated_membership_alignment.nearest_competing_set": "Nearest competing current set in integrated fused geometry for set scope.",
+        "native_view_membership_alignment": "Modality-specific support or disagreement profiles; native views are not votes and do not replace integrated alignment.",
         "current_membership_alignment.mean_silhouette": "Mean native-distance silhouette for the current labels; set scope reports the target cluster's samples from the full partition calculation.",
         "current_membership_alignment.median_silhouette/negative_fraction": "Robust location and fraction of negative native-distance silhouettes for the reported target or partition.",
         "nearest_competing_set/mean_distance_to_each_other_set": "The competing current set with the smallest target-to-set native distance and the corresponding distances.",
         "mean_within_distance/mean_between_distance": "Mean native distance among same-label or different-label patient pairs under the current membership comparison.",
     },
     ("cross_modal_consistency", "structural_diagnostics"): {
+        "geometry_basis": "Candidate-generation consensus geometry used to construct the current candidate partition; it is not external validation or a stability score.",
         "member_n": "Number of patients represented in the structural calculation.",
-        "mean_within_affinity": "Average fused affinity among patients assigned to the same candidate set.",
-        "mean_between_affinity": "Average fused affinity across the current pair boundary.",
+        "mean_within_affinity": "Average candidate-generation consensus affinity among patients assigned to the same candidate set.",
+        "mean_between_affinity": "Average candidate-generation consensus affinity across the current pair boundary.",
         "screen_candidate_k": (
             "Algorithmic eigengap screening resolution. candidate_k=1 means the dominant gap is at the single-cluster resolution, so this screening calculation does not show a dominant multi-cluster subdivision signal. candidate_k>1 identifies a possible multi-cluster resolution for further interpretation, not evidence by itself that the set should be split."
         ),
@@ -87,6 +92,7 @@ METRIC_SEMANTICS = {
         ),
         "nearest_pair_targets/nearest_pair_affinities": "Relatively close candidate pairs and their between-set affinity; a pair-review entry point, not a merge conclusion.",
         "solutions[K].normalized_cut": "Graph normalized-cut cost for a feasible internal split; lower values indicate less cross-child edge mass relative to child volume.",
+        "solutions[K].integrated_fused_separation": "Separation of candidate-consensus split labels when projected into the full integrated fused geometry.",
         "solutions[K].child_sizes": "Sizes and balance of children for a feasible split; feasibility is not scientific support.",
         "solutions[K].native_view_separation": "Standard native-distance silhouettes after projecting the proposed split labels into each source modality; these do not replace fused-graph evidence.",
         "current_boundary_normalized_cut": "Graph normalized-cut cost of the current pair boundary.",
@@ -140,7 +146,7 @@ SCOPE_INTERPRETATIONS = {
         "feasible solutions, separation, and child sizes before considering split."
     ),
     ("structural_diagnostics", "pair"): (
-        "For pair scope, current-boundary separation and union structure answer different questions: boundary measurements "
+        "For pair scope, candidate-generation consensus boundary separation and union structure answer different questions: boundary measurements "
         "describe the current labels, while union structure describes internal subdivision of their union. A union "
         "dominated by the single-cluster resolution lacks a dominant internal subdivision signal. This is structurally "
         "compatible with treating the pair as one candidate and must never be interpreted as evidence against merge, but "
@@ -151,15 +157,15 @@ SCOPE_INTERPRETATIONS = {
         "identify a simple merge solution. Integrate both with the other evidence."
     ),
     ("affinity_geometry_concordance", "set"): (
-        "For set scope, silhouette is computed under the full current multi-cluster partition and the target samples are "
+        "For set scope, integrated fused-geometry silhouette is the primary membership evidence. It is computed under the full current multi-cluster partition and the target samples are "
         "summarized. For each target patient, silhouette compares within-cluster distance with the nearest competing "
         "current cluster; the other clusters are not pooled into one rest group. Interpret nearest_competing_set, "
         "mean_distance_to_each_other_set, and negative_fraction together with the mean and median silhouette. "
-        "This evidence bears directly on membership representation but does not by itself determine accept or drop."
+        "Native-view alignments describe modality-specific support or disagreement and are not votes. This evidence bears directly on membership representation but does not by itself determine accept or drop."
     ),
     ("affinity_geometry_concordance", "pair"): (
-        "For pair scope, current-label alignment directly addresses whether the existing boundary between the two current "
-        "candidate sets is represented in each native modality geometry. Little within-label versus between-label "
+        "For pair scope, integrated fused-geometry current-label alignment directly addresses whether the existing boundary between the two current "
+        "candidate sets is represented. Native-view alignments provide modality-specific support or disagreement. Little within-label versus between-label "
         "distinction provides limited geometric support for the current boundary; consistently represented separation "
         "provides positive evidence that the boundary is expressed in the available geometries. This evidence does not "
         "itself determine whether the pair should be merged; integrate it with biological, confounder, and other structural "

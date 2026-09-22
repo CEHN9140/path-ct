@@ -144,7 +144,7 @@ class SplitPlan(BaseModel):
     target_id: str
     n_children: int = Field(ge=2)
     structural_basis: list[str] = Field(min_length=1)
-    execution_strategy: Literal["fused_similarity_spectral"]
+    execution_strategy: Literal["candidate_consensus_spectral"]
     metric_refs: list[str] = Field(default_factory=list)
     rationale: str = ""
 

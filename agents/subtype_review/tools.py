@@ -61,6 +61,47 @@ def affinity_matrices(output_root: str) -> tuple[list[str], dict[str, np.ndarray
     return patient_ids, matrices
 
 
+def candidate_consensus_geometry(
+    output_root: str,
+    all_cluster_states: list[Mapping[str, Any]],
+) -> tuple[list[str], np.ndarray]:
+    geometries = []
+    for item in all_cluster_states:
+        geometry = dict((item.get("generator", {}) or {}).get("geometry", {}) or {})
+        if geometry:
+            geometries.append(geometry)
+    if not geometries:
+        raise ValueError("Current partition lacks candidate-generation geometry provenance")
+    canonical = {json.dumps(geometry, sort_keys=True) for geometry in geometries}
+    if len(canonical) != 1:
+        raise ValueError("Current partition mixes incompatible candidate-generation geometries")
+    geometry = geometries[0]
+    if geometry.get("type") != "resampled_consensus_coassignment":
+        raise ValueError("Unsupported candidate geometry type")
+    root = Path(output_root) / "candidate_subtype"
+    patient_ids = [
+        str(value) for value in json.loads(
+            (root / geometry["patient_order_relative_path"]).read_text()
+        )
+    ]
+    matrix = np.asarray(np.load(root / geometry["matrix_relative_path"]), dtype=float)
+    if matrix.shape != (len(patient_ids), len(patient_ids)):
+        raise ValueError("Candidate consensus geometry shape mismatch")
+    if not np.isfinite(matrix).all():
+        raise ValueError("Candidate consensus geometry contains non-finite values")
+    matrix = np.clip((matrix + matrix.T) / 2, 0, 1)
+    np.fill_diagonal(matrix, 0.0)
+    return patient_ids, matrix
+
+
+def fused_distance_matrix(output_root: str) -> tuple[list[str], np.ndarray]:
+    patient_ids, matrices = affinity_matrices(output_root)
+    fused = np.clip((matrices["fused"] + matrices["fused"].T) / 2, 0, 1)
+    distance = 1.0 - fused
+    np.fill_diagonal(distance, 0.0)
+    return patient_ids, distance
+
+
 def distance_kernel(distance: np.ndarray) -> np.ndarray:
     n = len(distance)
     centering = np.eye(n) - np.ones((n, n)) / n
@@ -168,6 +209,9 @@ def representation_concordance(
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = modality_distance_matrices(output_root)
+    fused_patient_ids, fused_distances = fused_distance_matrix(output_root)
+    if fused_patient_ids != patient_ids:
+        raise ValueError("Fused distance patient order does not match native distance matrices")
     index = {patient_id: position for position, patient_id in enumerate(patient_ids)}
     memberships = {
         str(item["set_id"]): set(map(str, item["member_ids"]))
@@ -261,10 +305,17 @@ def representation_concordance(
         )
         for name in ("ct", "wsi", "rna", "wxs")
     }
+    integrated_alignment = current_membership_alignment(
+        fused_distances[np.ix_(positions, positions)],
+        labels,
+        target_ids[0] if scope == "set" else None,
+    )
     output = {
         "alignment_patient_n": len(case_ids),
         "geometry_concordance_patient_n": len(grv_case_ids),
         "comparison": comparison,
+        "integrated_membership_alignment": integrated_alignment,
+        "native_view_membership_alignment": alignment,
         "geometry_concordance": concordance,
         "current_membership_alignment": alignment,
     }
@@ -284,8 +335,13 @@ def structural_diagnostics(
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = affinity_matrices(output_root)
-    fused = np.clip((matrices["fused"] + matrices["fused"].T) / 2, 0, None)
-    np.fill_diagonal(fused, 0.0)
+    consensus_patient_ids, fused = candidate_consensus_geometry(
+        output_root, all_cluster_states
+    )
+    if consensus_patient_ids != patient_ids:
+        raise ValueError("Candidate consensus patient order does not match affinity patient order")
+    full_fused_distance = np.clip(1.0 - matrices["fused"], 0, 1)
+    np.fill_diagonal(full_fused_distance, 0.0)
     native_patient_ids, native_distances = modality_distance_matrices(output_root)
     if native_patient_ids != patient_ids:
         raise ValueError("Native distance matrices do not match fused affinity patient order")
@@ -362,11 +418,14 @@ def structural_diagnostics(
         }
         boundaries = [row for row in boundaries if tuple(row["target_ids"]) in selected]
         boundaries.sort(key=lambda row: (-row["mean_between_affinity"], row["target_ids"]))
-        return tool_result("structural_diagnostics", {"partition": {
-            "internal_structure": internal,
-            "nearest_pair_targets": [row["target_ids"] for row in boundaries],
-            "nearest_pair_affinities": boundaries,
-        }})
+        return tool_result("structural_diagnostics", {
+            "partition": {
+                "internal_structure": internal,
+                "nearest_pair_targets": [row["target_ids"] for row in boundaries],
+                "nearest_pair_affinities": boundaries,
+            },
+            "geometry_basis": "candidate_generation_consensus",
+        })
 
     members = scoped_groups(scope, target_ids, all_cluster_states)
     output = {}
@@ -386,6 +445,10 @@ def structural_diagnostics(
                 solutions[str(k)] = {
                     "child_sizes": sorted(map(int, sizes)),
                     "normalized_cut": normalized_cut(local, labels),
+                    "integrated_fused_separation": current_membership_alignment(
+                        full_fused_distance[np.ix_([index[item] for item in case_ids], [index[item] for item in case_ids])],
+                        labels,
+                    ),
                     "native_view_separation": native_separation(case_ids, labels),
                 }
             output[key] = {
@@ -423,7 +486,10 @@ def structural_diagnostics(
                 "independent_two_way_spectral_ari": float(adjusted_rand_score(labels, independent)),
                 "union_eigengap": spectrum,
             }
-    return tool_result("structural_diagnostics", {scope: output})
+    return tool_result("structural_diagnostics", {
+        scope: output,
+        "geometry_basis": "candidate_generation_consensus",
+    })
 
 
 def rna_pathway_enrichment(
@@ -1122,13 +1188,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "representation_concordance": {
         "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
-        "description": "Compare four-view native patient-distance geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment within each view without reclustering.",
+        "description": "Compare integrated fused and four-view native patient geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment without reclustering.",
         "question_foci": {"set": ("membership_representation",), "pair": ("boundary_representation",), "partition": ("patient_geometry_concordance",)},
         "selection_guidance": (
             "Use when the EvidenceRequest asks whether an existing candidate membership or pair boundary is "
-            "represented in native modality patient geometries. For set scope, this is the appropriate evidence "
-            "source for membership-versus-rest representation. It does not assess internal subdivision or split "
-            "granularity. Pair-scope results may complement structural boundary and union evidence."
+            "represented in integrated multimodal and native patient geometries. Integrated alignment is the "
+            "primary membership evidence; native views explain modality-specific support or disagreement and are "
+            "not votes. It does not assess internal subdivision or split granularity."
         ),
         "function": representation_concordance,
     },

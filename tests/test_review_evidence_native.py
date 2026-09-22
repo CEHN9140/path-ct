@@ -64,6 +64,11 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
         matrix = np.full((6, 6), 0.2 + offset * 0.05)
         np.fill_diagonal(matrix, 0.0)
         np.save(candidate / f"{modality}_distance.npy", matrix)
+        np.save(candidate / f"{modality}_affinity.npy", 1.0 - matrix)
+    np.save(candidate / "fused_similarity.npy", 1.0 - np.full((6, 6), 0.2))
+    fused = np.load(candidate / "fused_similarity.npy")
+    np.fill_diagonal(fused, 1.0)
+    np.save(candidate / "fused_similarity.npy", fused)
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "subtype_review.yaml").write_text(
@@ -84,6 +89,8 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
     }
     assert all("bootstrap_ci95" in row and "permutation_p" in row for row in result["geometry_concordance"].values())
     assert set(result["current_membership_alignment"]) == set(modalities)
+    assert "integrated_membership_alignment" in result
+    assert set(result["native_view_membership_alignment"]) == set(modalities)
     assert result["alignment_patient_n"] == 6
     assert result["geometry_concordance_patient_n"] == 6
     assert abs(result["current_membership_alignment"]["ct"]["silhouette"]) < 1e-12
@@ -104,6 +111,7 @@ def write_structural_fixture(tmp_path, matrix):
     ids = [f"P{i}" for i in range(len(matrix))]
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
+    (candidate / "consensus_cluster").mkdir()
     (candidate / "affinity_patient_order.json").write_text(json.dumps(ids))
     distance = 1.0 - matrix
     np.fill_diagonal(distance, 0.0)
@@ -111,6 +119,7 @@ def write_structural_fixture(tmp_path, matrix):
         np.save(candidate / f"{modality}_affinity.npy", matrix)
         np.save(candidate / f"{modality}_distance.npy", distance)
     np.save(candidate / "fused_similarity.npy", matrix)
+    np.save(candidate / "consensus_cluster" / "consensus_matrix_Ktest.npy", matrix)
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "subtype_review.yaml").write_text(
@@ -128,9 +137,14 @@ def test_structural_pair_reports_graph_boundary_and_spectral_agreement(tmp_path)
     matrix[3:, 3:] = 0.9
     np.fill_diagonal(matrix, 0.0)
     ids, config_dir = write_structural_fixture(tmp_path, matrix)
+    generator = {"geometry": {
+        "type": "resampled_consensus_coassignment",
+        "matrix_relative_path": "consensus_cluster/consensus_matrix_Ktest.npy",
+        "patient_order_relative_path": "affinity_patient_order.json",
+    }}
     result = structural_diagnostics(
         {}, str(tmp_path), str(config_dir),
-        [{"set_id": "A", "member_ids": ids[:3]}, {"set_id": "B", "member_ids": ids[3:]}],
+        [{"set_id": "A", "member_ids": ids[:3], "generator": generator}, {"set_id": "B", "member_ids": ids[3:], "generator": generator}],
         "pair", ["A", "B"],
     )["metrics"]["pair"]["A|B"]
     assert np.isfinite(result["current_boundary_normalized_cut"])
@@ -146,9 +160,14 @@ def test_structural_set_reports_feasible_split_with_native_views(tmp_path):
     matrix[3:, 3:] = 0.9
     np.fill_diagonal(matrix, 0.0)
     ids, config_dir = write_structural_fixture(tmp_path, matrix)
+    generator = {"geometry": {
+        "type": "resampled_consensus_coassignment",
+        "matrix_relative_path": "consensus_cluster/consensus_matrix_Ktest.npy",
+        "patient_order_relative_path": "affinity_patient_order.json",
+    }}
     result = structural_diagnostics(
         {}, str(tmp_path), str(config_dir),
-        [{"set_id": "A", "member_ids": ids}], "set", ["A"],
+        [{"set_id": "A", "member_ids": ids, "generator": generator}], "set", ["A"],
     )["metrics"]["set"]["A"]
     solution = result["solutions"]["2"]
     assert np.isfinite(solution["normalized_cut"])

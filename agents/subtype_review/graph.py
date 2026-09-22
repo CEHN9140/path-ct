@@ -27,7 +27,11 @@ from agents.subtype_review.schemas import (
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
 from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS, guidance_for
-from agents.subtype_review.tools import TOOL_REGISTRY, compact_tool_result
+from agents.subtype_review.tools import (
+    TOOL_REGISTRY,
+    candidate_consensus_geometry,
+    compact_tool_result,
+)
 from utils.llm_utils import load_yaml_file
 from utils.tool_utils import to_jsonable
 
@@ -42,6 +46,15 @@ def partition_signature(sets: list[dict[str, Any]]) -> str:
 
 def current_sets(state: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(state["partition"]["sets"], key=set_id)
+
+
+def agent_partition_context(partition: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "sets": [
+            {key: copy.deepcopy(value) for key, value in item.items() if key != "generator"}
+            for item in partition.get("sets", [])
+        ]
+    }
 
 
 def evidence_report_ref(signature: str, dimension: str, aspect: str, scope: str,
@@ -113,6 +126,58 @@ def terminal_closure_refs(
     return required
 
 
+def terminal_accountability_refs(
+    current: list[dict[str, Any]],
+    reports: list[Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    required = {set_id(item): set() for item in current}
+    for report in reports:
+        scope = report.get("scope")
+        targets = list(report.get("target_ids", []))
+        ref = str(report.get("report_ref", ""))
+        if not ref:
+            continue
+        if scope == "set" and len(targets) == 1:
+            if targets[0] in required:
+                required[targets[0]].add(ref)
+        elif scope == "pair" and len(targets) == 2:
+            for target in targets:
+                if target in required:
+                    required[target].add(ref)
+    return required
+
+
+def build_pair_review_status(
+    reports: list[Mapping[str, Any]],
+    available: set[tuple[str, str, tuple[str, ...], str]],
+) -> list[dict[str, Any]]:
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    for report in reports:
+        if (
+            report.get("dimension") != "cross_modal_consistency"
+            or report.get("scope") != "pair"
+        ):
+            continue
+        targets = tuple(sorted(map(str, report.get("target_ids", []))))
+        if len(targets) != 2:
+            continue
+        item = pairs.setdefault(targets, {
+            "target_ids": list(targets),
+            "boundary_representation_report_ref": None,
+            "boundary_structure_report_ref": None,
+        })
+        foci = report.get("request_foci", [])
+        if "boundary_representation" in foci:
+            item["boundary_representation_report_ref"] = report.get("report_ref")
+        if "boundary_structure" in foci:
+            item["boundary_structure_report_ref"] = report.get("report_ref")
+    for targets, item in pairs.items():
+        item["boundary_structure_available"] = (
+            "cross_modal_consistency", "pair", targets, "boundary_structure"
+        ) in available
+    return [pairs[key] for key in sorted(pairs)]
+
+
 def structural_pair_followup_targets(
     state: Mapping[str, Any],
     signature: str,
@@ -173,6 +238,7 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
             "set_id": set_id(item),
             "member_ids": sorted(map(str, item["member_ids"])),
             "revision_lineage": list(item.get("revision_lineage", [])),
+            "generator": copy.deepcopy(item.get("generator", {})),
         }
         for item in candidate_sets
     ]
@@ -208,6 +274,7 @@ def validate_router_plan(
     state: Mapping[str, Any],
     available: set[tuple[str, str, tuple[str, ...], str]],
     required_terminal_refs: Mapping[str, set[str]] | None = None,
+    terminal_accountability_refs_by_target: Mapping[str, set[str]] | None = None,
     merge_legal: bool = True,
 ) -> None:
     current = {set_id(item) for item in current_sets(state)}
@@ -291,6 +358,15 @@ def validate_router_plan(
     for action in plan.actions:
         if not action.evidence_report_refs:
             raise ValueError("Every terminal action must cite at least one Evidence Report")
+        required_refs = set((terminal_accountability_refs_by_target or {}).get(
+            action.target_ids[0], set()
+        ))
+        missing_refs = required_refs - set(action.evidence_report_refs)
+        if missing_refs:
+            raise ValueError(
+                "Terminal action must cite all target-specific set/pair Evidence Reports "
+                f"acquired for this candidate; missing {sorted(missing_refs)}"
+            )
         if action.action == "accept":
             target = action.target_ids[0]
             if not any(
@@ -427,6 +503,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
     latest_acquisition = latest_acquisition_context(state, signature)
     required_closure = terminal_closure_refs(current, latest_acquisition["new_reports"])
+    terminal_accountability = terminal_accountability_refs(current, state["reports"])
     closure_payload = {
         "source_round": latest_acquisition["source_round"],
         "previous_evidence_requests": latest_acquisition["evidence_requests"],
@@ -447,12 +524,16 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     if not budget_exhausted:
         control["round"] += 1
     payload = {
-        "partition": state["partition"],
+        "partition": agent_partition_context(state["partition"]),
         "evidence_reports": summarize_reports(state["reports"]),
         "evidence_coverage": coverage,
         "evidence_dimension_contracts": copy.deepcopy(EVIDENCE_ROLE_CONTRACTS),
         "available_evidence_requests": router_request_options,
         "latest_acquisition_closure": closure_payload,
+        "terminal_accountability_report_refs_by_target": {
+            target: sorted(refs) for target, refs in terminal_accountability.items()
+        },
+        "pair_review_status": build_pair_review_status(state["reports"], available),
         "workflow_constraints": workflow_constraints,
         "round": control["round"],
         "budget_exhausted": budget_exhausted,
@@ -469,6 +550,10 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "evidence_dimension_contracts": payload["evidence_dimension_contracts"],
             "available_evidence_requests": router_request_options,
             "latest_acquisition_closure": closure_payload,
+            "terminal_accountability_report_refs_by_target": {
+                target: sorted(refs) for target, refs in terminal_accountability.items()
+            },
+            "pair_review_status": build_pair_review_status(state["reports"], available),
             "workflow_constraints": workflow_constraints,
             "budget_exhausted": budget_exhausted,
         },
@@ -487,6 +572,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 validate_router_plan(
                     plan, state, available,
                     required_terminal_refs=required_closure,
+                    terminal_accountability_refs_by_target=terminal_accountability,
                     merge_legal=merge_legal,
                 )
                 break
@@ -529,12 +615,20 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "available_evidence_requests and current Evidence Reports. Do not preserve "
                         "an action when the validation error shows that its required evidential role "
                         "is missing. In that case, reconsider the action or request decision-relevant "
-                        "evidence if an eligible request remains. Do not invent evidence."
+                        "evidence if an eligible request remains. Do not invent evidence. "
+                        "Do not add new evidence requests merely to complete coverage. Prefer the "
+                        "smallest evidence set sufficient to resolve the current scientific decision."
                     ),
                     "required_terminal_report_refs_by_target": closure_payload[
                         "required_terminal_report_refs_by_target"
                     ],
                 }
+                if "Terminal action must cite all target-specific" in str(exc):
+                    feedback["instruction"] = (
+                        "Terminal evidence_report_refs must include every target-specific report "
+                        "listed in terminal_accountability_report_refs_by_target. Do not change "
+                        "the scientific action solely because a required reference was omitted."
+                    )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),
                     node="router",
@@ -566,6 +660,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         validate_router_plan(
             plan, state, available,
             required_terminal_refs=required_closure,
+            terminal_accountability_refs_by_target=terminal_accountability,
             merge_legal=merge_legal,
         )
     append_runtime_trace(
@@ -960,8 +1055,8 @@ def validate_revision_plan(
         if (len(plan.split_plans) != 1 or plan.merge_plans
                 or plan.split_plans[0].target_id != action.target_ids[0]
                 or plan.split_plans[0].n_children != action.n_children
-                or plan.split_plans[0].structural_basis != ["fused"]
-                or plan.split_plans[0].execution_strategy != "fused_similarity_spectral"):
+                or plan.split_plans[0].structural_basis != ["candidate_consensus"]
+                or plan.split_plans[0].execution_strategy != "candidate_consensus_spectral"):
             raise ValueError("RevisionPlan must preserve the exact Router split target and child count")
     elif len(plan.merge_plans) != 1 or plan.split_plans or sorted(plan.merge_plans[0].target_ids) != sorted(action.target_ids):
         raise ValueError("RevisionPlan must preserve the exact Router merge pair")
@@ -1003,7 +1098,7 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
     )
     model = values["reviser_model"]
     payload = {
-        "partition": state["partition"],
+        "partition": agent_partition_context(state["partition"]),
         "router_action": action.model_dump(),
         "referenced_reports": [row for row in state["reports"]
                                if row["report_ref"] in action.evidence_report_refs],
@@ -1048,12 +1143,12 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
     if action.action == "split":
         split = plan.split_plans[0]
         source = by_id[split.target_id]
-        root = Path(values["data_root"]) / "candidate_subtype"
-        patient_ids = json.loads((root / "affinity_patient_order.json").read_text())
-        fused = np.load(root / "fused_similarity.npy")
+        patient_ids, consensus = candidate_consensus_geometry(
+            values["data_root"], current,
+        )
         indices = {str(patient_id): index for index, patient_id in enumerate(patient_ids)}
         members = source["member_ids"]
-        local = fused[np.ix_([indices[item] for item in members], [indices[item] for item in members])]
+        local = consensus[np.ix_([indices[item] for item in members], [indices[item] for item in members])]
         settings = load_yaml_file(Path(values["config_dir"]) / "subtype_review.yaml")["cross_modal"]["structural"]
         labels = SpectralClustering(
             n_clusters=split.n_children, affinity="precomputed", assign_labels="cluster_qr", random_state=0
@@ -1069,6 +1164,7 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
             {
                 "set_id": f"{split.target_id}_S{index + 1}",
                 "member_ids": members,
+                "generator": copy.deepcopy(source.get("generator", {})),
                 "revision_lineage": [*source.get("revision_lineage", []), {
                     "action": "split", "parent_set_id": split.target_id, "plan": split.model_dump(),
                 }],
@@ -1078,6 +1174,12 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
     else:
         merge = plan.merge_plans[0]
         sources = [by_id[target] for target in merge.target_ids]
+        generators = {
+            json.dumps(source.get("generator", {}), sort_keys=True)
+            for source in sources
+        }
+        if len(generators) != 1:
+            raise ValueError("Merge sources must share candidate-generation geometry")
         members = sorted(member for source in sources for member in source["member_ids"])
         if len(members) != len(set(members)):
             raise ValueError("Merge target sets have overlapping patient membership")
@@ -1086,6 +1188,7 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         replacements[sorted(merge.target_ids)[0]] = [{
             "set_id": merged_id,
             "member_ids": members,
+            "generator": copy.deepcopy(sources[0].get("generator", {})),
             "revision_lineage": [
                 *sum((source.get("revision_lineage", []) for source in sources), []),
                 {"action": "merge", "parent_set_ids": sorted(merge.target_ids), "plan": merge.model_dump()},

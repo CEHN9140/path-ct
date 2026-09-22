@@ -162,7 +162,7 @@ def test_structural_diagnosis_matches_split_execution(tmp_path):
         for value in set(labels.values())
     }
     executed = {frozenset(group) for group in execute_split_membership(
-        str(tmp_path), case_ids, 2, "fused_similarity_spectral", ["fused"]
+        str(tmp_path), case_ids, 2, "candidate_consensus_spectral", ["candidate_consensus"]
     )}
     assert diagnosed == executed
 

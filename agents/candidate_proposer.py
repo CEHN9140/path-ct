@@ -200,6 +200,11 @@ def candidate_proposer(
                     "generator": {
                         "initial_k": int(k),
                         "partition_id": f"consensus_hierarchical_K{k}",
+                        "geometry": {
+                            "type": "resampled_consensus_coassignment",
+                            "matrix_relative_path": f"consensus_cluster/consensus_matrix_K{k}.npy",
+                            "patient_order_relative_path": "affinity_patient_order.json",
+                        },
                     },
                 })
             write_json(candidate_paths[k], {

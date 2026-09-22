@@ -3,9 +3,11 @@ import pytest
 
 from agents.subtype_review.graph import (
     eligible_tools_for_request,
+    build_pair_review_status,
     initial_review_state,
     partition_signature,
     router_node,
+    terminal_accountability_refs,
     validate_router_plan,
 )
 from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
@@ -40,7 +42,10 @@ def terminal_action(action, target="C1", refs=None):
 
 
 def test_partition_reports_update_partition_coverage_without_nesting():
-    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state = initial_review_state([{
+        "set_id": "C1", "member_ids": ["P1", "P2"],
+        "generator": {"initial_k": 8, "geometry": {"type": "hidden"}},
+    }])
     signature = partition_signature(state["partition"]["sets"])
     state["tool_evidence"].append({
         "tool_name": "structural_diagnostics", "scope": "partition",
@@ -68,6 +73,7 @@ def test_partition_reports_update_partition_coverage_without_nesting():
     }
     router_node(state, runtime)
 
+    assert all("generator" not in item for item in captured["partition"]["sets"])
     coverage = captured["evidence_coverage"]["partition"]
     assert coverage["cross_modal_consistency"] == "assessed"
     assert set(coverage) == set(EVIDENCE_DIMENSIONS)
@@ -129,6 +135,82 @@ def test_drop_does_not_require_fixed_membership_report():
     }])
     plan = RouterPlan(actions=[terminal_action("drop", refs=["ER:biology"]), terminal_action("drop", "C2")])
     validate_router_plan(plan, state, set())
+
+
+def test_terminal_drop_must_cite_all_target_specific_reports():
+    state = terminal_validation_state([{
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }, {
+        "report_ref": "ER:pair", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair", "target_ids": ["C1", "C2"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("drop", refs=["ER:biology"]), terminal_action("drop", "C2", refs=["ER:partition"])])
+    with pytest.raises(ValueError, match="all target-specific"):
+        validate_router_plan(plan, state, set(), terminal_accountability_refs_by_target=terminal_accountability_refs(state["partition"]["sets"], state["reports"]))
+
+
+def test_partition_report_is_not_duplicated_into_terminal_accountability():
+    state = terminal_validation_state([])
+    refs = terminal_accountability_refs(state["partition"]["sets"], state["reports"])
+    assert refs == {"C1": set(), "C2": set()}
+
+
+def test_pair_report_is_accountable_to_both_involved_targets():
+    state = terminal_validation_state([{
+        "report_ref": "ER:pair", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair",
+        "target_ids": ["C1", "C2"],
+    }])
+    refs = terminal_accountability_refs(state["partition"]["sets"], state["reports"])
+    assert refs["C1"] == {"ER:pair"}
+    assert refs["C2"] == {"ER:pair"}
+
+
+def test_structural_revision_does_not_require_terminal_accountability_refs():
+    state = terminal_validation_state([{
+        "report_ref": "ER:struct", "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics", "scope": "pair", "target_ids": ["C1", "C2"],
+    }])
+    state["partition"]["sets"].append({"set_id": "C3", "member_ids": ["P5", "P6"], "revision_lineage": []})
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "pair", "target_ids": ["C1", "C2"],
+        "partition_signature": partition_signature(state["partition"]["sets"]),
+        "metrics": {},
+    }]
+    action = RouterAction(action="merge", target_ids=["C1", "C2"], evidence_report_refs=["ER:struct"], reason="reason")
+    plan = RouterPlan(actions=[action])
+    validate_router_plan(plan, state, set(), terminal_accountability_refs_by_target={"C1": {"ER:other"}, "C2": {"ER:other"}})
+
+
+def test_pair_review_status_boundary_only():
+    reports = [{
+        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
+        "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_representation"],
+    }]
+    status = build_pair_review_status(reports, {
+        ("cross_modal_consistency", "pair", ("C1", "C2"), "boundary_structure"),
+    })
+    assert status[0]["boundary_representation_report_ref"] == "ER:boundary"
+    assert status[0]["boundary_structure_report_ref"] is None
+    assert status[0]["boundary_structure_available"] is True
+
+
+def test_pair_review_status_boundary_and_structure_complete():
+    reports = [{
+        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
+        "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_representation"],
+    }, {
+        "report_ref": "ER:structure", "dimension": "cross_modal_consistency",
+        "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_structure"],
+    }]
+    status = build_pair_review_status(reports, set())
+    assert status[0]["boundary_representation_report_ref"] == "ER:boundary"
+    assert status[0]["boundary_structure_report_ref"] == "ER:structure"
+    assert status[0]["boundary_structure_available"] is False
 
 
 def test_accept_with_membership_but_without_biology_fails():
