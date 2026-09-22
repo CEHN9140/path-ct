@@ -1081,14 +1081,58 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             actual_key_set = set(actual_keys)
             duplicates = sorted({key for key in actual_keys if actual_keys.count(key) > 1})
             if actual_key_set == expected_keys and len(actual_keys) == len(expected_keys) and not duplicates:
-                reports_by_key = dict(zip(actual_keys, batch.reports))
-                if audit_attempt:
-                    append_runtime_trace(
-                        values.get("runtime_trace_path"), node="verifier",
-                        event="verifier_audit_coverage_repaired", round_id=state["control"]["round"],
-                        payload={"wave": wave, "attempt": audit_attempt + 1},
+                candidate_reports = dict(zip(actual_keys, batch.reports))
+                role_conclusion_errors = []
+                for key, report in candidate_reports.items():
+                    dimension, aspect, scope, targets = key
+                    contract = guidance_for(dimension, aspect, scope).get(
+                        "role_conclusion_contract"
                     )
-                break
+                    if contract is None:
+                        continue
+                    text = report.dimension_interpretation.rstrip()
+                    required = contract["required_conclusions"]
+                    ending_matches = [conclusion for conclusion in required if text.endswith(conclusion)]
+                    occurrence_n = sum(text.count(conclusion) for conclusion in required)
+                    if len(ending_matches) != 1 or occurrence_n != 1:
+                        role_conclusion_errors.append({
+                            "dimension": dimension,
+                            "aspect": aspect,
+                            "scope": scope,
+                            "target_ids": list(targets),
+                            "required_conclusions": required,
+                        })
+                if not role_conclusion_errors:
+                    reports_by_key = candidate_reports
+                    if audit_attempt:
+                        append_runtime_trace(
+                            values.get("runtime_trace_path"), node="verifier",
+                            event="verifier_audit_coverage_repaired", round_id=state["control"]["round"],
+                            payload={"wave": wave, "attempt": audit_attempt + 1},
+                        )
+                    break
+
+                append_runtime_trace(
+                    values.get("runtime_trace_path"), node="verifier",
+                    event="verifier_audit_role_conclusion_invalid", round_id=state["control"]["round"],
+                    payload={"wave": wave, "attempt": audit_attempt + 1,
+                             "role_conclusion_errors": role_conclusion_errors},
+                )
+                if audit_attempt >= max_coverage_retries:
+                    raise ValueError(
+                        "Verifier Evidence Report role-conclusion contract remained invalid after audit retries"
+                    )
+                audit_feedback = {
+                    "error": "Evidence Report role-conclusion contract is invalid.",
+                    "role_conclusion_errors": role_conclusion_errors,
+                    "instruction": (
+                        "For every report with a role_conclusion_contract, preserve the scientific "
+                        "interpretation and end dimension_interpretation with exactly one required "
+                        "conclusion sentence copied verbatim. Do not change report targets, scope, "
+                        "aspect, or evidence content."
+                    ),
+                }
+                continue
 
             missing = sorted(expected_keys - actual_key_set)
             extra = sorted(actual_key_set - expected_keys)
