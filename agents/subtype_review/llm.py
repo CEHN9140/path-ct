@@ -535,6 +535,7 @@ def summarize_reports(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
             "aspect": row.get("aspect", ""),
             "scope": row.get("scope", ""),
             "target_ids": list(row.get("target_ids", []) or []),
+            "request_foci": list(row.get("request_foci", []) or []),
             "observations": list(row.get("observations", []) or []),
             "dimension_interpretation": row.get("dimension_interpretation", ""),
             "cross_evidence_context": row.get("cross_evidence_context", ""),

@@ -1,14 +1,42 @@
 import json
+import pytest
 
 from agents.subtype_review.graph import (
     eligible_tools_for_request,
     initial_review_state,
     partition_signature,
     router_node,
+    validate_router_plan,
 )
 from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
-from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, EvidenceRequest
+from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, EvidenceRequest, RouterAction, RouterPlan
 from agents.subtype_review.tools import TOOL_REGISTRY
+from agents.subtype_review.llm import summarize_reports
+
+
+def terminal_validation_state(reports):
+    state = initial_review_state([
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    state["reports"] = [
+        {
+            "report_ref": "ER:partition",
+            "dimension": "cross_modal_consistency",
+            "aspect": "structural_diagnostics",
+            "scope": "partition",
+            "target_ids": [],
+        },
+        *reports,
+    ]
+    return state
+
+
+def terminal_action(action, target="C1", refs=None):
+    return RouterAction(
+        action=action, target_ids=[target], n_children=None,
+        evidence_report_refs=refs or ["ER:partition"], reason="reason",
+    )
 
 
 def test_partition_reports_update_partition_coverage_without_nesting():
@@ -59,6 +87,57 @@ def test_question_focus_binds_cross_modal_tool_family():
         assert eligible_tools_for_request(
             request, TOOL_REGISTRY, set(), set(), partition_screen_done=True,
         ) == [tool_name]
+
+
+def test_accept_requires_exact_set_membership_report():
+    state = terminal_validation_state([{
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:biology"]), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="membership_representation"):
+        validate_router_plan(plan, state, set())
+
+
+def test_pair_boundary_cannot_substitute_for_accept_membership():
+    state = terminal_validation_state([{
+        "report_ref": "ER:pair", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair", "target_ids": ["C1", "C2"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:pair"]), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="membership_representation"):
+        validate_router_plan(plan, state, set())
+
+
+def test_accept_with_membership_report_passes_role_contract():
+    state = terminal_validation_state([{
+        "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership"]), terminal_action("drop", "C2")])
+    validate_router_plan(plan, state, set())
+
+
+def test_drop_does_not_require_fixed_membership_report():
+    state = terminal_validation_state([{
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("drop", refs=["ER:biology"]), terminal_action("drop", "C2")])
+    validate_router_plan(plan, state, set())
+
+
+def test_report_focus_provenance_survives_router_summary():
+    summary = summarize_reports([{
+        "report_ref": "ER:membership",
+        "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance",
+        "scope": "set",
+        "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+    }])
+    assert summary[0]["request_foci"] == ["membership_representation"]
 
 
 def test_structural_action_legality_is_explicit_and_pair_review_remains_available(tmp_path):

@@ -291,6 +291,27 @@ def validate_router_plan(
     for action in plan.actions:
         if not action.evidence_report_refs:
             raise ValueError("Every terminal action must cite at least one Evidence Report")
+        if action.action == "accept":
+            target = action.target_ids[0]
+            if not any(
+                is_set_membership_report(reports.get(ref), target)
+                for ref in action.evidence_report_refs
+            ):
+                raise ValueError(
+                    "Accept requires the target's exact-set membership_representation "
+                    "Evidence Report; pair-boundary, structural, biological, confounder, "
+                    "or partition evidence cannot substitute for it."
+                )
+
+
+def is_set_membership_report(report: Mapping[str, Any] | None, target: str) -> bool:
+    return bool(
+        report
+        and report.get("dimension") == "cross_modal_consistency"
+        and report.get("scope") == "set"
+        and list(report.get("target_ids", [])) == [target]
+        and "membership_representation" in report.get("request_foci", [])
+    )
 
 
 def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
@@ -466,10 +487,11 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     "invalid_evidence_requests": invalid_requests,
                     "available_evidence_requests": router_request_options,
                     "instruction": (
-                        "available_evidence_requests is the exhaustive runtime whitelist. Do not request "
-                        "any dimension, scope, or target_ids absent from it. If no listed request can "
-                        "change the disposition, return a legal action using the existing Evidence Reports. "
-                        "Preserve the action and scientific conclusions when repairing the workflow contract."
+                        "Repair the RouterPlan according to the validation error. Use only "
+                        "available_evidence_requests and current Evidence Reports. Do not preserve "
+                        "an action when the validation error shows that its required evidential role "
+                        "is missing. In that case, reconsider the action or request decision-relevant "
+                        "evidence if an eligible request remains. Do not invent evidence."
                     ),
                     "required_terminal_report_refs_by_target": closure_payload[
                         "required_terminal_report_refs_by_target"
@@ -692,6 +714,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
 
         new_rows_wave = []
         expected_reports: dict[tuple[str, str, str, tuple[str, ...]], set[str]] = {}
+        report_foci: dict[tuple[str, str, str, tuple[str, ...]], set[str]] = {}
         for ref, name in selected.items():
             request = request_states[ref]["request"]
             metadata = registry[name]
@@ -730,6 +753,9 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 expected_reports.setdefault(
                     (metadata["dimension"], aspect, scope, report_target), set()
                 ).add(name)
+                report_foci.setdefault(
+                    (metadata["dimension"], aspect, scope, report_target), set()
+                ).add(request.focus)
             append_runtime_trace(
                 values.get("runtime_trace_path"), node="verifier", event="tool_result",
                 round_id=state["control"]["round"],
@@ -820,6 +846,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             if aspect == "structural_diagnostics" and "structural_diagnostics" not in report.tool_refs:
                 raise ValueError("Structural Evidence Reports require structural_diagnostics tool provenance")
             report_row = report.model_dump()
+            report_row["request_foci"] = sorted(report_foci.get(key, set()))
             report_row["report_ref"] = evidence_report_ref(signature, dimension, aspect, scope, targets)
             reports_by_key[key] = report_row
 
@@ -835,6 +862,9 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 row["limitations"] = sorted(set(previous["limitations"] + row["limitations"]))
                 row["tool_refs"] = sorted(set(previous["tool_refs"] + row["tool_refs"]))
                 row["metric_refs"] = sorted(set(previous["metric_refs"] + row["metric_refs"]))
+                row["request_foci"] = sorted(set(
+                    previous.get("request_foci", []) + row.get("request_foci", [])
+                ))
                 row["cross_evidence_context"] = row["cross_evidence_context"] or previous["cross_evidence_context"]
             merged[key] = row
         working_reports = list(merged.values())
