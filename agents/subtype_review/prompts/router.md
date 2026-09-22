@@ -56,7 +56,7 @@ Split and merge are provisional structural revisions, not final validation claim
 
 For a plausible merge pair, review boundary representation, then exact-pair union structure when materially weak and decision-relevant, then compare preserve, merge, and reject alternatives. The Verifier does not recommend merge; pair evidence is not an automatic merge instruction.
 
-Each option lists remaining `available_question_foci` for its dimension, scope, and target. This is the exhaustive runtime whitelist: request only listed dimension, scope, target_ids, and focus. If absent, do not request it again; use existing reports or another option. The Verifier selects the tool.
+Each option lists remaining `available_question_foci` for its dimension, scope, and target. `focus` is the scientific capability being requested, not a tool name. This is the exhaustive runtime whitelist: request only listed dimension, scope, target_ids, and focus. If absent, do not request it again; use existing reports or another option. The Verifier selects the tool.
 
 After evaluating identity, independence, alternatives, and revision: first request evidence if a decision-changing uncertainty remains, a listed question focus can address it, and at least one plausible result could change the choice; next return a split or merge if interpreted evidence positively justifies that revision; otherwise evaluate terminal retention independently of revision. Accept only when identity and independent membership are both positively justified after material alternatives and counterevidence are considered. Otherwise drop when decision-relevant evidence is exhausted.
 
@@ -76,7 +76,7 @@ When returning actions, cite and account for every report in `latest_acquisition
 
 Return exactly one valid JSON object with exactly two keys: `actions` (an array of action objects) and `evidence_requests` (an array of request objects). Do not include markdown, commentary, or text outside the object. Exactly one output mode is allowed: evidence request (empty `actions`, nonempty requests), structural revision (one `split` or `merge`, empty requests), or terminal disposition (one `accept` or `drop` per current set, each exactly once, empty requests). If a decision-changing question remains for any candidate, do not terminally dispose of the others in that round.
 
-Action object keys are exactly `action`, `target_ids`, `n_children`, `evidence_report_refs`, and `reason`; request keys are exactly `dimension`, `scope`, `target_ids`, and `question`. `action` is `accept`, `drop`, `split`, or `merge`; split uses one target and an integer `n_children`, accept/drop use one target and JSON `null`, and merge uses two targets and JSON `null`. Action targets and evidence references are string arrays; `reason` is a nonempty string. Request `dimension` is one of the four supplied evidence dimensions, `scope` is `set`, `pair`, or `partition`, `target_ids` is a string array, and `question` is a nonempty string. Set requests use one target, pair requests two, and partition requests none. Questions must be specific to the declared dimension. Each action reason must directly justify that action and agree with cited reports.
+Action object keys are exactly `action`, `target_ids`, `n_children`, `evidence_report_refs`, and `reason`; request keys are exactly `dimension`, `scope`, `target_ids`, `focus`, and `question`. `focus` must be one of the listed `available_question_foci` for that option. `action` is `accept`, `drop`, `split`, or `merge`; split uses one target and an integer `n_children`, accept/drop use one target and JSON `null`, and merge uses two targets and JSON `null`. Request `dimension` is one of the four supplied evidence dimensions, `scope` is `set`, `pair`, or `partition`, `target_ids` is a string array, and `question` is nonempty. Set requests use one target, pair requests two, and partition requests none. Questions must be specific to the declared dimension. Each action reason must directly justify that action and agree with cited reports.
 
 Use double-quoted JSON strings and keys, JSON `null`, `true`, and `false` (never Python `None`, `True`, or `False`), no trailing commas or comments, and no extra fields. Escape quotes and control characters as required by JSON.
 
@@ -86,7 +86,7 @@ These examples illustrate JSON structure only. They do not imply when an action 
 
 Evidence request:
 ```json
-{"actions": [], "evidence_requests": [{"dimension": "cross_modal_consistency", "scope": "set", "target_ids": ["SET_A"], "question": "Assess the current membership representation."}]}
+{"actions": [], "evidence_requests": [{"dimension": "cross_modal_consistency", "scope": "set", "target_ids": ["SET_A"], "focus": "membership_representation", "question": "Assess the current membership representation."}]}
 ```
 
 Split:

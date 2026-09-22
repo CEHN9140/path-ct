@@ -1,8 +1,13 @@
 import json
 
-from agents.subtype_review.graph import initial_review_state, partition_signature, router_node
+from agents.subtype_review.graph import (
+    eligible_tools_for_request,
+    initial_review_state,
+    partition_signature,
+    router_node,
+)
 from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
-from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS
+from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, EvidenceRequest
 from agents.subtype_review.tools import TOOL_REGISTRY
 
 
@@ -24,7 +29,8 @@ def test_partition_reports_update_partition_coverage_without_nesting():
             captured.update(payload)
             return {"actions": [], "evidence_requests": [{
                 "dimension": "biological_support", "scope": "set",
-                "target_ids": ["C1"], "question": "Clarify C1 phenotype.",
+                "target_ids": ["C1"], "focus": "transcriptomic_phenotype",
+                "question": "Clarify C1 phenotype.",
             }]}
 
     runtime = {
@@ -37,6 +43,22 @@ def test_partition_reports_update_partition_coverage_without_nesting():
     coverage = captured["evidence_coverage"]["partition"]
     assert coverage["cross_modal_consistency"] == "assessed"
     assert set(coverage) == set(EVIDENCE_DIMENSIONS)
+
+
+def test_question_focus_binds_cross_modal_tool_family():
+    for focus, scope, target_ids, tool_name in (
+        ("membership_representation", "set", ["C1"], "representation_concordance"),
+        ("internal_subdivision", "set", ["C1"], "structural_diagnostics"),
+        ("boundary_representation", "pair", ["C1", "C2"], "representation_concordance"),
+        ("boundary_structure", "pair", ["C1", "C2"], "structural_diagnostics"),
+    ):
+        request = EvidenceRequest(
+            dimension="cross_modal_consistency", scope=scope,
+            target_ids=target_ids, focus=focus, question="Assess the declared focus.",
+        )
+        assert eligible_tools_for_request(
+            request, TOOL_REGISTRY, set(), set(), partition_screen_done=True,
+        ) == [tool_name]
 
 
 def test_structural_action_legality_is_explicit_and_pair_review_remains_available(tmp_path):
@@ -66,7 +88,8 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
                 captured.update(payload)
                 return {"actions": [], "evidence_requests": [{
                     "dimension": "cross_modal_consistency", "scope": "pair",
-                    "target_ids": pair, "question": "Assess whether the current boundary is defensible.",
+                    "target_ids": pair, "focus": "boundary_representation",
+                    "question": "Assess whether the current boundary is defensible.",
                 }]}
 
         runtime = {
@@ -115,7 +138,8 @@ def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():
             captured.update(payload)
             return {"actions": [], "evidence_requests": [{
                 "dimension": "biological_support", "scope": "set",
-                "target_ids": ["C1"], "question": "Assess the candidate phenotype.",
+                "target_ids": ["C1"], "focus": "transcriptomic_phenotype",
+                "question": "Assess the candidate phenotype.",
             }]}
 
     router_node(state, {
@@ -160,7 +184,7 @@ def pair_options_after_completed_tools(completed_pair_tools):
             captured.update(payload)
             return {"actions": [], "evidence_requests": [{
                 "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
-                "question": "Clarify the candidate phenotype.",
+                "focus": "transcriptomic_phenotype", "question": "Clarify the candidate phenotype.",
             }]}
 
     router_node(state, {

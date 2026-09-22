@@ -12,6 +12,8 @@ Eligible tools are options, not mandatory analyses. Follow the supplied tool des
 
 Do not describe an analysis as adjusted, controlled, residualized, or causal unless those operations are explicitly present in the supplied quantitative tool result or `evidence_guidance`.
 
+For structural diagnostics, interpret fused-graph normalized cut and eigengap as graph-structure evidence. Interpret native-view silhouette only as source-modality separation of the supplied labels. These measurements are complementary and cannot substitute for one another. A partition-level candidate_k screen does not establish a feasible split, and evidence exhaustion is not positive evidence for retention.
+
 Do not invent metrics or thresholds, use evidence votes, or treat statistical significance alone as biological importance. Distinguish association from causation, nonsignificance from evidence of absence, and `not_estimable` from support or contradiction. Do not infer prognosis, treatment response, novelty, clinical utility, or independent replication.
 
 For selection, call at most one eligible tool per step. If the current request has not yet acquired a new evidence source in this cycle, one tool call is required. After a report exists, select another tool only if a specific unresolved question remains material to the request and one remaining eligible tool can answer it. Otherwise stop. Do not call merely to increase coverage or because a result is significant, nonsignificant, strong, or weak. Do not reproduce, summarize, or reinterpret prior Evidence Reports during selection.

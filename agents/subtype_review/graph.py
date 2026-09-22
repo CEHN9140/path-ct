@@ -56,6 +56,7 @@ def evidence_request_ref(signature: str, request: EvidenceRequest) -> str:
         "dimension": request.dimension,
         "scope": request.scope,
         "target_ids": request.target_ids,
+        "focus": request.focus,
         "question": request.question,
     }
     digest = hashlib.sha256(
@@ -126,13 +127,20 @@ def structural_pair_followup_targets(
 
 def reports_for_request(
     reports: list[Mapping[str, Any]], request: EvidenceRequest,
+    registry: Mapping[str, Mapping[str, Any]] = TOOL_REGISTRY,
 ) -> list[dict[str, Any]]:
+    expected_aspects = {
+        metadata.get("aspect", name)
+        for name, metadata in registry.items()
+        if request.focus in metadata.get("question_foci", {}).get(request.scope, ())
+    }
     return [
         {key: copy.deepcopy(value) for key, value in report.items() if key != "metric_refs"}
         for report in reports
         if report["dimension"] == request.dimension
         and report["scope"] == request.scope
         and sorted(map(str, report["target_ids"])) == request.target_ids
+        and report.get("aspect") in expected_aspects
     ]
 
 
@@ -150,6 +158,7 @@ def eligible_tools_for_request(
         if name not in attempted
         and (name, request.scope, targets) not in completed
         and metadata["dimension"] == request.dimension
+        and request.focus in metadata.get("question_foci", {}).get(request.scope, ())
         and request.scope in metadata["scopes"]
         and not (name == "structural_diagnostics" and (
             (request.scope == "partition" and partition_screen_done)
@@ -197,16 +206,15 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
 def validate_router_plan(
     plan: RouterPlan,
     state: Mapping[str, Any],
-    available: set[tuple[str, str, tuple[str, ...]]],
+    available: set[tuple[str, str, tuple[str, ...], str]],
     required_terminal_refs: Mapping[str, set[str]] | None = None,
-    structural_rescue_keys: set[tuple[str, str, tuple[str, ...]]] | None = None,
     merge_legal: bool = True,
 ) -> None:
     current = {set_id(item) for item in current_sets(state)}
     if plan.evidence_requests:
         seen = set()
         for request in plan.evidence_requests:
-            key = (request.dimension, request.scope, tuple(request.target_ids))
+            key = (request.dimension, request.scope, tuple(request.target_ids), request.focus)
             if key not in available:
                 raise ValueError(f"EvidenceRequest is unavailable: {key}")
             if key in seen:
@@ -271,28 +279,6 @@ def validate_router_plan(
         raise ValueError("Terminal disposition may only accept or drop sets")
     if len(targets) != len(set(targets)) or set(targets) != current:
         raise ValueError("Terminal actions must cover each current set exactly once")
-    rescue_keys = structural_rescue_keys or set()
-    dropped = {target for action in plan.actions if action.action == "drop" for target in action.target_ids}
-    unresolved_set_rescues = sorted(
-        key for key in rescue_keys
-        if key[1] == "set" and key[0] == "cross_modal_consistency"
-        and key[2] and key[2][0] in dropped
-    )
-    if unresolved_set_rescues:
-        raise ValueError(
-            "Cannot terminally drop a candidate while exact-set structural rescue remains available: "
-            f"{unresolved_set_rescues}"
-        )
-    if merge_legal:
-        unresolved_pair_rescues = sorted(
-            key for key in rescue_keys
-            if key[1] == "pair" and set(key[2]) & dropped
-        )
-        if unresolved_pair_rescues:
-            raise ValueError(
-                "Cannot terminally drop a candidate while a plausible merge-pair structural rescue "
-                f"remains available: {unresolved_pair_rescues}"
-            )
     if not any(
         row["dimension"] == "cross_modal_consistency"
         and row["aspect"] == "structural_diagnostics"
@@ -321,7 +307,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     structural_pairs = structural_pair_followup_targets(state, signature)
     set_ids = [set_id(item) for item in current]
     available_aspects = {}
-    available_question_foci = {}
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
         dimension = metadata["dimension"]
         for scope in metadata["scopes"]:
@@ -341,33 +326,32 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     continue
                 key = (name, scope, tuple(target_ids))
                 if key not in completed:
-                    request_key = (dimension, scope, tuple(target_ids))
-                    available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
-                    available_question_foci.setdefault(request_key, set()).update(
-                        metadata.get("question_foci", {}).get(scope, ())
-                    )
+                    for focus in metadata.get("question_foci", {}).get(scope, ()):
+                        request_key = (dimension, scope, tuple(target_ids), focus)
+                        available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
 
     available = set(available_aspects)
+    option_groups: dict[tuple[str, str, tuple[str, ...]], dict[str, set[str]]] = {}
+    for (dimension, scope, target_ids, focus), aspects in available_aspects.items():
+        group = option_groups.setdefault(
+            (dimension, scope, target_ids), {"aspects": set(), "foci": set()}
+        )
+        group["aspects"].update(aspects)
+        group["foci"].add(focus)
     request_options = [
-        {"dimension": dimension, "scope": scope, "target_ids": list(target_ids),
-         "available_aspects": sorted(aspects),
-         "available_question_foci": sorted(available_question_foci[(dimension, scope, target_ids)])}
-        for (dimension, scope, target_ids), aspects in sorted(available_aspects.items())
+        {
+            "dimension": dimension,
+            "scope": scope,
+            "target_ids": list(target_ids),
+            "available_aspects": sorted(group["aspects"]),
+            "available_question_foci": sorted(group["foci"]),
+        }
+        for (dimension, scope, target_ids), group in sorted(option_groups.items())
     ]
     router_request_options = [
         {key: item[key] for key in ("dimension", "scope", "target_ids", "available_question_foci")}
         for item in request_options
     ]
-    structural_rescue_keys = {
-        (item["dimension"], item["scope"], tuple(item["target_ids"]))
-        for item in router_request_options
-        if (
-            (item["scope"] == "set" and "internal_subdivision" in item["available_question_foci"])
-            or (item["scope"] == "pair" and set(item["available_question_foci"]) & {
-                "boundary_representation", "boundary_structure"
-            })
-        )
-    }
     coverage = {
         "set": {item: {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS} for item in set_ids},
         "pair": {},
@@ -444,7 +428,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 validate_router_plan(
                     plan, state, available,
                     required_terminal_refs=required_closure,
-                    structural_rescue_keys=structural_rescue_keys,
                     merge_legal=merge_legal,
                 )
                 break
@@ -456,16 +439,26 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "dimension": request.dimension,
                         "scope": request.scope,
                         "target_ids": list(request.target_ids),
+                        "focus": request.focus,
                         "reason": "No currently eligible evidence tool remains for this request."
-                        if (request.dimension, request.scope, tuple(request.target_ids)) not in available
+                        if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
                         else "This evidence request is duplicated within the RouterPlan.",
                     }
                     for request in plan.evidence_requests
-                    if (request.dimension, request.scope, tuple(request.target_ids)) not in available
+                    if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
                     or sum(
                         1 for other in plan.evidence_requests
-                        if (other.dimension, other.scope, tuple(other.target_ids))
-                        == (request.dimension, request.scope, tuple(request.target_ids))
+                        if (
+                            other.dimension,
+                            other.scope,
+                            tuple(other.target_ids),
+                            other.focus,
+                        ) == (
+                            request.dimension,
+                            request.scope,
+                            tuple(request.target_ids),
+                            request.focus,
+                        )
                     ) > 1
                 ]
                 feedback = {
@@ -497,18 +490,22 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 )
                 validation_feedback = feedback
     else:
-        if ("cross_modal_consistency", "partition", ()) not in available_aspects:
+        if not any(
+            key[:3] == ("cross_modal_consistency", "partition", ())
+            and key[3] == "partition_structural_screen"
+            for key in available
+        ):
             raise ValueError("Structural diagnostics must support a partition-level screen")
         plan = RouterPlan(evidence_requests=[EvidenceRequest(
             dimension="cross_modal_consistency",
             scope="partition",
             target_ids=[],
+            focus="partition_structural_screen",
             question="Screen the current partition for unsupported internal splits and weak pair boundaries.",
         )])
         validate_router_plan(
             plan, state, available,
             required_terminal_refs=required_closure,
-            structural_rescue_keys=structural_rescue_keys,
             merge_legal=merge_legal,
         )
     append_runtime_trace(
@@ -650,7 +647,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                         for item in current
                     ]},
                     "evidence_request": request.model_dump(),
-                    "current_evidence": reports_for_request(report_snapshot, request),
+                    "current_evidence": reports_for_request(report_snapshot, request, registry),
                     "attempted_tools": sorted(request_state["attempted_tools"]),
                     "remaining_tools": remaining,
                     "require_tool": require_tool,
@@ -685,7 +682,8 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 event="verifier_tool_selection", round_id=state["control"]["round"],
                 payload={"wave": wave, "request_ref": ref,
                          "dimension": request.dimension, "scope": request.scope,
-                         "target_ids": request.target_ids, "remaining_tools": remaining,
+                         "target_ids": request.target_ids, "focus": request.focus,
+                         "remaining_tools": remaining,
                          "selected_tool": selected_tool},
             )
 
@@ -724,7 +722,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             row.update({
                 "dimension": metadata["dimension"], "aspect": aspect, "scope": scope,
                 "target_ids": list(targets), "partition_signature": signature,
-                "request_ref": ref,
+                "request_ref": ref, "focus": request.focus,
             })
             new_rows_wave.append(row)
             report_targets = [()] if scope == "partition" else [(target,) for target in targets] if scope == "set" else [targets]

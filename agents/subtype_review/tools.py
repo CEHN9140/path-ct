@@ -98,8 +98,12 @@ def generalized_rv(left_distance: np.ndarray, right_distance: np.ndarray) -> flo
     return float(np.sum(left_kernel * right_kernel) / denominator) if denominator else None
 
 
-def current_membership_alignment(distance: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
-    from sklearn.metrics import silhouette_score
+def current_membership_alignment(
+    distance: np.ndarray,
+    labels: np.ndarray,
+    target_label: str | None = None,
+) -> dict[str, Any]:
+    from sklearn.metrics import silhouette_samples
 
     labels = np.asarray(labels, dtype=str)
     upper = np.triu(np.ones(distance.shape, dtype=bool), k=1)
@@ -107,15 +111,49 @@ def current_membership_alignment(distance: np.ndarray, labels: np.ndarray) -> di
     within = distance[upper & same]
     between = distance[upper & ~same]
     unique_n = len(np.unique(labels))
-    silhouette = (
-        float(silhouette_score(distance, labels, metric="precomputed"))
-        if 1 < unique_n < len(labels)
-        else None
+    samples = (
+        silhouette_samples(distance, labels, metric="precomputed")
+        if 1 < unique_n < len(labels) else None
     )
+    mask = np.ones(len(labels), dtype=bool) if target_label is None else labels == target_label
+    target_within = within
+    target_between = between
+    competing = None
+    if target_label is not None:
+        target_positions = np.flatnonzero(mask)
+        other_labels = sorted(set(labels[~mask]))
+        target_within_values = [
+            distance[i, j]
+            for i, j in combinations(target_positions, 2)
+        ]
+        target_between_values = [
+            distance[i, j]
+            for i in target_positions
+            for j in np.flatnonzero(~mask)
+        ]
+        target_within = np.asarray(target_within_values)
+        target_between = np.asarray(target_between_values)
+        if other_labels:
+            mean_to_other = {
+                label: float(distance[np.ix_(target_positions, labels == label)].mean())
+                for label in other_labels
+            }
+            competing = min(mean_to_other, key=mean_to_other.get)
+        else:
+            mean_to_other = {}
+    else:
+        mean_to_other = {}
+    selected_samples = samples[mask] if samples is not None else None
+    mean_silhouette = float(selected_samples.mean()) if selected_samples is not None else None
     return {
-        "silhouette": silhouette,
-        "mean_within_distance": float(within.mean()) if len(within) else None,
-        "mean_between_distance": float(between.mean()) if len(between) else None,
+        "silhouette": mean_silhouette,
+        "mean_silhouette": mean_silhouette,
+        "median_silhouette": float(np.median(selected_samples)) if selected_samples is not None else None,
+        "negative_fraction": float(np.mean(selected_samples < 0)) if selected_samples is not None else None,
+        "mean_within_distance": float(target_within.mean()) if len(target_within) else None,
+        "mean_between_distance": float(target_between.mean()) if len(target_between) else None,
+        "nearest_competing_set": competing,
+        "mean_distance_to_each_other_set": mean_to_other,
     }
 
 
@@ -147,12 +185,17 @@ def representation_concordance(
         ])
         comparison = "current_partition_labels"
         report_key = "partition"
+        grv_case_ids = case_ids
     elif scope == "set":
         target = target_ids[0]
         case_ids = [case_id for case_id in patient_ids if case_id in partition_members]
-        labels = np.asarray([target if case_id in memberships[target] else "rest" for case_id in case_ids])
-        comparison = "target_vs_rest"
+        labels = np.asarray([
+            next(set_id for set_id, members in memberships.items() if case_id in members)
+            for case_id in case_ids
+        ])
+        comparison = "full_partition_labels"
         report_key = target
+        grv_case_ids = [case_id for case_id in patient_ids if case_id in memberships[target]]
     else:
         left, right = target_ids
         selected = memberships[left] | memberships[right]
@@ -160,16 +203,18 @@ def representation_concordance(
         labels = np.asarray([left if case_id in memberships[left] else right for case_id in case_ids])
         comparison = "candidate_pair"
         report_key = "|".join(sorted(target_ids))
+        grv_case_ids = case_ids
 
     positions = [index[case_id] for case_id in case_ids]
+    grv_positions = [index[case_id] for case_id in grv_case_ids]
     settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["cross_modal"]["concordance"]
     permutations = int(settings["permutations"])
     bootstrap_repeats = int(settings["bootstrap_repeats"])
     rng = np.random.default_rng(int(settings["random_seed"]))
     concordance = {}
     for left, right in combinations(("ct", "wsi", "rna", "wxs"), 2):
-        left_distance = matrices[left][np.ix_(positions, positions)]
-        right_distance = matrices[right][np.ix_(positions, positions)]
+        left_distance = matrices[left][np.ix_(grv_positions, grv_positions)]
+        right_distance = matrices[right][np.ix_(grv_positions, grv_positions)]
         observed = generalized_rv(left_distance, right_distance)
         if observed is None:
             ci = None
@@ -177,7 +222,7 @@ def representation_concordance(
             permutation_p = None
         else:
             bootstrapped = []
-            n = len(positions)
+            n = len(grv_positions)
             for _ in range(bootstrap_repeats):
                 sample = rng.integers(0, n, size=n)
                 value = generalized_rv(
@@ -196,7 +241,7 @@ def representation_concordance(
             denominator = np.linalg.norm(left_kernel) * np.linalg.norm(right_kernel)
             exceed = 0
             for _ in range(permutations):
-                perm = rng.permutation(len(positions))
+                perm = rng.permutation(len(grv_positions))
                 permuted = right_kernel[np.ix_(perm, perm)]
                 perm_grv = float(np.sum(left_kernel * permuted) / denominator)
                 exceed += perm_grv >= observed
@@ -210,7 +255,9 @@ def representation_concordance(
         }
     alignment = {
         name: current_membership_alignment(
-            matrices[name][np.ix_(positions, positions)], labels
+            matrices[name][np.ix_(positions, positions)],
+            labels,
+            target_ids[0] if scope == "set" else None,
         )
         for name in ("ct", "wsi", "rna", "wxs")
     }
@@ -232,11 +279,15 @@ def structural_diagnostics(
     target_ids: list[str],
 ) -> dict[str, Any]:
     from sklearn.cluster import SpectralClustering
-    from sklearn.metrics import silhouette_score
+    from sklearn.metrics import adjusted_rand_score, silhouette_score
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = affinity_matrices(output_root)
-    fused = np.clip((matrices["fused"] + matrices["fused"].T) / 2, 0, 1)
+    fused = np.clip((matrices["fused"] + matrices["fused"].T) / 2, 0, None)
+    np.fill_diagonal(fused, 0.0)
+    native_patient_ids, native_distances = modality_distance_matrices(output_root)
+    if native_patient_ids != patient_ids:
+        raise ValueError("Native distance matrices do not match fused affinity patient order")
     index = {patient_id: position for position, patient_id in enumerate(patient_ids)}
     settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["cross_modal"]["structural"]
     max_children, min_size = int(settings["max_children"]), int(settings["min_child_size"])
@@ -252,6 +303,30 @@ def structural_diagnostics(
             "candidate_eigengap": gaps.get(best) if best is not None else None,
             "eigengaps": {str(k): value for k, value in gaps.items()},
         }
+
+    def normalized_cut(matrix: np.ndarray, labels: np.ndarray) -> float | None:
+        degree = matrix.sum(axis=1)
+        total = 0.0
+        for label in np.unique(labels):
+            inside = labels == label
+            volume = float(degree[inside].sum())
+            cut = float(matrix[np.ix_(inside, ~inside)].sum())
+            if volume <= np.finfo(float).eps:
+                return None
+            total += cut / volume
+        return total
+
+    def native_separation(case_ids: list[str], labels: np.ndarray) -> dict[str, Any]:
+        result = {}
+        for name, matrix in native_distances.items():
+            local = matrix[np.ix_([index[item] for item in case_ids], [index[item] for item in case_ids])]
+            result[name] = {
+                "mean_silhouette": (
+                    float(silhouette_score(local, labels, metric="precomputed"))
+                    if 1 < len(np.unique(labels)) < len(labels) else None
+                )
+            }
+        return result
 
     set_members = {
         str(item["set_id"]): list(map(str, item["member_ids"]))
@@ -307,11 +382,10 @@ def structural_diagnostics(
                 sizes = np.bincount(labels, minlength=k)
                 if int(sizes.min()) < min_size or len(np.unique(labels)) != k:
                     continue
-                distance = np.clip(1.0 - local, 0, 1)
-                np.fill_diagonal(distance, 0)
                 solutions[str(k)] = {
-                    "silhouette": float(silhouette_score(distance, labels, metric="precomputed")),
                     "child_sizes": sorted(map(int, sizes)),
+                    "normalized_cut": normalized_cut(local, labels),
+                    "native_view_separation": native_separation(case_ids, labels),
                 }
             output[key] = {
                 "member_n": len(case_ids),
@@ -323,8 +397,7 @@ def structural_diagnostics(
         else:
             left, right = (set_members[target] for target in target_ids)
             labels = np.asarray([0 if item in left else 1 for item in case_ids])
-            distance = np.clip(1.0 - local, 0, 1)
-            np.fill_diagonal(distance, 0)
+            normalized_labels = labels
             within = [
                 local[a, b] for a, b in combinations(range(len(case_ids)), 2)
                 if (case_ids[a] in left) == (case_ids[b] in left)
@@ -335,12 +408,18 @@ def structural_diagnostics(
             ]
             within_mean = float(np.mean(within)) if within else None
             between_mean = float(np.mean(between)) if between else None
-            boundary_silhouette = float(silhouette_score(distance, labels, metric="precomputed"))
+            current_ncut = normalized_cut(local, normalized_labels)
+            independent = SpectralClustering(
+                n_clusters=2, affinity="precomputed", assign_labels="cluster_qr", random_state=0
+            ).fit_predict(local)
             output[key] = {
                 "member_n": len(case_ids),
                 "mean_within_affinity": within_mean,
                 "mean_between_affinity": between_mean,
-                "boundary_silhouette": boundary_silhouette,
+                "current_boundary_normalized_cut": current_ncut,
+                "left_volume": float(local[labels == 0].sum()),
+                "right_volume": float(local[labels == 1].sum()),
+                "independent_two_way_spectral_ari": float(adjusted_rand_score(labels, independent)),
                 "union_eigengap": spectrum,
             }
     return tool_result("structural_diagnostics", {scope: output})

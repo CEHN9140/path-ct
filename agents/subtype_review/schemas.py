@@ -72,6 +72,7 @@ class EvidenceRequest(BaseModel):
     ]
     scope: Literal["set", "pair", "partition"]
     target_ids: list[str] = Field(default_factory=list)
+    focus: str = Field(min_length=1)
     question: str
 
     @field_validator("question")

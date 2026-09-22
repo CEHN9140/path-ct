@@ -94,7 +94,7 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
             {"set_id": "C2", "member_ids": patient_ids[3:]},
         ], "set", ["C1"], str(config_dir),
     )["metrics"]["set"]["C1"]
-    assert target_result["comparison"] == "target_vs_rest"
+    assert target_result["comparison"] == "full_partition_labels"
     assert target_result["patient_n"] == 6
 
 
