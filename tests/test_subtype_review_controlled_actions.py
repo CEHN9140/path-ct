@@ -378,12 +378,22 @@ def test_rna_cache_reuses_same_membership_and_invalidates_on_membership_change(t
               for case_id in ("P1", "P2", "P3", "P4")}
     sets = [{"set_id": "C1", "member_ids": ["P1", "P2"]},
             {"set_id": "C2", "member_ids": ["P3", "P4"]}]
-    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), sets, "set", ["C1"])
-    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), sets, "set", ["C1"])
+    run_root = tmp_path / "runs" / "K4" / "repeat1"
+    result = review_tools.rna_pathway_enrichment(
+        states, str(tmp_path), str(config_dir), sets, "set", ["C1"], str(run_root)
+    )
+    review_tools.rna_pathway_enrichment(
+        states, str(tmp_path), str(config_dir), sets, "set", ["C1"], str(run_root)
+    )
+    assert result["status"] == "success"
+    assert list((run_root / "tool_cache" / "rna_pathway_enrichment").glob("*.json"))
+    assert not (tmp_path / "subtype_review" / "tool_cache").exists()
     assert calls == {"dds": 1, "stats": 1, "gsea": 1}
     changed_sets = [{"set_id": "C1", "member_ids": ["P1", "P3"]},
                     {"set_id": "C2", "member_ids": ["P2", "P4"]}]
-    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), changed_sets, "set", ["C1"])
+    review_tools.rna_pathway_enrichment(
+        states, str(tmp_path), str(config_dir), changed_sets, "set", ["C1"], str(run_root)
+    )
     assert calls == {"dds": 2, "stats": 2, "gsea": 2}
 
 

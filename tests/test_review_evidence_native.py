@@ -23,13 +23,14 @@ def test_wxs_enrichment_tests_full_matrix_and_returns_all_drivers(tmp_path):
         "biological_support:\n  driver_genes: [VHL, PBRM1]\n  exploratory_report_top_n: 1\n"
     )
 
+    run_root = tmp_path / "runs" / "K4" / "repeat1"
     result = wxs_mutation_enrichment(
         {}, str(tmp_path), str(config_dir),
         [
             {"set_id": "C1", "member_ids": ["P1", "P2"]},
             {"set_id": "C2", "member_ids": ["P3", "P4"]},
         ],
-        "set", ["C1"],
+        "set", ["C1"], str(run_root),
     )
     metrics = result["metrics"]["set"]["C1"]
 
@@ -48,6 +49,8 @@ def test_wxs_enrichment_tests_full_matrix_and_returns_all_drivers(tmp_path):
     assert set(complete_table["gene"]) == {"VHL", "OTHER", "PBRM1"}
     assert complete_table["q_global"].notna().all()
     assert result["artifact_paths"]["C1"].endswith(".csv")
+    assert result["artifact_paths"]["C1"].startswith(str(run_root / "tool_artifacts"))
+    assert not (tmp_path / "wxs" / "review_enrichment").exists()
     from agents.subtype_review.tools import compact_tool_result
     assert compact_tool_result(result, "wxs_mutation_enrichment")["artifact_paths"] == result["artifact_paths"]
 

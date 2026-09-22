@@ -20,9 +20,12 @@ def test_router_prompt_defines_continuous_action_semantics():
     text = (PROMPT_DIR / "router.md").read_text(encoding="utf-8").lower()
     for phrase in (
         "provisional comparative revision", "single-cluster-dominated union",
-        "weak or mixed native membership alone is insufficient for drop",
         "no merge does not imply accept", "batch their requests",
         "available_evidence_requests", "exactly one json object",
+        "judge evidence sufficiency for the intended action, not tool coverage",
+        "do not require both mechanically",
+        "insufficient evidence for accept is not by itself evidence for drop",
+        "weak biological support together with weak or conflicting membership",
     ):
         assert phrase in text
     assert "optional_second_set_id_for_merge" in text

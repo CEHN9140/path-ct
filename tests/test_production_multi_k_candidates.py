@@ -149,6 +149,80 @@ prompt_dir: {Path(__file__).resolve().parents[1] / 'agents/subtype_review/prompt
     assert not (tmp_path / "output/subtype_review/multi_k").exists()
 
 
+def test_review_grid_parallel_and_serial_have_same_run_set(tmp_path, monkeypatch):
+    import agents.subtype_review.runner as runner
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    for name in ("m1_m4.csv", "clearcode.csv", "hallmark.gmt"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    (config_dir / "subtype_review.yaml").write_text(
+        f"budget: {{max_rounds: 2}}\nmulti_k:\n  initial_ks: [2, 4, 8]\n  repeats: [1]\n"
+        f"known_label_echo:\n  mrna_m1_m4_path: {tmp_path / 'm1_m4.csv'}\n"
+        f"  clearcode34_path: {tmp_path / 'clearcode.csv'}\n"
+        f"rna:\n  hallmark_gene_sets_path: {tmp_path / 'hallmark.gmt'}\n"
+        f"prompt_dir: {Path(__file__).resolve().parents[1] / 'agents/subtype_review/prompts'}\n",
+        encoding="utf-8",
+    )
+
+    def fake_job(k, repeat, candidate_sets, patient_states, output_root, config_dir,
+                 run_root, input_signature, candidate_signature):
+        path = Path(run_root)
+        summary = {"status": "review_complete", "raw_control_status": "complete"}
+        (path / "runtime_trace.jsonl").write_text("", encoding="utf-8")
+        (path / "llm_requests.jsonl").write_text("", encoding="utf-8")
+        (path / "final_subtype_sets.json").write_text("[]", encoding="utf-8")
+        (path / "final_review_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (path / "run_metadata.json").write_text(json.dumps({
+            "status": "complete", "input_signature": input_signature,
+        }), encoding="utf-8")
+        return {"initial_k": k, "repeat": repeat, "status": "complete",
+                "summary": summary, "run_root": str(path)}
+
+    monkeypatch.setattr(runner, "run_single_review_job", fake_job)
+    partitions = {k: [{"set_id": f"K{k}_C1", "member_ids": ["P1"]}] for k in (2, 4, 8)}
+    common = (partitions, {"P1": {}}, str(tmp_path / "output"), str(config_dir),
+              (2, 4, 8), (1,), "candidate-signature")
+    serial = runner.run_review_grid(*common, parallel_runs=1)
+
+    class Future:
+        def __init__(self, value): self.value = value
+        def result(self): return self.value
+
+    class Executor:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def submit(self, function, *args): return Future(function(*args))
+
+    monkeypatch.setattr(runner, "ProcessPoolExecutor", Executor)
+    monkeypatch.setattr(runner, "as_completed", lambda futures: futures)
+    parallel = runner.run_review_grid(
+        partitions, {"P1": {}}, str(tmp_path / "parallel_output"), str(config_dir),
+        (2, 4, 8), (1,), "candidate-signature", parallel_runs=3,
+    )
+    serial_runs = {
+        path.relative_to(Path(serial["run_root"])).as_posix()
+        for path in Path(serial["run_root"]).glob("K*/repeat*/final_subtype_sets.json")
+    }
+    parallel_runs = {
+        path.relative_to(Path(parallel["run_root"])).as_posix()
+        for path in Path(parallel["run_root"]).glob("K*/repeat*/final_subtype_sets.json")
+    }
+    assert serial_runs == parallel_runs == {
+        "K2/repeat1/final_subtype_sets.json",
+        "K4/repeat1/final_subtype_sets.json",
+        "K8/repeat1/final_subtype_sets.json",
+    }
+    for run_root in (Path(serial["run_root"]), Path(parallel["run_root"])):
+        for k in (2, 4, 8):
+            job_root = run_root / f"K{k}" / "repeat1"
+            assert all((job_root / name).is_file() for name in (
+                "runtime_trace.jsonl", "llm_requests.jsonl", "run_metadata.json",
+            ))
+    assert serial["complete_run_count"] == parallel["complete_run_count"] == 3
+
+
 def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeypatch):
     import agents.subtype_review.runner as runner
 
