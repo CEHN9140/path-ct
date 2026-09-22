@@ -3,6 +3,34 @@ from __future__ import annotations
 from typing import Any
 
 
+MEMBERSHIP_POSITIVE_CONCLUSION = (
+    "Membership-role conclusion: the current exact-set membership is "
+    "positively represented in the native multimodal patient geometries."
+)
+MEMBERSHIP_NOT_POSITIVE_CONCLUSION = (
+    "Membership-role conclusion: the current exact-set membership is "
+    "not positively represented in the native multimodal patient geometries."
+)
+
+ROLE_CONCLUSION_CONTRACTS = {
+    ("affinity_geometry_concordance", "set"): {
+        "required_conclusions": [
+            MEMBERSHIP_POSITIVE_CONCLUSION,
+            MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+        ],
+        "interpretation_rule": (
+            "End dimension_interpretation with exactly one required conclusion. "
+            "Use the positive conclusion only when the joint native-view synthesis "
+            "affirmatively supports the current exact-set membership as an independent "
+            "unit. Weak, limited, mixed, conflicting, non-separating, or materially "
+            "contradicted evidence does not constitute positive membership support. "
+            "Do not use modality vote counting, unanimity, majority rules, or fixed "
+            "numeric thresholds."
+        ),
+    },
+}
+
+
 DIMENSION_GUIDES = {
     "biological_support": "Does the candidate exhibit a coherent and interpretable biological phenotype relative to the rest of the current partition?",
     "cross_modal_consistency": "Is the current membership or boundary represented in patient geometry, or does a decision-relevant internal subdivision support finer granularity?",
@@ -91,7 +119,13 @@ METRIC_SEMANTICS = {
         "solutions[K].candidate_consensus_separation": "Separation of proposed split labels in the resampled consensus co-assignment geometry used for candidate generation.",
         "solutions[K].child_sizes": "Sizes and balance of children for a feasible split; feasibility is not scientific support.",
         "solutions[K].native_view_separation": "Standard native-distance silhouettes after projecting the proposed split labels into each source modality; these do not replace fused-graph evidence.",
-        "current_boundary_normalized_cut": "Graph normalized-cut cost of the current pair boundary.",
+        "current_boundary_normalized_cut": (
+            "Normalized-cut cost of the current pair boundary. Lower cost means less "
+            "cross-boundary affinity relative to side volume and therefore stronger graph "
+            "separation of the current sides; higher cost means more cross-boundary "
+            "connectivity and weaker graph support for preserving that boundary. "
+            "This is not a threshold or standalone merge rule."
+        ),
         "left_volume/right_volume": "Candidate-consensus graph volumes of the two current pair sides.",
         "independent_two_way_spectral_ari": "Agreement between the current pair labels and an independent two-way spectral partition of their union; it is boundary evidence, not an action rule.",
         "union_eigengap": "Spectral structure of the union of the two sets; it does not itself prescribe merging.",
@@ -142,15 +176,17 @@ SCOPE_INTERPRETATIONS = {
         "feasible solutions, separation, and child sizes before considering split."
     ),
     ("structural_diagnostics", "pair"): (
-        "For pair scope, candidate-generation consensus boundary separation and union structure answer different questions: boundary measurements "
-        "describe the current labels, while union structure describes internal subdivision of their union. A union "
-        "dominated by the single-cluster resolution lacks a dominant internal subdivision signal. This is structurally "
-        "compatible with treating the pair as one candidate and must never be interpreted as evidence against merge, but "
-        "is not sufficient by itself to justify merge. A multi-cluster union suggests retained internal structure but "
-        "does not establish that it corresponds to the current pair labels. A weak current boundary together with a "
-        "single-cluster-dominated union is compatible with removing the boundary; a clearly represented boundary with "
-        "meaningful union structure favors preserving distinct units. Conflicting boundary and union findings do not "
-        "identify a simple merge solution. Integrate both with the other evidence."
+        "For pair scope, current-boundary evidence and union-structure evidence answer different questions and must not be conflated. "
+        "The current-boundary measurements describe whether the present two-way assignment is represented in candidate-consensus geometry. "
+        "Higher agreement with an independent two-way spectral partition and stronger within-side relative to between-side affinity support "
+        "representation of the current boundary. The normalized-cut cost has the opposite direction: larger cross-boundary cut cost reflects "
+        "more cross-boundary connectivity and must not be described as evidence for preserving distinct units. Union eigengap candidate_k=1 "
+        "means that the union is dominated by the single-cluster resolution. This is merge-compatible evidence and must never be interpreted "
+        "as evidence for preserving the current two-set boundary. candidate_k>1 indicates possible internal subdivision of the union, but it "
+        "supports preserving the current boundary only when that subdivision is also meaningfully aligned with the current two-way structure. "
+        "A represented current boundary together with a single-cluster-dominated union is conflicting structural evidence, not automatic evidence "
+        "against merge. A weak or conflicting current boundary together with a single-cluster-dominated union is a coherent merge-compatible "
+        "pattern, although it is not sufficient by itself to mandate merge. Do not recommend accept, drop, split, or merge from this report."
     ),
     ("affinity_geometry_concordance", "set"): (
         "For set scope, each native patient-distance geometry is evaluated under the full current partition labels. "
@@ -195,4 +231,7 @@ def guidance_for(dimension: str, aspect: str, scope: str | None = None) -> dict[
     scope_key = (aspect, scope)
     if scope_key in SCOPE_INTERPRETATIONS:
         guidance["scope_interpretation"] = SCOPE_INTERPRETATIONS[scope_key]
+    role_contract = ROLE_CONCLUSION_CONTRACTS.get((aspect, scope))
+    if role_contract is not None:
+        guidance["role_conclusion_contract"] = role_contract
     return guidance

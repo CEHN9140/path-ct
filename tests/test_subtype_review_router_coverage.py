@@ -10,7 +10,12 @@ from agents.subtype_review.graph import (
     terminal_accountability_refs,
     validate_router_plan,
 )
-from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
+from agents.subtype_review.evidence_semantics import (
+    EVIDENCE_ROLE_CONTRACTS,
+    MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+    MEMBERSHIP_POSITIVE_CONCLUSION,
+    guidance_for,
+)
 from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, EvidenceRequest, RouterAction, RouterPlan
 from agents.subtype_review.tools import TOOL_REGISTRY
 from agents.subtype_review.llm import summarize_reports
@@ -120,12 +125,121 @@ def test_accept_with_membership_report_passes_role_contract():
         "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
         "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
         "request_foci": ["membership_representation"],
+        "dimension_interpretation": MEMBERSHIP_POSITIVE_CONCLUSION,
     }, {
         "report_ref": "ER:biology", "dimension": "biological_support",
         "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
     }])
     plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership", "ER:biology"]), terminal_action("drop", "C2")])
     validate_router_plan(plan, state, set())
+
+
+def test_not_positive_membership_cannot_accept():
+    state = terminal_validation_state([{
+        "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+        "dimension_interpretation": "The native views are mixed. " + MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+    }, {
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }])
+    plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership", "ER:biology"]), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="positive support"):
+        validate_router_plan(plan, state, set())
+
+
+def test_pair_evidence_cannot_substitute_for_positive_set_membership():
+    state = terminal_validation_state([{
+        "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+        "dimension_interpretation": MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+    }, {
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }, {
+        "report_ref": "ER:pair-boundary", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_representation"],
+    }, {
+        "report_ref": "ER:pair-structure", "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics", "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_structure"],
+    }])
+    plan = RouterPlan(actions=[terminal_action(
+        "accept", refs=["ER:membership", "ER:biology", "ER:pair-boundary", "ER:pair-structure"]
+    ), terminal_action("drop", "C2")])
+    with pytest.raises(ValueError, match="positive support"):
+        validate_router_plan(plan, state, set())
+
+
+def test_not_positive_membership_with_pair_rescue_can_drop():
+    state = terminal_validation_state([{
+        "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
+        "request_foci": ["membership_representation"],
+        "dimension_interpretation": MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+    }, {
+        "report_ref": "ER:biology", "dimension": "biological_support",
+        "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": ["C1"],
+    }, {
+        "report_ref": "ER:pair-boundary", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair", "target_ids": ["C1", "C2"],
+        "request_foci": ["boundary_representation"],
+    }])
+    plan = RouterPlan(actions=[terminal_action(
+        "drop", refs=["ER:membership", "ER:biology", "ER:pair-boundary"]
+    ), terminal_action("drop", "C2")])
+    validate_router_plan(plan, state, set())
+
+
+def test_membership_role_contract_and_pair_semantics_are_exposed():
+    membership = guidance_for("cross_modal_consistency", "affinity_geometry_concordance", "set")
+    assert membership["role_conclusion_contract"]["required_conclusions"] == [
+        MEMBERSHIP_POSITIVE_CONCLUSION, MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
+    ]
+    pair = guidance_for("cross_modal_consistency", "structural_diagnostics", "pair")
+    text = pair["scope_interpretation"]
+    assert "candidate_k=1" in text and "merge-compatible" in text and "must never" in text
+    cut = guidance_for("cross_modal_consistency", "structural_diagnostics", "pair")["metric_semantics"]
+    assert "higher cost means more cross-boundary connectivity" in cut["current_boundary_normalized_cut"]
+
+
+def test_positive_and_not_positive_three_set_terminal_fixture():
+    state = initial_review_state([
+        {"set_id": target, "member_ids": [f"{target}-P1", f"{target}-P2"]}
+        for target in ("C1", "C2", "C3")
+    ])
+    state["reports"] = [{
+        "report_ref": "ER:partition", "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics", "scope": "partition", "target_ids": [],
+    }]
+    for target, conclusion in (("C1", MEMBERSHIP_POSITIVE_CONCLUSION),
+                              ("C2", MEMBERSHIP_NOT_POSITIVE_CONCLUSION),
+                              ("C3", MEMBERSHIP_NOT_POSITIVE_CONCLUSION)):
+        state["reports"] += [{
+            "report_ref": f"ER:{target}-membership", "dimension": "cross_modal_consistency",
+            "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": [target],
+            "request_foci": ["membership_representation"], "dimension_interpretation": conclusion,
+        }, {
+            "report_ref": f"ER:{target}-biology", "dimension": "biological_support",
+            "aspect": "rna_pathway_enrichment", "scope": "set", "target_ids": [target],
+        }]
+    mixed = RouterPlan(actions=[
+        terminal_action("accept", "C1", ["ER:C1-membership", "ER:C1-biology"]),
+        terminal_action("drop", "C2", ["ER:C2-membership", "ER:C2-biology"]),
+        terminal_action("drop", "C3", ["ER:C3-membership", "ER:C3-biology"]),
+    ])
+    validate_router_plan(mixed, state, set())
+    all_accept = RouterPlan(actions=[
+        RouterAction(action="accept", target_ids=[target], evidence_report_refs=[
+            f"ER:{target}-membership", f"ER:{target}-biology"
+        ], reason="identity and membership are supported")
+        for target in ("C1", "C2", "C3")
+    ])
+    with pytest.raises(ValueError, match="positive support"):
+        validate_router_plan(all_accept, state, set())
 
 
 def test_drop_does_not_require_fixed_membership_report():
@@ -223,6 +337,7 @@ def test_accept_with_membership_but_without_biology_fails():
         "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
         "aspect": "affinity_geometry_concordance", "scope": "set", "target_ids": ["C1"],
         "request_foci": ["membership_representation"],
+        "dimension_interpretation": MEMBERSHIP_POSITIVE_CONCLUSION,
     }])
     plan = RouterPlan(actions=[terminal_action("accept", refs=["ER:membership"]), terminal_action("drop", "C2")])
     with pytest.raises(ValueError, match="biological_support"):

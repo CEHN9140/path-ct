@@ -5,6 +5,7 @@ import types
 import pandas as pd
 
 from agents.subtype_review.graph import initial_review_state, partition_signature, validate_router_plan, reviser_node, router_node
+from agents.subtype_review.evidence_semantics import MEMBERSHIP_POSITIVE_CONCLUSION
 from agents.subtype_review.tools import TOOL_REGISTRY
 from agents.subtype_review.schemas import RouterAction, RouterPlan
 
@@ -19,6 +20,8 @@ def report(ref, dimension, scope, target_ids, *, focus=None):
     }
     if focus:
         row["request_foci"] = [focus]
+    if focus == "membership_representation":
+        row["dimension_interpretation"] = MEMBERSHIP_POSITIVE_CONCLUSION
     return row
 
 

@@ -26,7 +26,11 @@ from agents.subtype_review.schemas import (
     set_id,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
-from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS, guidance_for
+from agents.subtype_review.evidence_semantics import (
+    EVIDENCE_ROLE_CONTRACTS,
+    MEMBERSHIP_POSITIVE_CONCLUSION,
+    guidance_for,
+)
 from agents.subtype_review.tools import (
     TOOL_REGISTRY,
     candidate_consensus_geometry,
@@ -427,14 +431,23 @@ def validate_router_plan(
                 )
         if action.action == "accept":
             target = action.target_ids[0]
-            if not any(
-                is_set_membership_report(reports.get(ref), target)
+            membership_reports = [
+                reports.get(ref)
                 for ref in action.evidence_report_refs
-            ):
+                if is_set_membership_report(reports.get(ref), target)
+            ]
+            if not membership_reports:
                 raise ValueError(
                     "Accept requires the target's exact-set membership_representation "
                     "Evidence Report; pair-boundary, structural, biological, confounder, "
                     "or partition evidence cannot substitute for it."
+                )
+            if not any(has_positive_membership_role_conclusion(row, target)
+                       for row in membership_reports):
+                raise ValueError(
+                    "Accept requires an exact-set membership_representation Evidence Report "
+                    "whose standardized membership-role conclusion explicitly provides positive support "
+                    "for the current membership."
                 )
             if not any(
                 is_set_biological_support_report(reports.get(ref), target)
@@ -453,6 +466,18 @@ def is_set_membership_report(report: Mapping[str, Any] | None, target: str) -> b
         and report.get("scope") == "set"
         and list(report.get("target_ids", [])) == [target]
         and "membership_representation" in report.get("request_foci", [])
+    )
+
+
+def has_positive_membership_role_conclusion(
+    report: Mapping[str, Any] | None,
+    target: str,
+) -> bool:
+    return bool(
+        is_set_membership_report(report, target)
+        and str(report.get("dimension_interpretation", "")).rstrip().endswith(
+            MEMBERSHIP_POSITIVE_CONCLUSION
+        )
     )
 
 
@@ -742,6 +767,16 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "unreviewed pair. If that boundary remains materially questionable and boundary_structure "
                         "is available, acquire boundary_structure before terminal disposition. Do not force merge "
                         "and do not exhaustively review every pair."
+                    )
+                elif "standardized membership-role conclusion explicitly provides positive support" in str(exc):
+                    feedback["instruction"] = (
+                        "The proposed accept is not supported by the target's exact-set "
+                        "membership_representation Evidence Report. Pair-level boundary or union "
+                        "evidence cannot upgrade or replace a non-positive exact-set membership. "
+                        "Do not preserve accept merely because merge or split was not supported. "
+                        "If a decision-relevant structural alternative remains, request that evidence. "
+                        "If a supported split or merge exists, revise the partition. Otherwise reconsider "
+                        "terminal drop using the current evidence."
                     )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),

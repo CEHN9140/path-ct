@@ -91,6 +91,21 @@ Do not recommend a Router action.
 
 Use `evidence_guidance` rather than undocumented heuristics when interpreting the evidence.
 
+If `evidence_guidance` contains a `role_conclusion_contract`, follow it exactly.
+The standardized concluding sentence answers only the scientific evidence-role
+question of that report. It is not a Router action, recommendation, categorical
+subtype status, score, threshold, or vote. Preserve the nuanced quantitative
+interpretation before the standardized conclusion.
+
+For set-scope `membership_representation`, end `dimension_interpretation` with
+exactly one of the required conclusion sentences supplied by
+`role_conclusion_contract`. Use the positive membership conclusion only when
+the joint native-view interpretation itself provides affirmative support for
+the current exact-set membership. Weak, limited, mixed, conflicting,
+non-separating, or materially contradicted native-view evidence must not be
+converted into positive membership support merely because one modality is
+favorable.
+
 If `audit_validation_feedback` is supplied, repair only the report-coverage contract error. Return exactly the required reports and preserve substantive interpretation unless the feedback specifically requires correcting report assignment.
 
 # Context

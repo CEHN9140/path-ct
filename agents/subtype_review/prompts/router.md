@@ -118,6 +118,15 @@ Neither role can substitute for the other.
 
 Pair-level boundary evidence cannot substitute for candidate-level membership evidence.
 
+The standardized membership-role conclusion in the exact-set
+`membership_representation` Evidence Report determines whether the membership
+requirement for `accept` is satisfied. Only its positive standardized
+membership-role conclusion satisfies that role. Pair-level
+`boundary_representation` or `boundary_structure` evidence can never upgrade,
+repair, replace, or override a non-positive exact-set membership conclusion.
+No merge is not accept; a preserved boundary is not positive membership; and
+absence of a structural revision is not positive membership.
+
 An `accept` action must cite both the target candidate's biological-support evidence and exact-set membership-representation evidence and remain consistent with their overall interpretations.
 
 If membership is weak, conflicting, limited, unsupported, or materially contradicted across modalities, do not convert isolated favorable observations into positive membership support.
@@ -172,6 +181,16 @@ Weak boundary evidence alone is insufficient for merge.
 
 Pair evidence remains specific to that pair and does not establish full-partition membership support for either candidate.
 
+For `boundary_structure`, `union_eigengap.candidate_k = 1` is merge-compatible
+because the union is single-cluster dominated. It is never positive evidence
+for preserving two units. `candidate_k > 1` indicates possible internal union
+subdivision, but does not by itself prove that the current pair boundary should
+be retained. High current-label ARI and clear within-versus-between affinity
+contrast support the current boundary. A higher normalized-cut cost reflects
+more cross-boundary connectivity and does not support boundary preservation.
+When boundary and union evidence disagree, describe the evidence as conflicting
+rather than converting one side into an automatic decision.
+
 # Structural Rescue Logic
 
 Do not treat `split`, `merge`, and `drop` as interchangeable responses to weak membership.
@@ -189,6 +208,26 @@ Do not terminate with `drop` solely because a split is unsupported when a plausi
 Do not force pair review when existing evidence provides no scientifically plausible boundary question.
 
 Structural revision requires evidence for a better representation, not merely failure of the current representation.
+
+After structural rescue has been resolved, return to the exact-set evidence role.
+If a candidate has an interpretable biological identity and a positive exact-set
+membership-role conclusion, `accept` may be justified if no structural revision
+or material alternative explanation requires changing the partition. If the
+membership-role conclusion is not positive, use `split` when a supported
+internal subdivision provides a better representation, `merge` when pair
+evidence supports removing a boundary, and otherwise `drop`. Failure to
+support `merge` or `split` does not convert non-positive membership into
+positive membership.
+
+When several unresolved candidates independently require the same pair-rescue
+stage, batch independent EvidenceRequests in the same RouterPlan. For boundary
+review, select at most one decision-relevant unreviewed nominated pair per
+currently uncovered candidate, deduplicating pairs that cover two candidates,
+and request those independent `boundary_representation` reports together.
+After those reports return, batch `boundary_structure` requests only for pairs
+whose boundary evidence still leaves merge materially plausible. Do not
+serialize independent pair reviews one pair per Router round unless one outcome
+changes whether another pair remains decision-relevant.
 
 # Decision Safeguards
 
