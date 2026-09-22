@@ -137,6 +137,7 @@ def candidate_proposer(
         "patient_ids": patient_ids,
         "affinities": {name: file_identity(paths[name]) for name in CANDIDATE_VIEWS},
         "config": semantic_config(config),
+        "candidate_geometry_provenance_version": 1,
         "implementation": {
             name: file_identity(str(Path(__file__).resolve().parent.parent / name))
             for name in (
@@ -168,6 +169,14 @@ def candidate_proposer(
         and (consensus_dir / "pair_seen_counts.npy").is_file()
         and (root / "fused_similarity.npy").is_file()
         and (root / "fused_distance.npy").is_file()
+        and all(
+            all(
+                dict(item.get("generator", {})).get("geometry", {}).get("type")
+                == "resampled_consensus_coassignment"
+                for item in json.loads(path.read_text()).get("candidate_sets", [])
+            )
+            for path in candidate_paths.values()
+        )
     )
     if cache_valid:
         records = {

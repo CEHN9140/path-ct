@@ -317,7 +317,6 @@ def representation_concordance(
         "integrated_membership_alignment": integrated_alignment,
         "native_view_membership_alignment": alignment,
         "geometry_concordance": concordance,
-        "current_membership_alignment": alignment,
     }
     return tool_result("representation_concordance", {scope: {report_key: output}})
 

@@ -85,6 +85,12 @@ def test_candidate_proposer_reuses_cached_consensus_for_agent_subset_runs(tmp_pa
 
     first = proposer.candidate_proposer(states, output_root=str(tmp_path), config_dir=str(config_dir))
     assert set(first["candidate_partitions"]) == {2}
+    candidate_json = json.loads(
+        (candidate_dir / "consensus_cluster" / "consensus_hierarchical_K2.json").read_text()
+    )
+    generator = candidate_json["candidate_sets"][0]["generator"]
+    assert generator["geometry"]["type"] == "resampled_consensus_coassignment"
+    assert generator["geometry"]["matrix_relative_path"] == "consensus_cluster/consensus_matrix_K2.npy"
     fused = np.load(candidate_dir / "fused_similarity.npy")
     fused_distance = np.load(candidate_dir / "fused_distance.npy")
     assert np.allclose(fused_distance, 1.0 - np.clip((fused + fused.T) / 2, 0, 1))
