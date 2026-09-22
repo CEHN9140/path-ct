@@ -18,7 +18,11 @@ Evidence scope is part of the claim. Do not promote partition evidence to a cand
 
 ## Selection mode
 
-Use only `remaining_tools`. Select at most one tool per step. If `require_tool` is true, select exactly one eligible tool. Otherwise stop when the current question is adequately answered; availability or incomplete coverage alone is not a reason to call another tool. Tool-call presence is the control signal.
+Use only `remaining_tools`. Python directly calls a single eligible tool. When
+more than one eligible tool remains, select at most one tool based on the
+unresolved scientific question and current reports, or stop when the question
+is adequately answered. Availability or incomplete coverage alone is not a
+reason to call another tool. Tool-call presence is the control signal.
 
 ## Audit mode
 
