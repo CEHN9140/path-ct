@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from agents.subtype_review.schemas import (
     EvidenceReportBatch,
     RevisionPlan,
+    RouterDecisionAudit,
     RouterPlan,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace
@@ -26,6 +27,7 @@ class LLMOutputLengthError(RuntimeError):
 def structured_role(schema: type) -> str:
     return {
         RouterPlan: "router",
+        RouterDecisionAudit: "router_audit",
         RevisionPlan: "reviser",
         EvidenceReportBatch: "verifier_audit",
     }.get(schema, "structured")
@@ -142,7 +144,7 @@ def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path)
     directory = prompt_dir(config, config_dir)
     prompt_hashes = {
         f"{name[:-3]}_prompt_sha256": hashlib.sha256((directory / name).read_bytes()).hexdigest()
-        for name in ("verifier.md", "router.md", "reviser.md")
+        for name in ("verifier.md", "router.md", "router_audit.md", "reviser.md")
     }
     review_config = dict(config)
     for key in ("prompt_dir", "repeat", "output_root", "experiment_root"):
@@ -508,6 +510,21 @@ def build_default_router(
     prompt = (prompt_dir(config, config_dir) / "router.md").read_text(encoding="utf-8")
     return JsonStructuredModel(
         cfg, RouterPlan, prompt, usage_tracker,
+        runtime_trace_path=runtime_trace_path,
+    )
+
+
+def build_default_router_audit(
+    config: dict[str, Any],
+    config_dir: str | Path,
+    *,
+    usage_tracker: LLMUsageTracker | None = None,
+    runtime_trace_path: str | Path | None = None,
+) -> Any:
+    cfg = dict(config["llm"])
+    prompt = (prompt_dir(config, config_dir) / "router_audit.md").read_text(encoding="utf-8")
+    return JsonStructuredModel(
+        cfg, RouterDecisionAudit, prompt, usage_tracker,
         runtime_trace_path=runtime_trace_path,
     )
 

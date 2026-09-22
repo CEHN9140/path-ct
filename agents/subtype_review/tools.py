@@ -262,7 +262,8 @@ def representation_concordance(
         for name in ("ct", "wsi", "rna", "wxs")
     }
     output = {
-        "patient_n": len(case_ids),
+        "alignment_patient_n": len(case_ids),
+        "geometry_concordance_patient_n": len(grv_case_ids),
         "comparison": comparison,
         "geometry_concordance": concordance,
         "current_membership_alignment": alignment,

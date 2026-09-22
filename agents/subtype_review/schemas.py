@@ -137,6 +137,19 @@ class RouterPlan(BaseModel):
         return self
 
 
+class RouterDecisionAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    valid: bool
+    feedback: str = ""
+
+    @model_validator(mode="after")
+    def require_feedback_when_invalid(self) -> "RouterDecisionAudit":
+        if not self.valid and not self.feedback.strip():
+            raise ValueError("Invalid Router decisions require audit feedback")
+        return self
+
+
 class SplitPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +191,7 @@ class ReviewContext(TypedDict, total=False):
     tool_registry: dict[str, dict[str, Any]]
     verifier_model: Any
     router_model: Any
+    router_audit_model: Any
     reviser_model: Any
     runtime_trace_path: str
 

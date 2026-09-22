@@ -4,6 +4,7 @@ from agents.subtype_review.graph import (
     eligible_tools_for_request,
     initial_review_state,
     partition_signature,
+    router_audit_node,
     router_node,
 )
 from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS
@@ -59,6 +60,22 @@ def test_question_focus_binds_cross_modal_tool_family():
         assert eligible_tools_for_request(
             request, TOOL_REGISTRY, set(), set(), partition_screen_done=True,
         ) == [tool_name]
+
+
+def test_router_audit_returns_feedback_for_invalid_terminal_plan(tmp_path):
+    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["router_plan"] = {"actions": [{"action": "accept", "target_ids": ["C1"]}]}
+
+    class Audit:
+        def invoke(self, payload):
+            return {"valid": False, "feedback": "Cite positive membership evidence."}
+
+    result = router_audit_node(
+        state,
+        {"router_audit_model": Audit(), "runtime_trace_path": str(tmp_path / "trace.jsonl")},
+    )
+    assert result["control"]["next"] == "router"
+    assert result["control"]["router_audit_feedback"] == "Cite positive membership evidence."
 
 
 def test_structural_action_legality_is_explicit_and_pair_review_remains_available(tmp_path):

@@ -60,7 +60,8 @@ METRIC_SEMANTICS = {
         "exploratory_top_genes": "Limited display subset only; every interpretation-matrix gene participates in q_global, and the full table is available at artifact_paths.",
     },
     ("cross_modal_consistency", "affinity_geometry_concordance"): {
-        "patient_n": "Number of patients contributing to the geometry comparison.",
+        "alignment_patient_n": "Number of patients contributing to the full-partition current-label alignment calculation.",
+        "geometry_concordance_patient_n": "Number of patients contributing to the GRV geometry-concordance calculation; for set scope this is the target candidate size.",
         "grv": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
         "bootstrap_ci95/bootstrap_valid_n": "Paired patient bootstrap uncertainty interval and number of nondegenerate replicates.",
         "permutation_p/permutations": "One-sided permutation evidence under exchangeable patient correspondence between the two geometries; not an action threshold.",
@@ -150,12 +151,11 @@ SCOPE_INTERPRETATIONS = {
         "identify a simple merge solution. Integrate both with the other evidence."
     ),
     ("affinity_geometry_concordance", "set"): (
-        "For set scope, current membership alignment directly addresses how the target membership is represented relative to "
-        "the rest of the current partition in each native modality geometry. Consistent within-set versus between-set "
-        "distinction provides positive evidence that the membership is represented in those geometries; little "
-        "distinction provides limited geometric support for treating it as a separately represented unit. Set-versus-rest "
-        "interpretation is limited by a potentially heterogeneous rest group. This evidence bears directly on membership "
-        "representation but does not by itself determine accept or drop."
+        "For set scope, silhouette is computed under the full current multi-cluster partition and the target samples are "
+        "summarized. For each target patient, silhouette compares within-cluster distance with the nearest competing "
+        "current cluster; the other clusters are not pooled into one rest group. Interpret nearest_competing_set, "
+        "mean_distance_to_each_other_set, and negative_fraction together with the mean and median silhouette. "
+        "This evidence bears directly on membership representation but does not by itself determine accept or drop."
     ),
     ("affinity_geometry_concordance", "pair"): (
         "For pair scope, current-label alignment directly addresses whether the existing boundary between the two current "
