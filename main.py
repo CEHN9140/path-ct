@@ -176,6 +176,7 @@ def run_pipeline(
         tuple(args.repeats),
         candidate_output["candidate_signature"],
         force=args.force,
+        parallel_runs=args.parallel_runs,
     )
     if review_grid["multi_k_ready"]:
         from agents.subtype_review.multi_k import run_multi_k_aggregation
@@ -227,6 +228,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--initial-k", dest="initial_ks", type=int, action="append")
     parser.add_argument("--repeat", dest="repeats", type=int, action="append")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--parallel-runs", type=int, default=None)
     return parser
 
 

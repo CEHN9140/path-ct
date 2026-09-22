@@ -720,6 +720,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 raw = metadata["function"](
                     patient_states_by_id=values["patient_states_by_id"],
                     output_root=str(values["data_root"]),
+                    artifact_root=str(values.get("artifact_root", values["data_root"])),
                     config_dir=str(values["config_dir"]),
                     all_cluster_states=current,
                     scope=scope,

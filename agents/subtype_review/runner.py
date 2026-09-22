@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import shutil
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -35,6 +37,7 @@ def run_subtype_review(
     runtime = {
         "patient_states_by_id": {str(key): dict(value) for key, value in patient_states_by_id.items()},
         "data_root": str(data_root),
+        "artifact_root": str(artifact_root),
         "config_dir": str(config_dir),
         "tool_registry": TOOL_REGISTRY,
         "verifier_model": build_default_verifier(
@@ -64,6 +67,64 @@ def run_subtype_review(
     return final_state
 
 
+def run_single_review_job(
+    k: int,
+    repeat: int,
+    candidate_sets: list[dict[str, Any]],
+    patient_states_by_id: Mapping[str, Mapping[str, Any]],
+    output_root: str,
+    config_dir: str,
+    run_root: str,
+    input_signature: str,
+    candidate_signature: str,
+) -> dict[str, Any]:
+    run_path = Path(run_root)
+    trace_path = run_path / "runtime_trace.jsonl"
+    metadata_path = run_path / "run_metadata.json"
+    metadata = {
+        "initial_k": k,
+        "repeat": repeat,
+        "input_signature": input_signature,
+        "candidate_signature": candidate_signature,
+        "runtime_trace_path": str(trace_path),
+    }
+    try:
+        trace_path.write_text("", encoding="utf-8")
+        write_json(metadata_path, {"status": "running", **metadata})
+        append_runtime_trace(
+            trace_path, node="runner", event="run_started", round_id=0,
+            payload={"initial_k": k, "repeat": repeat, "input_signature": input_signature,
+                     "candidate_signature": candidate_signature,
+                     "initial_partition": partition_snapshot(candidate_sets)},
+        )
+        final_state = run_subtype_review(
+            candidate_sets, patient_states_by_id, output_root, config_dir,
+            str(run_path), str(trace_path),
+        )
+        summary = save_review_outputs(final_state, str(run_path), direct=True)
+        complete = (
+            (run_path / "final_subtype_sets.json").is_file()
+            and summary["raw_control_status"] == "complete"
+            and summary["status"] == "review_complete"
+        )
+        status = "complete" if complete else "incomplete"
+        append_runtime_trace(
+            trace_path, node="runner", event="run_completed",
+            payload={"status": summary.get("status"), "raw_control_status": summary.get("raw_control_status"),
+                     "rounds_used": summary.get("rounds_used")},
+        )
+        write_json(metadata_path, {"status": status, **metadata})
+        return {"initial_k": k, "repeat": repeat, "status": status,
+                "summary": summary, "run_root": str(run_path)}
+    except Exception as exc:
+        failure = {"initial_k": k, "repeat": repeat, "status": "failed",
+                   "error_type": type(exc).__name__, "error_message": str(exc),
+                   "run_root": str(run_path)}
+        append_runtime_trace(trace_path, node="runner", event="run_failed", payload=failure)
+        write_json(metadata_path, {**failure, **metadata})
+        return failure
+
+
 def run_review_grid(
     candidate_partitions: Mapping[int, list[dict[str, Any]]],
     patient_states_by_id: Mapping[str, Mapping[str, Any]],
@@ -74,6 +135,7 @@ def run_review_grid(
     candidate_signature: str,
     *,
     force: bool = False,
+    parallel_runs: int | None = None,
 ) -> dict[str, Any]:
     root = Path(output_root) / "subtype_review" / "runs"
     config_path = Path(config_dir) / "subtype_review.yaml"
@@ -93,7 +155,9 @@ def run_review_grid(
         "mrna_m1_m4_path", "clearcode34_path"
     ))
     evidence_paths.add(str(review_config["rna"]["hallmark_gene_sets_path"]))
-    evidence_paths.add(str(Path(config_dir) / "wxs.yaml"))
+    wxs_config = Path(config_dir) / "wxs.yaml"
+    if wxs_config.is_file():
+        evidence_paths.add(str(wxs_config))
     technical_metadata = sorted(
         str(path) for path in (Path(output_root) / "ct_qc").rglob("*.json")
     )
@@ -119,6 +183,7 @@ def run_review_grid(
     run_failures = []
     incomplete_runs = []
 
+    jobs = []
     for k in ks:
         for repeat in repeat_ids:
             run_root = root / f"K{k}" / f"repeat{repeat}"
@@ -128,109 +193,55 @@ def run_review_grid(
             if run_root.exists():
                 metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
                 summary = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
-                if (
-                    sets_path.is_file()
-                    and metadata.get("input_signature") == input_signature
-                    and metadata.get("status") == "complete"
-                    and summary.get("raw_control_status") == "complete"
-                    and summary.get("status") == "review_complete"
-                ):
+                if (sets_path.is_file() and metadata.get("input_signature") == input_signature
+                        and metadata.get("status") == "complete"
+                        and summary.get("raw_control_status") == "complete"
+                        and summary.get("status") == "review_complete"):
                     run_summaries.append(summary)
                     continue
-                if (
-                    metadata.get("input_signature") == input_signature
-                    and metadata.get("status") == "failed"
-                ):
-                    shutil.rmtree(run_root)
-                elif not force:
-                    raise FileExistsError(f"Incomplete or stale Agent run exists: {run_root}; pass --force to replace it")
-                else:
-                    shutil.rmtree(run_root)
-
+                if not force and not (metadata.get("input_signature") == input_signature
+                                      and metadata.get("status") == "failed"):
+                    raise FileExistsError(
+                        f"Incomplete or stale Agent run exists: {run_root}; pass --force to replace it"
+                    )
+                shutil.rmtree(run_root)
             run_root.mkdir(parents=True)
-            trace_path = run_root / "runtime_trace.jsonl"
-            trace_path.write_text("", encoding="utf-8")
-            append_runtime_trace(
-                trace_path,
-                node="runner",
-                event="run_started",
-                round_id=0,
-                payload={
-                    "initial_k": k,
-                    "repeat": repeat,
-                    "input_signature": input_signature,
-                    "candidate_signature": candidate_signature,
-                    "initial_partition": partition_snapshot(candidate_partitions[k]),
-                },
-            )
-            metadata = {
-                "initial_k": k,
-                "repeat": repeat,
-                "input_signature": input_signature,
-                "candidate_signature": candidate_signature,
-                "runtime_trace_path": str(trace_path),
-            }
-            write_json(metadata_path, {
-                "status": "running",
-                **metadata,
-            })
-            try:
-                final_state = run_subtype_review(
-                    candidate_partitions[k],
-                    patient_states_by_id,
-                    output_root,
-                    config_dir,
-                    str(run_root),
-                    runtime_trace_path=str(trace_path),
-                )
-                summary = save_review_outputs(final_state, str(run_root), direct=True)
-                complete = (
-                    (run_root / "final_subtype_sets.json").is_file()
-                    and summary["raw_control_status"] == "complete"
-                    and summary["status"] == "review_complete"
-                )
-                status = "complete" if complete else "incomplete"
-                append_runtime_trace(
-                    trace_path,
-                    node="runner",
-                    event="run_completed",
-                    payload={
-                        "status": summary["status"],
-                        "raw_control_status": summary["raw_control_status"],
-                        "rounds_used": summary["rounds_used"],
-                    },
-                )
-                write_json(metadata_path, {"status": status, **metadata})
-            except Exception as exc:
-                failure = {
-                    "initial_k": k,
-                    "repeat": repeat,
-                    "status": "failed",
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc),
-                    "run_root": str(run_root),
+            jobs.append((k, repeat, candidate_partitions[k], str(run_root)))
+
+    if jobs:
+        workers = max(1, int(parallel_runs or review_config["multi_k"].get("parallel_runs", 1)))
+        if workers == 1:
+            results = [run_single_review_job(
+                k, repeat, candidate_sets, patient_states_by_id, output_root, config_dir,
+                run_root, input_signature, candidate_signature,
+            ) for k, repeat, candidate_sets, run_root in jobs]
+        else:
+            ctx = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(max_workers=min(workers, len(jobs)), mp_context=ctx) as executor:
+                futures = {
+                    executor.submit(
+                        run_single_review_job, k, repeat, candidate_sets, patient_states_by_id,
+                        output_root, config_dir, run_root, input_signature, candidate_signature,
+                    ): (k, repeat, run_root)
+                    for k, repeat, candidate_sets, run_root in jobs
                 }
-                append_runtime_trace(
-                    trace_path,
-                    node="runner",
-                    event="run_failed",
-                    payload=failure,
-                )
-                write_json(metadata_path, {
-                    **failure,
-                    **metadata,
-                })
-                run_failures.append(failure)
-                continue
-            run_summaries.append(summary)
-            if not complete:
-                incomplete_runs.append({
-                    "initial_k": k,
-                    "repeat": repeat,
-                    "status": "incomplete",
-                    "raw_control_status": summary.get("raw_control_status"),
-                    "run_root": str(run_root),
-                })
+                results = []
+                for future in as_completed(futures):
+                    k, repeat, run_root = futures[future]
+                    try:
+                        results.append(future.result())
+                    except Exception as exc:
+                        results.append({"initial_k": k, "repeat": repeat, "status": "failed",
+                                        "error_type": type(exc).__name__, "error_message": str(exc),
+                                        "run_root": run_root})
+        for result in results:
+            print(f"[subtype_review] K={result['initial_k']} repeat={result['repeat']} status={result['status']}", flush=True)
+            if result["status"] == "complete":
+                run_summaries.append(result["summary"])
+            elif result["status"] == "failed":
+                run_failures.append(result)
+            else:
+                incomplete_runs.append(result)
 
     multi_k = review_config["multi_k"]
     configured_ks = tuple(sorted(set(int(k) for k in multi_k["initial_ks"])))

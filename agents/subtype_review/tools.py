@@ -184,6 +184,7 @@ def representation_concordance(
     scope: str,
     target_ids: list[str],
     config_dir: str = "",
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from utils.llm_utils import load_yaml_file
 
@@ -281,6 +282,7 @@ def structural_diagnostics(
     all_cluster_states: list[Mapping[str, Any]],
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from sklearn.cluster import SpectralClustering
     from sklearn.metrics import adjusted_rand_score, silhouette_score
@@ -448,6 +450,7 @@ def rna_pathway_enrichment(
     all_cluster_states: list[Mapping[str, Any]],
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from gseapy import prerank
     from pydeseq2.dds import DeseqDataSet
@@ -487,7 +490,8 @@ def rna_pathway_enrichment(
     min_overlap = int(gene_settings["min_pathway_overlap"])
     gsea_permutations = int(gene_settings.get("gsea_permutations", 1000))
     seed = int(gene_settings.get("seed", 20260920))
-    cache_root = Path(output_root) / "subtype_review" / "tool_cache" / "rna_pathway_enrichment"
+    cache_base = Path(artifact_root) if artifact_root else Path(output_root) / "subtype_review"
+    cache_root = cache_base / "tool_cache" / "rna_pathway_enrichment"
     cache_root.mkdir(parents=True, exist_ok=True)
     members_by_set = {
         set_id: set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
@@ -659,6 +663,7 @@ def wxs_mutation_enrichment(
     all_cluster_states: list[Mapping[str, Any]],
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from scipy.stats import fisher_exact
     from statsmodels.stats.multitest import multipletests
@@ -680,7 +685,10 @@ def wxs_mutation_enrichment(
 
     rows_by_set = {}
     artifact_paths = {}
-    artifact_dir = Path(output_root) / "wxs" / "review_enrichment"
+    artifact_dir = (
+        Path(artifact_root) / "tool_artifacts" / "wxs_mutation_enrichment"
+        if artifact_root else Path(output_root) / "wxs" / "review_enrichment"
+    )
     artifact_dir.mkdir(parents=True, exist_ok=True)
     for set_id in target_ids:
         members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
@@ -823,6 +831,7 @@ def known_label_echo(
     config_dir: str,
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
     from utils.llm_utils import load_yaml_file
@@ -928,6 +937,7 @@ def confounder_association(
     all_cluster_states: list[Mapping[str, Any]],
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from scipy.stats import kruskal
     from statsmodels.stats.multitest import multipletests
@@ -988,6 +998,7 @@ def confounder_representation_effect(
     all_cluster_states: list[Mapping[str, Any]],
     scope: str,
     target_ids: list[str],
+    artifact_root: str = "",
 ) -> dict[str, Any]:
     from statsmodels.stats.multitest import multipletests
     from skbio import DistanceMatrix
