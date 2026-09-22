@@ -25,6 +25,7 @@ def test_router_prompt_defines_continuous_action_semantics():
         "available_evidence_requests", "exactly one json object",
     ):
         assert phrase in text
+    assert "optional_second_set_id_for_merge" in text
     assert "membership-role conclusion" not in text
 
 

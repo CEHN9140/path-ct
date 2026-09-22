@@ -58,7 +58,7 @@ Return exactly one JSON object with exactly two top-level keys: `actions` and `e
 - terminal disposition: one `accept` or `drop` action for every current set.
 
 ```json
-{"actions":[{"action":"<accept|drop|split|merge>","target_ids":["<SET_ID>"],"n_children":null,"evidence_report_refs":["<REPORT_REF>"],"reason":"<EVIDENCE_GROUNDED_REASON>"}],"evidence_requests":[]}
+{"actions":[{"action":"<accept|drop|split|merge>","target_ids":["<SET_ID>","<OPTIONAL_SECOND_SET_ID_FOR_MERGE>"],"n_children":null,"evidence_report_refs":["<REPORT_REF>"],"reason":"<EVIDENCE_GROUNDED_REASON>"}],"evidence_requests":[]}
 ```
 
-Use valid JSON only: double-quoted keys and strings, no markdown, comments, or trailing commas. For `split`, `target_ids` has one current set and `n_children` is required. For `merge`, `target_ids` has the exact current pair and `n_children` is null. For evidence requests, each item must use an available dimension, scope, target set, focus, and a concise decision-relevant question.
+Use valid JSON only: double-quoted keys and strings, no markdown, comments, or trailing commas. For `accept`, `drop`, and `split`, use exactly one current-set target. For `merge`, use exactly two current-set targets. For `split`, `n_children` is required; for all other actions, `n_children` is null. For evidence requests, each item must use an available dimension, scope, target set, focus, and a concise decision-relevant question.

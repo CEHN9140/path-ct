@@ -21,6 +21,8 @@ def test_graph_does_not_mutate_caller_state():
 
     class Verifier:
         def invoke(self, payload):
+            if payload["mode"] == "select":
+                return {"selected_tool": "structural_diagnostics"}
             return {"reports": [{
                 **{key: required[key] for key in ("dimension", "aspect", "scope", "target_ids")},
                 "observations": [],

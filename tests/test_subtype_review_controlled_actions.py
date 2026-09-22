@@ -241,6 +241,66 @@ def test_single_eligible_tool_still_uses_verifier_selector():
     assert calls == {"select": 1, "audit": 1, "tool": 1}
 
 
+def test_mandatory_partition_screen_uses_verifier_tool_selection(tmp_path):
+    from agents.subtype_review.graph import verifier_node
+
+    calls = {"select": 0, "audit": 0, "tool": 0}
+
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "select":
+                calls["select"] += 1
+                assert payload["remaining_tools"] == ["structural_diagnostics"]
+                assert payload["require_tool"] is True
+                assert payload["evidence_request"]["focus"] == "partition_structural_screen"
+                return {"selected_tool": "structural_diagnostics"}
+            calls["audit"] += 1
+            required = {
+                key: value for key, value in payload["required_reports"][0].items()
+                if key != "evidence_guidance"
+            }
+            return {"reports": [{
+                **required,
+                "observations": [],
+                "dimension_interpretation": "Partition structure was assessed.",
+                "cross_evidence_context": "No additional context.",
+                "limitations": [],
+                "tool_refs": [],
+                "metric_refs": [],
+            }]}
+
+    def structural_diagnostics(**kwargs):
+        calls["tool"] += 1
+        return {"status": "success", "metrics": {"partition": {
+            "internal_structure": {}, "nearest_pair_affinities": [],
+        }}}
+
+    state = initial_review_state([
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+    ])
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "cross_modal_consistency", "scope": "partition", "target_ids": [],
+        "focus": "partition_structural_screen", "question": "Screen partition structure.",
+    }]
+    registry = {"structural_diagnostics": {
+        "aspect": "structural_diagnostics", "dimension": "cross_modal_consistency",
+        "scopes": ("partition",), "question_foci": {"partition": ("partition_structural_screen",)},
+        "function": structural_diagnostics,
+    }}
+    trace_path = tmp_path / "trace.jsonl"
+    verifier_node(state, {
+        "verifier_model": Verifier(), "tool_registry": registry,
+        "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs",
+        "runtime_trace_path": str(trace_path),
+    })
+    assert calls == {"select": 1, "audit": 1, "tool": 1}
+    trace = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    selection = next(row for row in trace if row["event"] == "verifier_tool_selection")
+    assert selection["selected_tool"] == "structural_diagnostics"
+    assert selection["selection_source"] == "llm_tool_call"
+
+
 def test_nonfirst_request_with_one_remaining_tool_can_stop():
     from agents.subtype_review.graph import verifier_node
 

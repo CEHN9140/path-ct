@@ -645,7 +645,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                         "Mandatory partition structural screen requires structural_diagnostics to be eligible"
                     )
                 require_tool = True
-            elif not remaining:
+            if not remaining:
                 if not request_state["used_tools"]:
                     raise ValueError(
                         f"No unrun scientific tool can answer EvidenceRequest {ref}"
@@ -658,37 +658,36 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                              "stop_reason": "eligible_tools_exhausted"},
                 )
                 continue
-            else:
-                selection_payload = {
-                    "mode": "select",
-                    "round": state["control"]["round"],
-                    "wave": wave,
-                    "partition": {"sets": [
-                        {"set_id": set_id(item), "member_n": len(item["member_ids"])}
-                        for item in current
-                    ]},
-                    "evidence_request": request.model_dump(),
-                    "current_evidence": reports_for_request(report_snapshot, request, registry),
-                    "attempted_tools": sorted(request_state["used_tools"]),
-                    "remaining_tools": remaining,
-                    "require_tool": require_tool,
-                }
-                decision = values["verifier_model"].invoke(selection_payload)
-                selected_tool = decision.get("selected_tool") if isinstance(decision, Mapping) else None
-                if selected_tool is None:
-                    if require_tool:
-                        raise RuntimeError(f"Verifier stopped before acquiring evidence for request {ref}")
-                    stop_reason = str(decision.get("stop_reason", "Verifier stopped evidence acquisition."))
-                    request_states.pop(ref)
-                    append_runtime_trace(
-                        values.get("runtime_trace_path"), node="verifier",
-                        event="verifier_request_stopped", round_id=state["control"]["round"],
-                        payload={"wave": wave, "request_ref": ref, "remaining_tools": remaining,
-                                 "stop_reason": stop_reason},
-                    )
-                    continue
-                if selected_tool not in remaining:
-                    raise ValueError(f"Verifier selected an ineligible tool: {selected_tool}")
+            selection_payload = {
+                "mode": "select",
+                "round": state["control"]["round"],
+                "wave": wave,
+                "partition": {"sets": [
+                    {"set_id": set_id(item), "member_n": len(item["member_ids"])}
+                    for item in current
+                ]},
+                "evidence_request": request.model_dump(),
+                "current_evidence": reports_for_request(report_snapshot, request, registry),
+                "attempted_tools": sorted(request_state["used_tools"]),
+                "remaining_tools": remaining,
+                "require_tool": require_tool,
+            }
+            decision = values["verifier_model"].invoke(selection_payload)
+            selected_tool = decision.get("selected_tool") if isinstance(decision, Mapping) else None
+            if selected_tool is None:
+                if require_tool:
+                    raise RuntimeError(f"Verifier stopped before acquiring evidence for request {ref}")
+                stop_reason = str(decision.get("stop_reason", "Verifier stopped evidence acquisition."))
+                request_states.pop(ref)
+                append_runtime_trace(
+                    values.get("runtime_trace_path"), node="verifier",
+                    event="verifier_request_stopped", round_id=state["control"]["round"],
+                    payload={"wave": wave, "request_ref": ref, "remaining_tools": remaining,
+                             "stop_reason": stop_reason},
+                )
+                continue
+            if selected_tool not in remaining:
+                raise ValueError(f"Verifier selected an ineligible tool: {selected_tool}")
 
             key = (selected_tool, request.scope, tuple(request.target_ids))
             if key in scheduled:
