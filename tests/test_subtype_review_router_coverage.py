@@ -265,7 +265,10 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         state["tool_evidence"].append({
             "tool_name": "structural_diagnostics", "scope": "partition",
             "target_ids": [], "partition_signature": signature,
-            "metrics": {"partition": {"nearest_pair_targets": [pair]}},
+            "metrics": {"partition": {
+                "nearest_pair_targets": [pair],
+                "nearest_pair_affinities": [{"target_ids": pair, "mean_between_affinity": 0.1}],
+            }},
         })
         state["reports"].append({
             "report_ref": "ER:partition", "dimension": "cross_modal_consistency",
@@ -318,7 +321,10 @@ def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():
     signature = partition_signature(state["partition"]["sets"])
     state["tool_evidence"] = [
         {"tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [], "partition_signature": signature,
-         "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]]}}},
+         "metrics": {"partition": {
+             "nearest_pair_targets": [["C1", "C2"]],
+             "nearest_pair_affinities": [{"target_ids": ["C1", "C2"], "mean_between_affinity": 0.1}],
+         }}},
         {"tool_name": "representation_concordance", "scope": "set", "target_ids": ["C1"], "partition_signature": signature},
     ]
     captured = {}
@@ -361,7 +367,10 @@ def pair_options_after_completed_tools(completed_pair_tools):
     state["tool_evidence"] = [{
         "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
         "partition_signature": signature,
-        "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]]}},
+        "metrics": {"partition": {
+            "nearest_pair_targets": [["C1", "C2"]],
+            "nearest_pair_affinities": [{"target_ids": ["C1", "C2"], "mean_between_affinity": 0.1}],
+        }},
     }]
     state["tool_evidence"].extend({
         "tool_name": tool_name, "scope": "pair", "target_ids": ["C1", "C2"],

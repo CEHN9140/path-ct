@@ -186,8 +186,12 @@ def structural_pair_followup_targets(
                    if row["partition_signature"] == signature
                    and row["tool_name"] == "structural_diagnostics"
                    and row["scope"] == "partition"), None)
-    pairs = (screen or {}).get("metrics", {}).get("partition", {}).get("nearest_pair_targets", [])
-    return {tuple(sorted(map(str, pair))) for pair in pairs if len(pair) == 2}
+    rows = (screen or {}).get("metrics", {}).get("partition", {}).get("nearest_pair_affinities", [])
+    return {
+        tuple(sorted(map(str, row.get("target_ids", []))))
+        for row in rows
+        if len(row.get("target_ids", [])) == 2
+    }
 
 
 def reports_for_request(
@@ -393,7 +397,8 @@ def validate_router_plan(
         if action.action == "accept" and any(phrase in reason for phrase in (
             "accept is not justified", "accept is not supported", "cannot justify accept",
             "does not justify accept", "retention remains unsupported",
-            "independent retention is unsupported",
+            "independent retention is unsupported", "acceptance is not justified",
+            "retention is not justified",
         )):
             raise ValueError(
                 "Router action contradicts its own rationale: accept was emitted while "

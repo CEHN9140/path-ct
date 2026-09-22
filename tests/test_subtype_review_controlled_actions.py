@@ -384,7 +384,7 @@ def test_structural_pair_candidates_are_visible_and_drop_requires_one_review(tmp
     state["tool_evidence"] = [{
         "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
         "partition_signature": signature,
-        "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]],
+        "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"], ["C1", "C3"], ["C2", "C3"]],
             "nearest_pair_affinities": [
                 {"target_ids": ["C1", "C3"], "mean_between_affinity": 0.2},
                 {"target_ids": ["C1", "C2"], "mean_between_affinity": 0.3},
@@ -409,17 +409,17 @@ def test_structural_pair_candidates_are_visible_and_drop_requires_one_review(tmp
         {"target_ids": ["C2", "C3"], "mean_between_affinity": 0.1},
     ]
 
-    drop = RouterAction(action="drop", target_ids=["C1"], evidence_report_refs=["ER:partition"], reason="unsupported")
+    drops = [RouterAction(action="drop", target_ids=[target], evidence_report_refs=["ER:partition"], reason="unsupported")
+             for target in ("C1", "C2", "C3")]
     with pytest.raises(ValueError, match="Drop is premature"):
-        validate_router_plan(RouterPlan(actions=[drop, RouterAction(
-            action="drop", target_ids=["C2"], evidence_report_refs=["ER:partition"], reason="unsupported"
-        ), RouterAction(action="drop", target_ids=["C3"], evidence_report_refs=["ER:partition"], reason="unsupported")]), state, set())
+        validate_router_plan(RouterPlan(actions=drops), state, set())
 
     state["reports"].append(report("ER:C1-C2-boundary", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_representation"))
-    validate_router_plan(RouterPlan(actions=[
-        RouterAction(action="drop", target_ids=[target], evidence_report_refs=["ER:partition"], reason="unsupported")
-        for target in ("C1", "C2", "C3")
-    ]), state, set())
+    with pytest.raises(ValueError, match="Drop is premature"):
+        validate_router_plan(RouterPlan(actions=drops), state, set())
+
+    state["reports"].append(report("ER:C1-C3-boundary", "cross_modal_consistency", "pair", ["C1", "C3"], focus="boundary_representation"))
+    validate_router_plan(RouterPlan(actions=drops), state, set())
 
 
 def test_accept_reason_cannot_explicitly_reject_acceptance():
