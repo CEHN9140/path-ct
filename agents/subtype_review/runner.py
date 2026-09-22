@@ -116,6 +116,8 @@ def run_review_grid(
     if not ks or not repeat_ids or any(k not in candidate_partitions for k in ks):
         raise ValueError("Every requested initial K must have a candidate partition")
     run_summaries = []
+    run_failures = []
+    incomplete_runs = []
 
     for k in ks:
         for repeat in repeat_ids:
@@ -135,9 +137,15 @@ def run_review_grid(
                 ):
                     run_summaries.append(summary)
                     continue
-                if not force:
+                if (
+                    metadata.get("input_signature") == input_signature
+                    and metadata.get("status") == "failed"
+                ):
+                    shutil.rmtree(run_root)
+                elif not force:
                     raise FileExistsError(f"Incomplete or stale Agent run exists: {run_root}; pass --force to replace it")
-                shutil.rmtree(run_root)
+                else:
+                    shutil.rmtree(run_root)
 
             run_root.mkdir(parents=True)
             trace_path = run_root / "runtime_trace.jsonl"
@@ -194,23 +202,35 @@ def run_review_grid(
                 )
                 write_json(metadata_path, {"status": status, **metadata})
             except Exception as exc:
+                failure = {
+                    "initial_k": k,
+                    "repeat": repeat,
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "run_root": str(run_root),
+                }
                 append_runtime_trace(
                     trace_path,
                     node="runner",
                     event="run_failed",
-                    payload={
-                        "error_type": type(exc).__name__,
-                        "error_message": str(exc),
-                    },
+                    payload=failure,
                 )
                 write_json(metadata_path, {
-                    "status": "failed",
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc),
+                    **failure,
                     **metadata,
                 })
-                raise
+                run_failures.append(failure)
+                continue
             run_summaries.append(summary)
+            if not complete:
+                incomplete_runs.append({
+                    "initial_k": k,
+                    "repeat": repeat,
+                    "status": "incomplete",
+                    "raw_control_status": summary.get("raw_control_status"),
+                    "run_root": str(run_root),
+                })
 
     multi_k = review_config["multi_k"]
     configured_ks = tuple(sorted(set(int(k) for k in multi_k["initial_ks"])))
@@ -237,9 +257,19 @@ def run_review_grid(
                 break
         if not grid_ready:
             break
+    requested_run_count = len(ks) * len(repeat_ids)
+    complete_run_count = sum(
+        1 for summary in run_summaries
+        if summary.get("raw_control_status") == "complete"
+        and summary.get("status") == "review_complete"
+    )
     return {
         "runs": run_summaries,
         "run_root": str(root),
         "input_signature": input_signature,
         "multi_k_ready": grid_ready,
+        "failed_runs": run_failures,
+        "incomplete_runs": incomplete_runs,
+        "requested_run_count": requested_run_count,
+        "complete_run_count": complete_run_count,
     }

@@ -21,6 +21,7 @@ from agents.subtype_review.schemas import (
     ReviewContext,
     ReviewState,
     RevisionPlan,
+    RouterAction,
     RouterPlan,
     set_id,
 )
@@ -807,6 +808,25 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
     }
 
 
+def validate_revision_plan(
+    plan: RevisionPlan,
+    action: RouterAction,
+    available_refs: list[str],
+) -> None:
+    if action.action == "split":
+        if (len(plan.split_plans) != 1 or plan.merge_plans
+                or plan.split_plans[0].target_id != action.target_ids[0]
+                or plan.split_plans[0].n_children != action.n_children
+                or plan.split_plans[0].structural_basis != ["fused"]
+                or plan.split_plans[0].execution_strategy != "fused_similarity_spectral"):
+            raise ValueError("RevisionPlan must preserve the exact Router split target and child count")
+    elif len(plan.merge_plans) != 1 or plan.split_plans or sorted(plan.merge_plans[0].target_ids) != sorted(action.target_ids):
+        raise ValueError("RevisionPlan must preserve the exact Router merge pair")
+    plans = [*plan.split_plans, *plan.merge_plans]
+    if any(not set(item.metric_refs).issubset(available_refs) for item in plans):
+        raise ValueError("RevisionPlan references unavailable structural metrics")
+
+
 def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
     state = copy.deepcopy(state)
     values = runtime.context if isinstance(runtime, Runtime) else runtime
@@ -838,13 +858,41 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
             "available_metric_refs": available_refs,
         },
     )
-    plan = RevisionPlan.model_validate(parse_json_content(values["reviser_model"].invoke({
+    model = values["reviser_model"]
+    payload = {
         "partition": state["partition"],
         "router_action": action.model_dump(),
         "referenced_reports": [row for row in state["reports"]
                                if row["report_ref"] in action.evidence_report_refs],
         "available_metric_refs": available_refs,
-    })))
+    }
+    validation_feedback = None
+    max_retries = int(getattr(model, "config", {}).get("reviser_plan_validation_retries", 1))
+    for attempt in range(max_retries + 1):
+        request = dict(payload)
+        if validation_feedback is not None:
+            request["validation_feedback"] = validation_feedback
+        plan = RevisionPlan.model_validate(parse_json_content(model.invoke(request)))
+        try:
+            validate_revision_plan(plan, action, available_refs)
+            break
+        except ValueError as exc:
+            if attempt >= max_retries:
+                raise
+            validation_feedback = {
+                "error": str(exc),
+                "instruction": (
+                    "Repair only the execution-plan contract violation. Preserve the Router action, "
+                    "target set or pair, and split child count exactly. Use only available_metric_refs."
+                ),
+            }
+            append_runtime_trace(
+                values.get("runtime_trace_path"),
+                node="reviser",
+                event="reviser_plan_validation_retry",
+                round_id=state["control"]["round"],
+                payload={"attempt": attempt + 1, "error": str(exc)},
+            )
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="reviser",
@@ -852,19 +900,6 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         round_id=state["control"]["round"],
         payload={"plan": plan.model_dump()},
     )
-    if action.action == "split":
-        if (len(plan.split_plans) != 1 or plan.merge_plans
-                or plan.split_plans[0].target_id != action.target_ids[0]
-                or plan.split_plans[0].n_children != action.n_children
-                or plan.split_plans[0].structural_basis != ["fused"]
-                or plan.split_plans[0].execution_strategy != "fused_similarity_spectral"):
-            raise ValueError("RevisionPlan must preserve the exact Router split target and child count")
-    elif len(plan.merge_plans) != 1 or plan.split_plans or sorted(plan.merge_plans[0].target_ids) != sorted(action.target_ids):
-        raise ValueError("RevisionPlan must preserve the exact Router merge pair")
-    plans = [*plan.split_plans, *plan.merge_plans]
-    if any(not set(item.metric_refs).issubset(available_refs) for item in plans):
-        raise ValueError("RevisionPlan references unavailable structural metrics")
-
     by_id = {set_id(item): item for item in current}
     replacements = {}
     if action.action == "split":

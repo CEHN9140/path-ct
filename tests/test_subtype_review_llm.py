@@ -188,18 +188,20 @@ def test_structured_output_retry_includes_field_specific_validation_error(monkey
     assert "valid list" in calls[1]["messages"][-1]["content"]
 
 
-def test_length_finish_reason_records_usage_and_does_not_retry(monkeypatch):
+def test_length_finish_reason_records_usage_and_retries(monkeypatch):
     calls = []
 
     class Completions:
         def create(self, **kwargs):
             calls.append(kwargs)
+            if len(calls) == 1:
+                return SimpleNamespace(
+                    usage={"prompt_tokens": 11, "completion_tokens": 32768, "total_tokens": 32779},
+                    choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="{"))]
+                )
             return SimpleNamespace(
-                usage={"prompt_tokens": 11, "completion_tokens": 32768, "total_tokens": 32779},
-                choices=[SimpleNamespace(
-                    finish_reason="length",
-                    message=SimpleNamespace(content="{"),
-                )]
+                usage={"prompt_tokens": 11, "completion_tokens": 10, "total_tokens": 21},
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"reports":[]}'))]
             )
 
     monkeypatch.setenv("TEST_KEY", "secret")
@@ -215,16 +217,15 @@ def test_length_finish_reason_records_usage_and_does_not_retry(monkeypatch):
             "model_name": "deepseek-v4-flash",
             "temperature": 0,
             "max_new_tokens": 32768,
-            "json_retries": 1,
+            "structured_output_retries": 1,
         },
         EvidenceReportBatch,
         "prompt",
         tracker,
     )
-    with pytest.raises(LLMOutputLengthError):
-        model.invoke({})
-    assert len(calls) == 1
-    assert tracker.snapshot()["completion_tokens"] == 32768
+    assert model.invoke({}) == {"reports": []}
+    assert len(calls) == 2
+    assert tracker.snapshot()["completion_tokens"] == 32778
 
 
 class BoundModel:
@@ -328,7 +329,7 @@ def test_verifier_first_selection_still_requires_tool_call():
     model = BoundModel([])
     model.invoke = lambda messages: SimpleNamespace(content="STOP", tool_calls=[], additional_kwargs={})
     verifier = VerifierChatModel(model, AuditModel(), "prompt", [SimpleNamespace(name="wxs")])
-    with pytest.raises(RuntimeError, match="no tool call when one was required"):
+    with pytest.raises(RuntimeError, match="no tool call when exactly one eligible tool call was required"):
         verifier.invoke({
             "mode": "select", "remaining_tools": ["wxs"], "require_tool": True,
         })

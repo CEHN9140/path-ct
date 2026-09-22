@@ -14,6 +14,8 @@ For a split, preserve the exact target and `n_children`; set `structural_basis` 
 
 # Workflow
 
+If `validation_feedback` is provided, repair only the execution-plan contract violation. Preserve the Router's action, targets, and split child count exactly; do not reinterpret the evidence or choose a different action. Use only supplied `available_metric_refs`.
+
 1. Read the Router action.
 2. Review its referenced reports and the available metric references as context.
 3. Preserve the exact action parameters and select only relevant available structural references.

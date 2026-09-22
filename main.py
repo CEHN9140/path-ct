@@ -187,10 +187,21 @@ def run_pipeline(
             review_grid["input_signature"],
         )
     else:
-        multi_k_root = Path(args.output_root) / "subtype_review" / "multi_k"
-        if multi_k_root.exists():
-            shutil.rmtree(multi_k_root)
-        multi_k_summary = "not_ready"
+        multi_k_summary = {
+            "status": "not_ready",
+            "reason": "Not all configured Agent runs completed successfully.",
+            "requested_run_count": review_grid["requested_run_count"],
+            "complete_run_count": review_grid["complete_run_count"],
+            "failed_runs": review_grid["failed_runs"],
+            "incomplete_runs": review_grid["incomplete_runs"],
+        }
+        print(
+            f"[subtype_review] completed={review_grid['complete_run_count']}/"
+            f"{review_grid['requested_run_count']}, "
+            f"failed={len(review_grid['failed_runs'])}, "
+            f"incomplete={len(review_grid['incomplete_runs'])}",
+            flush=True,
+        )
     result = {
         "agent_run_count": len(review_grid["runs"]),
         "agent_runs_root": review_grid["run_root"],

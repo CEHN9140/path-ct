@@ -251,7 +251,24 @@ class JsonStructuredModel:
             if self.usage_tracker:
                 self.usage_tracker.record_response(response)
             if getattr(response.choices[0], "finish_reason", None) == "length":
-                raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
+                if attempt >= max_retries:
+                    raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
+                append_runtime_trace(
+                    self.runtime_trace_path,
+                    node=role,
+                    event="structured_output_truncated",
+                    round_id=payload.get("round"),
+                    payload={"schema": self.schema.__name__, "attempt": attempt + 1},
+                )
+                messages = [
+                    *base_messages,
+                    {"role": "user", "content": (
+                        "Return the same required JSON more compactly. Preserve every required "
+                        "schema item, report, action, and scientific conclusion; compress prose "
+                        "only and do not omit report coverage."
+                    )},
+                ]
+                continue
 
             raw_content = response.choices[0].message.content
             parsed = None
@@ -395,12 +412,13 @@ class VerifierChatModel:
                 calls = list(additional.get("tool_calls", []) or [])
             if not calls:
                 if require_tool:
-                    raise RuntimeError("Verifier returned no tool call when one was required")
-                return {
-                    "selected_tool": None,
-                    "stop_reason": "verifier_no_further_tool_call",
-                }
-            if len(calls) == 1:
+                    last_error = "selection returned no tool call when exactly one eligible tool call was required"
+                else:
+                    return {
+                        "selected_tool": None,
+                        "stop_reason": "verifier_no_further_tool_call",
+                    }
+            elif len(calls) == 1:
                 call = calls[0]
                 name = str(call.get("name", "")) if isinstance(call, Mapping) else str(getattr(call, "name", ""))
                 args = call.get("args", {}) if isinstance(call, Mapping) else getattr(call, "args", {})
@@ -430,7 +448,10 @@ class VerifierChatModel:
                         "if stopping is allowed, make no tool call."
                     )},
                 ]
-        raise ValueError(f"Verifier tool selection remained invalid after retries: {last_error}")
+        message = f"Verifier tool selection remained invalid after retries: {last_error}"
+        if last_error.startswith("selection returned no tool call"):
+            raise RuntimeError(message)
+        raise ValueError(message)
 
 
 def build_default_verifier(

@@ -18,6 +18,21 @@ from utils.io import write_json
 from utils.llm_utils import load_yaml_file
 
 
+def no_stable_solution(
+    *, stage: str, reason: str, aggregation_signature: str,
+    run_count: int, output_dir: Path,
+) -> dict[str, Any]:
+    result = {
+        "status": "no_stable_solution",
+        "stage": stage,
+        "reason": reason,
+        "aggregation_signature": aggregation_signature,
+        "run_count": run_count,
+    }
+    write_json(output_dir / "aggregation_summary.json", result)
+    return result
+
+
 def run_multi_k_aggregation(
     output_root: str,
     config: Mapping[str, Any],
@@ -84,6 +99,12 @@ def run_multi_k_aggregation(
     aggregation_signature = hash_payload(aggregation_manifest)
 
     run_count = len(run_files)
+    output_dir = root / "subtype_review" / "multi_k"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / "aggregation_manifest.json", {
+        **aggregation_manifest,
+        "aggregation_signature": aggregation_signature,
+    })
     coassignment = np.zeros((len(patient_ids), len(patient_ids)), dtype=float)
     acceptance = np.zeros(len(patient_ids), dtype=float)
     for path in run_files:
@@ -102,10 +123,27 @@ def run_multi_k_aggregation(
     acceptance /= run_count
     coassignment /= run_count
     np.fill_diagonal(coassignment, acceptance)
+    pd.DataFrame(coassignment, index=patient_ids, columns=patient_ids).rename_axis("patient_id").to_csv(output_dir / "accepted_coassignment_matrix.csv")
+    np.save(output_dir / "accepted_coassignment_matrix.npy", coassignment)
+    pd.DataFrame({"patient_id": patient_ids, "acceptance_frequency": acceptance}).to_csv(output_dir / "patient_acceptance_frequency.csv", index=False)
 
     accepted_indices = np.flatnonzero(acceptance >= float(params["acceptance_threshold"]))
     if not len(accepted_indices):
-        raise ValueError("No patients meet the configured accepted-run frequency threshold")
+        return no_stable_solution(
+            stage="acceptance_frequency",
+            reason="No patients meet the configured accepted-run frequency threshold.",
+            aggregation_signature=aggregation_signature,
+            run_count=run_count,
+            output_dir=output_dir,
+        )
+    if len(accepted_indices) < 2:
+        return no_stable_solution(
+            stage="recurrent_core",
+            reason="Fewer than two patients meet the configured accepted-run frequency threshold.",
+            aggregation_signature=aggregation_signature,
+            run_count=run_count,
+            output_dir=output_dir,
+        )
     patient_similarity = coassignment[np.ix_(accepted_indices, accepted_indices)]
     patient_distance = 1.0 - patient_similarity
     np.fill_diagonal(patient_distance, 0.0)
@@ -124,7 +162,13 @@ def run_multi_k_aggregation(
         key=lambda members: patient_index[members[0]],
     )
     if not cores:
-        raise ValueError("No recurrent core meets the configured minimum core size")
+        return no_stable_solution(
+            stage="recurrent_core",
+            reason="No recurrent core meets the configured minimum core size.",
+            aggregation_signature=aggregation_signature,
+            run_count=run_count,
+            output_dir=output_dir,
+        )
     core_ids = [f"CORE{index:02d}" for index in range(1, len(cores) + 1)]
     core_by_patient = {
         patient_id: core_ids[core_index]
@@ -158,7 +202,13 @@ def run_multi_k_aggregation(
         score = float(silhouette_score(core_distance, average, metric="precomputed"))
         state_candidates.append({"k": k, "silhouette": score, "labels": average})
     if not state_candidates:
-        raise ValueError("No state K meets linkage-agreement and no-singleton constraints")
+        return no_stable_solution(
+            stage="state_selection",
+            reason="No state K meets linkage-agreement and no-singleton constraints.",
+            aggregation_signature=aggregation_signature,
+            run_count=run_count,
+            output_dir=output_dir,
+        )
     selected = min(state_candidates, key=lambda row: (-row["silhouette"], row["k"]))
     cluster_order = sorted(
         set(int(label) for label in selected["labels"]),
@@ -175,15 +225,6 @@ def run_multi_k_aggregation(
         if patient_id in core_by_patient
     ]
 
-    output_dir = root / "subtype_review" / "multi_k"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    write_json(output_dir / "aggregation_manifest.json", {
-        **aggregation_manifest,
-        "aggregation_signature": aggregation_signature,
-    })
-    pd.DataFrame(coassignment, index=patient_ids, columns=patient_ids).rename_axis("patient_id").to_csv(output_dir / "accepted_coassignment_matrix.csv")
-    np.save(output_dir / "accepted_coassignment_matrix.npy", coassignment)
-    pd.DataFrame({"patient_id": patient_ids, "acceptance_frequency": acceptance}).to_csv(output_dir / "patient_acceptance_frequency.csv", index=False)
     pd.DataFrame([
         {"core_id": core_id, "patient_count": len(members), "member_ids": json.dumps(members)}
         for core_id, members in zip(core_ids, cores)
