@@ -555,6 +555,10 @@ def test_router_retries_closure_violation_without_changing_scientific_action(tmp
     output = router_node(state, context(registry, None, router_model=router, runtime_trace_path=str(trace_path)))
     assert len(router.payloads) == 2
     assert router.payloads[1]["validation_feedback"]["error"]
+    feedback = router.payloads[1]["validation_feedback"]
+    assert "invalid_evidence_requests" in feedback
+    assert "available_evidence_requests" in feedback
+    assert "exhaustive runtime whitelist" in feedback["instruction"]
     instruction = router.payloads[1]["validation_feedback"]["instruction"].lower()
     assert "preserve the action" in instruction
     assert "scientific conclusions" in instruction

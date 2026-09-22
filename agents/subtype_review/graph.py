@@ -412,24 +412,51 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             except ValueError as exc:
                 if attempt >= retries:
                     raise
-                append_runtime_trace(
-                    values.get("runtime_trace_path"),
-                    node="router",
-                    event="router_plan_validation_retry",
-                    round_id=control["round"],
-                    payload={"attempt": attempt + 1, "error": str(exc)},
-                )
-                validation_feedback = {
+                invalid_requests = [
+                    {
+                        "dimension": request.dimension,
+                        "scope": request.scope,
+                        "target_ids": list(request.target_ids),
+                        "reason": "No currently eligible evidence tool remains for this request."
+                        if (request.dimension, request.scope, tuple(request.target_ids)) not in available
+                        else "This evidence request is duplicated within the RouterPlan.",
+                    }
+                    for request in plan.evidence_requests
+                    if (request.dimension, request.scope, tuple(request.target_ids)) not in available
+                    or sum(
+                        1 for other in plan.evidence_requests
+                        if (other.dimension, other.scope, tuple(other.target_ids))
+                        == (request.dimension, request.scope, tuple(request.target_ids))
+                    ) > 1
+                ]
+                feedback = {
                     "error": str(exc),
+                    "invalid_evidence_requests": invalid_requests,
+                    "available_evidence_requests": router_request_options,
                     "instruction": (
-                        "Correct the RouterPlan workflow validation error without changing scientific conclusions "
-                        "merely to satisfy validation. Preserve the action when possible; fix invalid targets, "
-                        "citations, or evidence-request availability as needed."
+                        "available_evidence_requests is the exhaustive runtime whitelist. Do not request "
+                        "any dimension, scope, or target_ids absent from it. If no listed request can "
+                        "change the disposition, return a legal action using the existing Evidence Reports. "
+                        "Preserve the action and scientific conclusions when repairing the workflow contract."
                     ),
                     "required_terminal_report_refs_by_target": closure_payload[
                         "required_terminal_report_refs_by_target"
                     ],
                 }
+                append_runtime_trace(
+                    values.get("runtime_trace_path"),
+                    node="router",
+                    event="router_plan_validation_retry",
+                    round_id=control["round"],
+                    payload={
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                        "invalid_evidence_requests": invalid_requests,
+                        "remaining_available_request_count": len(router_request_options),
+                        "remaining_available_requests": router_request_options,
+                    },
+                )
+                validation_feedback = feedback
     else:
         if ("cross_modal_consistency", "partition", ()) not in available_aspects:
             raise ValueError("Structural diagnostics must support a partition-level screen")
