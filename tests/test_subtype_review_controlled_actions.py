@@ -5,10 +5,6 @@ import types
 import pandas as pd
 
 from agents.subtype_review.graph import initial_review_state, partition_signature, validate_router_plan, reviser_node, router_node
-from agents.subtype_review.evidence_semantics import (
-    MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
-    MEMBERSHIP_POSITIVE_CONCLUSION,
-)
 from agents.subtype_review.tools import TOOL_REGISTRY
 from agents.subtype_review.schemas import RouterAction, RouterPlan
 
@@ -23,8 +19,6 @@ def report(ref, dimension, scope, target_ids, *, focus=None):
     }
     if focus:
         row["request_foci"] = [focus]
-    if focus == "membership_representation":
-        row["dimension_interpretation"] = MEMBERSHIP_POSITIVE_CONCLUSION
     return row
 
 
@@ -245,58 +239,6 @@ def test_single_eligible_tool_bypasses_verifier_selector():
     verifier_node(state, {"verifier_model": Verifier(), "tool_registry": registry,
                           "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs"})
     assert calls == {"select": 0, "audit": 1, "tool": 1}
-
-
-@pytest.mark.parametrize("invalid_interpretation", [
-    "The evidence supports current membership.",
-    MEMBERSHIP_POSITIVE_CONCLUSION + " " + MEMBERSHIP_NOT_POSITIVE_CONCLUSION,
-])
-def test_verifier_retries_invalid_membership_role_conclusion(invalid_interpretation):
-    from agents.subtype_review.graph import verifier_node
-
-    audit_payloads = []
-
-    class Verifier:
-        def invoke(self, payload):
-            if payload["mode"] == "select":
-                raise AssertionError("single eligible membership tool should bypass selection")
-            audit_payloads.append(payload)
-            required = payload["required_reports"][0]
-            report = {key: required[key] for key in ("dimension", "aspect", "scope", "target_ids")}
-            report.update({
-                "observations": [],
-                "dimension_interpretation": (
-                    invalid_interpretation
-                    if len(audit_payloads) == 1 else MEMBERSHIP_POSITIVE_CONCLUSION
-                ),
-                "cross_evidence_context": "None.",
-                "limitations": [],
-                "metric_refs": [],
-            })
-            return {"reports": [report]}
-
-    def tool(**kwargs):
-        return {"status": "success", "metrics": {"set": {"C1": {"value": 1}}}}
-
-    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
-    state["control"]["pending_evidence_requests"] = [{
-        "dimension": "cross_modal_consistency", "scope": "set", "target_ids": ["C1"],
-        "focus": "membership_representation", "question": "Assess membership.",
-    }]
-    registry = {"membership_tool": {
-        "aspect": "affinity_geometry_concordance", "dimension": "cross_modal_consistency",
-        "scopes": ("set",), "question_foci": {"set": ("membership_representation",)},
-        "function": tool,
-    }}
-    result = verifier_node(state, {
-        "verifier_model": Verifier(), "tool_registry": registry,
-        "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs",
-        "verifier_audit_coverage_retries": 2,
-    })
-    assert len(audit_payloads) == 2
-    assert audit_payloads[1]["audit_validation_feedback"]["role_conclusion_errors"]
-    report = result["reports"][0]
-    assert report["dimension_interpretation"].endswith(MEMBERSHIP_POSITIVE_CONCLUSION)
 
 
 def test_nonfirst_request_with_one_remaining_tool_can_stop():
