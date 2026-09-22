@@ -223,7 +223,12 @@ def eligible_tools_for_request(
         if name not in attempted
         and (name, request.scope, targets) not in completed
         and metadata["dimension"] == request.dimension
-        and request.focus in metadata.get("question_foci", {}).get(request.scope, ())
+        and request.focus in (
+            metadata.get("question_foci", {}).get(request.scope, ())
+            or (("partition_structural_screen",)
+                if name == "structural_diagnostics" and request.scope == "partition"
+                else ())
+        )
         and request.scope in metadata["scopes"]
         and not (name == "structural_diagnostics" and (
             (request.scope == "partition" and partition_screen_done)
@@ -813,8 +818,13 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 request, registry, scheduled, request_state["attempted_tools"],
                 partition_screen_done=partition_screen_done,
             )
+            require_tool = not request_state["attempted_tools"]
             if mandatory_partition_screen:
                 remaining = [name for name in remaining if name == "structural_diagnostics"]
+                if not remaining:
+                    raise ValueError(
+                        "Mandatory partition structural screen requires structural_diagnostics to be eligible"
+                    )
                 selected_tool = "structural_diagnostics"
                 require_tool = True
             elif not remaining:
@@ -833,7 +843,6 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             elif require_tool and len(remaining) == 1:
                 selected_tool = remaining[0]
             else:
-                require_tool = not request_state["attempted_tools"]
                 selection_payload = {
                     "mode": "select",
                     "round": state["control"]["round"],

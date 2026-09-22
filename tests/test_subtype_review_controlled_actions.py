@@ -1,6 +1,8 @@
 import json
 import pytest
 import numpy as np
+import types
+import pandas as pd
 
 from agents.subtype_review.graph import initial_review_state, partition_signature, validate_router_plan, reviser_node, router_node
 from agents.subtype_review.tools import TOOL_REGISTRY
@@ -203,3 +205,168 @@ def test_controlled_fixture_evidence_is_visible_in_router_input(tmp_path):
     assert {item["report_ref"] for item in captured["completed_evidence_requests"]} >= {
         "ER:A-membership", "ER:B-membership", "ER:C-structure", "ER:D-boundary", "ER:D-structure",
     }
+
+
+def test_single_eligible_tool_bypasses_verifier_selector():
+    from agents.subtype_review.graph import verifier_node
+
+    calls = {"select": 0, "audit": 0, "tool": 0}
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "select":
+                calls["select"] += 1
+                raise AssertionError("single eligible tool should bypass selection")
+            calls["audit"] += 1
+            required = payload["required_reports"][0]
+            required = {key: value for key, value in required.items() if key != "evidence_guidance"}
+            return {"reports": [{**required, "observations": [],
+                "dimension_interpretation": "Measured.", "cross_evidence_context": "None.",
+                "limitations": [], "metric_refs": []}]}
+
+    def tool(**kwargs):
+        calls["tool"] += 1
+        return {"status": "success", "metrics": {"set": {"C1": {"value": 1}}}}
+
+    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+        "focus": "transcriptomic_phenotype", "question": "Assess phenotype.",
+    }]
+    registry = {"only_tool": {
+        "aspect": "only_tool", "dimension": "biological_support", "scopes": ("set",),
+        "question_foci": {"set": ("transcriptomic_phenotype",)}, "function": tool,
+    }}
+    verifier_node(state, {"verifier_model": Verifier(), "tool_registry": registry,
+                          "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs"})
+    assert calls == {"select": 0, "audit": 1, "tool": 1}
+
+
+def test_nonfirst_request_with_one_remaining_tool_can_stop():
+    from agents.subtype_review.graph import verifier_node
+
+    calls = {"select": 0, "audit": 0, "tools": []}
+    class Verifier:
+        def invoke(self, payload):
+            if payload["mode"] == "select":
+                calls["select"] += 1
+                if payload["remaining_tools"] == ["second"]:
+                    return {"selected_tool": None, "stop_reason": "already sufficient"}
+                return {"selected_tool": "first"}
+            calls["audit"] += 1
+            required = payload["required_reports"][0]
+            required = {key: value for key, value in required.items() if key != "evidence_guidance"}
+            return {"reports": [{**required, "observations": [],
+                "dimension_interpretation": "Measured.", "cross_evidence_context": "None.",
+                "limitations": [], "metric_refs": []}]}
+
+    def tool(name):
+        def run(**kwargs):
+            calls["tools"].append(name)
+            return {"status": "success", "metrics": {"set": {"C1": {"value": 1}}}}
+        return run
+
+    state = initial_review_state([{"set_id": "C1", "member_ids": ["P1", "P2"]}])
+    state["control"]["pending_evidence_requests"] = [{
+        "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+        "focus": "transcriptomic_phenotype", "question": "Assess phenotype.",
+    }]
+    registry = {
+        name: {"aspect": name, "dimension": "biological_support", "scopes": ("set",),
+               "question_foci": {"set": ("transcriptomic_phenotype",)}, "function": tool(name)}
+        for name in ("first", "second")
+    }
+    verifier_node(state, {"verifier_model": Verifier(), "tool_registry": registry,
+                          "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs"})
+    assert calls["select"] == 2
+    assert calls["tools"] == ["first"]
+
+
+def test_rna_cache_reuses_same_membership_and_invalidates_on_membership_change(tmp_path, monkeypatch):
+    import sys
+    import agents.subtype_review.tools as review_tools
+
+    counts_path = tmp_path / "counts.csv"
+    pd.DataFrame({"case_id": ["P1", "P2", "P3", "P4"], "G1": [10, 11, 2, 3],
+                  "G2": [8, 9, 1, 2]}).to_csv(counts_path, index=False)
+    hallmark = tmp_path / "hallmark.gmt"
+    hallmark.write_text("TEST\tdesc\tG1\tG2\n", encoding="utf-8")
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "subtype_review.yaml").write_text(
+        f"rna:\n  hallmark_gene_sets_path: {hallmark}\n  min_pathway_overlap: 2\n"
+        "  cache_version: 1\n  gsea_permutations: 3\n", encoding="utf-8",
+    )
+    calls = {"dds": 0, "stats": 0, "gsea": 0}
+    class Dds:
+        def __init__(self, **kwargs): calls["dds"] += 1
+        def deseq2(self): pass
+    class Stats:
+        def __init__(self, *args, **kwargs):
+            calls["stats"] += 1
+            self.statistics = np.array([2.0, -1.0])
+        def run_wald_test(self): pass
+    def prerank(**kwargs):
+        calls["gsea"] += 1
+        return types.SimpleNamespace(res2d=pd.DataFrame([{
+            "Term": "TEST", "NES": 1.2, "FDR q-val": 0.1, "Lead_genes": "G1",
+        }]))
+    monkeypatch.setitem(sys.modules, "pydeseq2", types.ModuleType("pydeseq2"))
+    monkeypatch.setitem(sys.modules, "pydeseq2.dds", types.SimpleNamespace(DeseqDataSet=Dds))
+    monkeypatch.setitem(sys.modules, "pydeseq2.ds", types.SimpleNamespace(DeseqStats=Stats))
+    monkeypatch.setitem(sys.modules, "gseapy", types.SimpleNamespace(prerank=prerank))
+    states = {case_id: {"omics_evidence": {"rna_raw_counts_path": str(counts_path)}}
+              for case_id in ("P1", "P2", "P3", "P4")}
+    sets = [{"set_id": "C1", "member_ids": ["P1", "P2"]},
+            {"set_id": "C2", "member_ids": ["P3", "P4"]}]
+    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), sets, "set", ["C1"])
+    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), sets, "set", ["C1"])
+    assert calls == {"dds": 1, "stats": 1, "gsea": 1}
+    changed_sets = [{"set_id": "C1", "member_ids": ["P1", "P3"]},
+                    {"set_id": "C2", "member_ids": ["P2", "P4"]}]
+    review_tools.rna_pathway_enrichment(states, str(tmp_path), str(config_dir), changed_sets, "set", ["C1"])
+    assert calls == {"dds": 2, "stats": 2, "gsea": 2}
+
+
+def test_completed_request_retry_feedback_names_existing_report(tmp_path):
+    sets = [
+        {"set_id": "C1", "member_ids": ["P1", "P2"]},
+        {"set_id": "C2", "member_ids": ["P3", "P4"]},
+        {"set_id": "C3", "member_ids": ["P5", "P6"]},
+    ]
+    state = initial_review_state(sets)
+    signature = partition_signature(sets)
+    state["reports"] = [
+        report("ER:partition", "cross_modal_consistency", "partition", []),
+        report("ER:boundary", "cross_modal_consistency", "pair", ["C1", "C2"], focus="boundary_representation"),
+    ]
+    state["tool_evidence"] = [
+        {"tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+         "partition_signature": signature, "metrics": {"partition": {"nearest_pair_targets": [["C1", "C2"]]}}},
+        {"tool_name": "representation_concordance", "scope": "pair", "target_ids": ["C1", "C2"],
+         "partition_signature": signature, "metrics": {}},
+    ]
+    payloads = []
+    class Router:
+        config = {"router_plan_validation_retries": 1}
+        def invoke(self, payload):
+            payloads.append(payload)
+            if len(payloads) == 1:
+                return {"actions": [], "evidence_requests": [{
+                    "dimension": "cross_modal_consistency", "scope": "pair", "target_ids": ["C1", "C2"],
+                    "focus": "boundary_representation", "question": "Repeat the pair review.",
+                }]}
+            return {"actions": [], "evidence_requests": [{
+                "dimension": "biological_support", "scope": "set", "target_ids": ["C1"],
+                "focus": "transcriptomic_phenotype", "question": "Assess phenotype.",
+            }]}
+
+    router_node(state, {
+        "router_model": Router(), "tool_registry": TOOL_REGISTRY,
+        "patient_states_by_id": {}, "data_root": str(tmp_path),
+        "config_dir": "configs", "artifact_root": str(tmp_path),
+    })
+    feedback = payloads[1]["validation_feedback"]
+    invalid = feedback["invalid_evidence_requests"][0]
+    assert "already been answered" in invalid["reason"]
+    assert invalid["existing_report_refs"] == ["ER:boundary"]
+    assert any(item["report_ref"] == "ER:boundary" for item in feedback["completed_evidence_requests"])
