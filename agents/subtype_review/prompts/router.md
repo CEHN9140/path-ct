@@ -43,11 +43,11 @@ Pair review has two stages: `boundary_representation`, then `boundary_structure`
 
 Before a terminal decision, consider: biological identity, current membership, technical alternatives, internal subdivision, and plausible neighboring pairs. Resolve a supported split or merge as exactly one provisional revision. Otherwise return terminal actions covering every current set exactly once. A terminal action must cite every required target-specific report and every factual claim in its reason must be supported by a cited report.
 
-Use `pair_review_status` as provenance for completed stages, not as scientific evidence. `structural_pair_candidates` are triage signals, not thresholds or merge conclusions. A nominated neighbor requires at least one boundary review before dropping that candidate; one reviewed pair may cover both endpoints.
+Use `structural_pair_candidates` as triage signals, not thresholds or merge conclusions. A nominated neighbor requires at least one boundary review before dropping that candidate; one reviewed pair may cover both endpoints.
 
 # Context
 
-The input may contain `partition`, `evidence_reports`, `evidence_coverage`, `available_evidence_requests`, `completed_evidence_requests`, `structural_pair_candidates`, `pair_review_status`, `workflow_constraints`, `terminal_accountability_report_refs_by_target`, `latest_acquisition_closure`, and `validation_feedback`. Treat the whitelist and structural action constraints as workflow contracts, not scientific evidence.
+The input contains `partition`, `evidence_reports`, `available_evidence_requests`, `structural_pair_candidates`, `workflow_constraints`, `terminal_accountability_report_refs_by_target`, and optional `validation_feedback`. Treat the whitelist and structural action constraints as workflow contracts, not scientific evidence.
 
 # Output Format
 

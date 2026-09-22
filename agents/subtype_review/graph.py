@@ -26,7 +26,7 @@ from agents.subtype_review.schemas import (
     set_id,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
-from agents.subtype_review.evidence_semantics import EVIDENCE_ROLE_CONTRACTS, guidance_for
+from agents.subtype_review.evidence_semantics import guidance_for
 from agents.subtype_review.tools import (
     TOOL_REGISTRY,
     candidate_consensus_geometry,
@@ -79,53 +79,6 @@ def evidence_request_ref(signature: str, request: EvidenceRequest) -> str:
     return f"RQ:{partition_hash}:{digest}"
 
 
-def latest_acquisition_context(
-    state: Mapping[str, Any],
-    signature: str,
-) -> dict[str, Any]:
-    if not state["history"]:
-        return {"source_round": None, "evidence_requests": [], "new_reports": []}
-
-    previous = state["history"][-1]
-    if previous["partition_signature"] != signature:
-        return {"source_round": None, "evidence_requests": [], "new_reports": []}
-
-    plan = RouterPlan.model_validate(previous["router_plan"])
-    if not plan.evidence_requests:
-        return {"source_round": None, "evidence_requests": [], "new_reports": []}
-
-    requested = {
-        (item.dimension, item.scope, tuple(item.target_ids))
-        for item in plan.evidence_requests
-    }
-    new_refs = {
-        evidence_report_ref(
-            signature, row["dimension"], row["aspect"], row["scope"], tuple(row["target_ids"]),
-        )
-        for row in state["round_evidence"]
-        if row["partition_signature"] == signature
-        and (row["dimension"], row["scope"], tuple(row["target_ids"])) in requested
-    }
-    return {
-        "source_round": previous["round"],
-        "evidence_requests": [item.model_dump() for item in plan.evidence_requests],
-        "new_reports": [row for row in state["reports"] if row["report_ref"] in new_refs],
-    }
-
-
-def terminal_closure_refs(
-    current: list[dict[str, Any]],
-    new_reports: list[Mapping[str, Any]],
-) -> dict[str, set[str]]:
-    required = {set_id(item): set() for item in current}
-    for report in new_reports:
-        targets = required if report["scope"] == "partition" else report["target_ids"]
-        for target in targets:
-            if target in required:
-                required[target].add(report["report_ref"])
-    return required
-
-
 def terminal_accountability_refs(
     current: list[dict[str, Any]],
     reports: list[Mapping[str, Any]],
@@ -147,50 +100,19 @@ def terminal_accountability_refs(
     return required
 
 
-def build_pair_review_status(
-    reports: list[Mapping[str, Any]],
-    available: set[tuple[str, str, tuple[str, ...], str]],
-) -> list[dict[str, Any]]:
-    pairs: dict[tuple[str, str], dict[str, Any]] = {}
-    for report in reports:
-        if (
-            report.get("dimension") != "cross_modal_consistency"
-            or report.get("scope") != "pair"
-        ):
-            continue
-        targets = tuple(sorted(map(str, report.get("target_ids", []))))
-        if len(targets) != 2:
-            continue
-        item = pairs.setdefault(targets, {
-            "target_ids": list(targets),
-            "boundary_representation_report_ref": None,
-            "boundary_structure_report_ref": None,
-        })
-        foci = report.get("request_foci", [])
-        if "boundary_representation" in foci:
-            item["boundary_representation_report_ref"] = report.get("report_ref")
-        if "boundary_structure" in foci:
-            item["boundary_structure_report_ref"] = report.get("report_ref")
-    for targets, item in pairs.items():
-        item["boundary_structure_available"] = (
-            "cross_modal_consistency", "pair", targets, "boundary_structure"
-        ) in available
-    return [pairs[key] for key in sorted(pairs)]
-
-
-def structural_pair_followup_targets(
+def structural_pair_affinities(
     state: Mapping[str, Any],
     signature: str,
-) -> set[tuple[str, str]]:
+) -> dict[tuple[str, str], float]:
     screen = next((row for row in state["tool_evidence"]
                    if row["partition_signature"] == signature
                    and row["tool_name"] == "structural_diagnostics"
                    and row["scope"] == "partition"), None)
     rows = (screen or {}).get("metrics", {}).get("partition", {}).get("nearest_pair_affinities", [])
     return {
-        tuple(sorted(map(str, row.get("target_ids", []))))
+        tuple(sorted(map(str, row["target_ids"]))) : float(row["mean_between_affinity"])
         for row in rows
-        if len(row.get("target_ids", [])) == 2
+        if len(row.get("target_ids", [])) == 2 and row.get("mean_between_affinity") is not None
     }
 
 
@@ -259,10 +181,8 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
         raise ValueError("Initial candidate sets cannot overlap")
     return {
         "partition": {"sets": sets},
-        "round_evidence": [],
         "tool_evidence": [],
         "reports": [],
-        "evidence_memory": {},
         "router_plan": None,
         "revision_plan": None,
         "revision_result": None,
@@ -282,7 +202,6 @@ def validate_router_plan(
     plan: RouterPlan,
     state: Mapping[str, Any],
     available: set[tuple[str, str, tuple[str, ...], str]],
-    required_terminal_refs: Mapping[str, set[str]] | None = None,
     terminal_accountability_refs_by_target: Mapping[str, set[str]] | None = None,
     merge_legal: bool = True,
 ) -> None:
@@ -308,15 +227,6 @@ def validate_router_plan(
             raise ValueError("Action cites an unknown or non-current Evidence Report")
         if any(not (row["scope"] == "partition" or set(action.target_ids) & set(row["target_ids"])) for row in cited):
             raise ValueError("Action cites an Evidence Report unrelated to its targets")
-        required = set().union(*(
-            (required_terminal_refs or {}).get(target, set()) for target in action.target_ids
-        ))
-        missing = required - set(action.evidence_report_refs)
-        if missing:
-            raise ValueError(
-                "Action does not close the latest Router-requested evidence for "
-                f"{', '.join(action.target_ids)}: missing report refs {sorted(missing)}"
-            )
     if structural:
         if len(plan.actions) != 1 or len(structural) != 1:
             actions = [item.action for item in plan.actions]
@@ -377,9 +287,9 @@ def validate_router_plan(
     ):
         raise ValueError("Terminal disposition requires a partition structural screen")
 
-    nominated_pairs = structural_pair_followup_targets(
+    nominated_pairs = set(structural_pair_affinities(
         state, partition_signature(current_sets(state))
-    )
+    ))
 
     for action in plan.actions:
         if not action.evidence_report_refs:
@@ -469,19 +379,6 @@ def is_set_biological_support_report(
     )
 
 
-def has_pair_boundary_representation(
-    reports: list[Mapping[str, Any]], targets: list[str],
-) -> bool:
-    targets = sorted(map(str, targets))
-    return any(
-        row.get("dimension") == "cross_modal_consistency"
-        and row.get("scope") == "pair"
-        and sorted(map(str, row.get("target_ids", []))) == targets
-        and "boundary_representation" in row.get("request_foci", [])
-        for row in reports
-    )
-
-
 def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str, Any]:
     state = copy.deepcopy(state)
     values = runtime.context if isinstance(runtime, Runtime) else runtime
@@ -493,26 +390,21 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         for row in state["tool_evidence"] if row["partition_signature"] == signature
     }
     partition_screen_done = ("structural_diagnostics", "partition", ()) in completed
-    structural_pairs = structural_pair_followup_targets(state, signature)
-    screen = next((row for row in state["tool_evidence"]
-                   if row["partition_signature"] == signature
-                   and row["tool_name"] == "structural_diagnostics"
-                   and row["scope"] == "partition"), None)
-    structural_pair_candidates = []
-    if screen is not None:
-        for row in screen.get("metrics", {}).get("partition", {}).get("nearest_pair_affinities", []):
-            targets = sorted(map(str, row.get("target_ids", [])))
-            affinity = row.get("mean_between_affinity")
-            if len(targets) == 2 and affinity is not None:
-                structural_pair_candidates.append({
-                    "target_ids": targets,
-                    "mean_between_affinity": float(affinity),
-                })
-        structural_pair_candidates.sort(
-            key=lambda item: (-item["mean_between_affinity"], item["target_ids"])
-        )
+    pair_affinity = structural_pair_affinities(state, signature)
+    structural_pairs = set(pair_affinity)
+    structural_pair_candidates = [
+        {"target_ids": list(pair), "mean_between_affinity": affinity}
+        for pair, affinity in sorted(pair_affinity.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    reviewed_boundaries = {
+        tuple(sorted(map(str, report["target_ids"])))
+        for report in state["reports"]
+        if report.get("dimension") == "cross_modal_consistency"
+        and report.get("scope") == "pair"
+        and "boundary_representation" in report.get("request_foci", [])
+    }
     set_ids = [set_id(item) for item in current]
-    available_aspects = {}
+    available = set()
     for name, metadata in values.get("tool_registry", TOOL_REGISTRY).items():
         dimension = metadata["dimension"]
         for scope in metadata["scopes"]:
@@ -533,7 +425,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 if (
                     scope == "pair"
                     and "boundary_structure" in metadata.get("question_foci", {}).get(scope, ())
-                    and not has_pair_boundary_representation(state["reports"], list(target_ids))
+                    and tuple(target_ids) not in reviewed_boundaries
                 ):
                     continue
                 key = (name, scope, tuple(target_ids))
@@ -542,116 +434,36 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     if not foci and name == "structural_diagnostics" and scope == "partition":
                         foci = ("partition_structural_screen",)
                     for focus in foci:
-                        request_key = (dimension, scope, tuple(target_ids), focus)
-                        available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
-
-    available = set(available_aspects)
-    completed_evidence_requests = [
-        {
-            "dimension": report["dimension"],
-            "scope": report["scope"],
-            "target_ids": list(report.get("target_ids", [])),
-            "focus": focus,
-            "report_ref": report["report_ref"],
-        }
-        for report in state["reports"]
-        for focus in report.get("request_foci", [])
-    ]
-    option_groups: dict[tuple[str, str, tuple[str, ...]], dict[str, set[str]]] = {}
-    for (dimension, scope, target_ids, focus), aspects in available_aspects.items():
-        group = option_groups.setdefault(
-            (dimension, scope, target_ids), {"aspects": set(), "foci": set()}
-        )
-        group["aspects"].update(aspects)
-        group["foci"].add(focus)
-    request_options = [
-        {
-            "dimension": dimension,
-            "scope": scope,
-            "target_ids": list(target_ids),
-            "available_aspects": sorted(group["aspects"]),
-            "available_question_foci": sorted(group["foci"]),
-        }
-        for (dimension, scope, target_ids), group in sorted(option_groups.items())
-    ]
+                        available.add((dimension, scope, tuple(target_ids), focus))
+    groups: dict[tuple[str, str, tuple[str, ...]], set[str]] = {}
+    for dimension, scope, targets, focus in available:
+        groups.setdefault((dimension, scope, targets), set()).add(focus)
     router_request_options = [
-        {key: item[key] for key in ("dimension", "scope", "target_ids", "available_question_foci")}
-        for item in request_options
+        {"dimension": dimension, "scope": scope, "target_ids": list(targets),
+         "available_question_foci": sorted(foci)}
+        for (dimension, scope, targets), foci in sorted(groups.items())
     ]
-    coverage = {
-        "set": {item: {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS} for item in set_ids},
-        "pair": {},
-        "partition": {dimension: "unassessed" for dimension in EVIDENCE_DIMENSIONS},
-    }
-    for report in state["reports"]:
-        scope = report["scope"]
-        if scope == "partition":
-            coverage["partition"][report["dimension"]] = "assessed"
-            continue
-        target = "|".join(report["target_ids"]) if scope == "pair" else (
-            report["target_ids"][0]
-        )
-        coverage[scope].setdefault(target, {})[report["dimension"]] = "assessed"
-    latest_acquisition = latest_acquisition_context(state, signature)
-    required_closure = terminal_closure_refs(current, latest_acquisition["new_reports"])
     terminal_accountability = terminal_accountability_refs(current, state["reports"])
-    closure_payload = {
-        "source_round": latest_acquisition["source_round"],
-        "previous_evidence_requests": latest_acquisition["evidence_requests"],
-        "new_report_refs": sorted(row["report_ref"] for row in latest_acquisition["new_reports"]),
-        "required_terminal_report_refs_by_target": {
-            target: sorted(refs) for target, refs in required_closure.items()
-        },
-    }
-    budget_exhausted = control["round"] >= control["max_rounds"]
     merge_legal = len(current) > 2
-    workflow_constraints = {
-        "allowed_structural_actions": ["split", "merge"] if merge_legal else ["split"],
-        "forbidden_structural_actions": [] if merge_legal else [{
-            "action": "merge",
-            "reason": "This workflow does not permit a merge that leaves fewer than two current sets.",
-        }],
-    }
-    if not budget_exhausted:
-        control["round"] += 1
+    workflow_constraints = {"allowed_structural_actions": ["split", "merge"] if merge_legal else ["split"]}
+    control["round"] += 1
     payload = {
         "partition": agent_partition_context(state["partition"]),
         "evidence_reports": summarize_reports(state["reports"]),
-        "evidence_coverage": coverage,
-        "evidence_dimension_contracts": copy.deepcopy(EVIDENCE_ROLE_CONTRACTS),
         "available_evidence_requests": router_request_options,
-        "completed_evidence_requests": completed_evidence_requests,
         "structural_pair_candidates": structural_pair_candidates,
-        "latest_acquisition_closure": closure_payload,
         "terminal_accountability_report_refs_by_target": {
             target: sorted(refs) for target, refs in terminal_accountability.items()
         },
-        "pair_review_status": build_pair_review_status(state["reports"], available),
         "workflow_constraints": workflow_constraints,
         "round": control["round"],
-        "budget_exhausted": budget_exhausted,
     }
     append_runtime_trace(
         values.get("runtime_trace_path"),
         node="router",
         event="router_context",
         round_id=control["round"],
-        payload={
-            "partition": partition_snapshot(current),
-            "evidence_reports": payload["evidence_reports"],
-            "evidence_coverage": coverage,
-            "evidence_dimension_contracts": payload["evidence_dimension_contracts"],
-            "available_evidence_requests": router_request_options,
-            "completed_evidence_requests": completed_evidence_requests,
-            "structural_pair_candidates": structural_pair_candidates,
-            "latest_acquisition_closure": closure_payload,
-            "terminal_accountability_report_refs_by_target": {
-                target: sorted(refs) for target, refs in terminal_accountability.items()
-            },
-            "pair_review_status": build_pair_review_status(state["reports"], available),
-            "workflow_constraints": workflow_constraints,
-            "budget_exhausted": budget_exhausted,
-        },
+        payload={**copy.deepcopy(payload), "partition_snapshot": partition_snapshot(current)},
     )
     plan_source = "llm_router" if partition_screen_done else "protocol_mandatory_partition_screen"
     if partition_screen_done:
@@ -666,7 +478,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             try:
                 validate_router_plan(
                     plan, state, available,
-                    required_terminal_refs=required_closure,
                     terminal_accountability_refs_by_target=terminal_accountability,
                     merge_legal=merge_legal,
                 )
@@ -674,66 +485,17 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             except ValueError as exc:
                 if attempt >= retries:
                     raise
-                completed_by_key = {}
-                for item in completed_evidence_requests:
-                    key = (item["dimension"], item["scope"], tuple(item["target_ids"]), item["focus"])
-                    completed_by_key.setdefault(key, []).append(item["report_ref"])
-                invalid_requests = [
-                    {
-                        "dimension": request.dimension,
-                        "scope": request.scope,
-                        "target_ids": list(request.target_ids),
-                        "focus": request.focus,
-                        "reason": (
-                            "This EvidenceRequest has already been answered for the current partition. "
-                            "Reuse the existing Evidence Report instead of requesting it again."
-                            if (request.dimension, request.scope, tuple(request.target_ids), request.focus) in completed_by_key
-                            else "No currently eligible evidence tool remains for this request."
-                        ) if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
-                        else "This evidence request is duplicated within the RouterPlan.",
-                        "existing_report_refs": completed_by_key.get(
-                            (request.dimension, request.scope, tuple(request.target_ids), request.focus), []
-                        ),
-                    }
-                    for request in plan.evidence_requests
-                    if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
-                    or sum(
-                        1 for other in plan.evidence_requests
-                        if (
-                            other.dimension,
-                            other.scope,
-                            tuple(other.target_ids),
-                            other.focus,
-                        ) == (
-                            request.dimension,
-                            request.scope,
-                            tuple(request.target_ids),
-                            request.focus,
-                        )
-                    ) > 1
-                ]
                 feedback = {
                     "error": str(exc),
-                    "invalid_evidence_requests": invalid_requests,
-                    "available_evidence_requests": router_request_options,
-                    "completed_evidence_requests": completed_evidence_requests,
                     "instruction": (
-                        "Repair the RouterPlan according to the validation error. Use only "
-                        "available_evidence_requests and current Evidence Reports. Do not preserve "
-                        "an action when the validation error shows that its required evidential role "
-                        "is missing. In that case, reconsider the action or request decision-relevant "
-                        "evidence if an eligible request remains. Do not invent evidence. "
-                        "Do not add new evidence requests merely to complete coverage. Prefer the "
-                        "smallest evidence set sufficient to resolve the current scientific decision."
+                        "Repair only the workflow contract violation. Use only available_evidence_requests "
+                        "and current Evidence Reports. Do not invent evidence."
                     ),
-                    "required_terminal_report_refs_by_target": closure_payload[
-                        "required_terminal_report_refs_by_target"
-                    ],
                 }
                 if "Terminal action must cite all target-specific" in str(exc):
                     feedback["instruction"] = (
-                        "Terminal evidence_report_refs must include every target-specific report "
-                        "listed in terminal_accountability_report_refs_by_target. Do not change "
+                        "Terminal evidence_report_refs must include every target-specific report listed "
+                        "in terminal_accountability_report_refs_by_target. Do not change "
                         "the scientific action solely because a required reference was omitted."
                     )
                 elif "Drop is premature" in str(exc):
@@ -753,9 +515,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     payload={
                         "attempt": attempt + 1,
                         "error": str(exc),
-                        "invalid_evidence_requests": invalid_requests,
-                        "remaining_available_request_count": len(router_request_options),
-                        "remaining_available_requests": router_request_options,
+                        "available_evidence_requests": router_request_options,
                     },
                 )
                 validation_feedback = feedback
@@ -775,7 +535,6 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         )])
         validate_router_plan(
             plan, state, available,
-            required_terminal_refs=required_closure,
             terminal_accountability_refs_by_target=terminal_accountability,
             merge_legal=merge_legal,
         )
@@ -806,6 +565,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
     needs_more_work = bool(plan.evidence_requests) or any(
         item.action in {"split", "merge"} for item in plan.actions
     )
+    budget_exhausted = control["round"] >= control["max_rounds"]
     if budget_exhausted and needs_more_work:
         control["status"] = "incomplete_due_to_round_budget"
         control["next"] = "end"
@@ -860,18 +620,17 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             raise ValueError(f"Duplicate EvidenceRequest identity: {ref}")
         request_states[ref] = {
             "request": request,
-            "attempted_tools": set(),
-            "stopped": False,
-            "stop_reason": "",
+            "used": set(),
+            "done": False,
         }
 
     working_reports = copy.deepcopy(state["reports"])
     working_tool_evidence = copy.deepcopy(state["tool_evidence"])
     new_rows_all = []
     wave = 0
-    while any(not item["stopped"] for item in request_states.values()):
+    while any(not item["done"] for item in request_states.values()):
         wave += 1
-        active_refs = [ref for ref, item in sorted(request_states.items()) if not item["stopped"]]
+        active_refs = [ref for ref, item in sorted(request_states.items()) if not item["done"]]
         report_snapshot = copy.deepcopy(working_reports)
         selected = {}
         scheduled = set(completed)
@@ -885,10 +644,10 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             request_state = request_states[ref]
             request = request_state["request"]
             remaining = eligible_tools_for_request(
-                request, registry, scheduled, request_state["attempted_tools"],
+                request, registry, scheduled, request_state["used"],
                 partition_screen_done=partition_screen_done,
             )
-            require_tool = not request_state["attempted_tools"]
+            require_tool = not request_state["used"]
             if mandatory_partition_screen:
                 remaining = [name for name in remaining if name == "structural_diagnostics"]
                 if not remaining:
@@ -898,16 +657,16 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 selected_tool = "structural_diagnostics"
                 require_tool = True
             elif not remaining:
-                if not request_state["attempted_tools"]:
+                if not request_state["used"]:
                     raise ValueError(
                         f"No unrun scientific tool can answer EvidenceRequest {ref}"
                     )
-                request_state.update(stopped=True, stop_reason="eligible_tools_exhausted")
+                request_state["done"] = True
                 append_runtime_trace(
                     values.get("runtime_trace_path"), node="verifier",
                     event="verifier_request_stopped", round_id=state["control"]["round"],
                     payload={"wave": wave, "request_ref": ref, "remaining_tools": [],
-                             "stop_reason": request_state["stop_reason"]},
+                             "stop_reason": "eligible_tools_exhausted"},
                 )
                 continue
             elif require_tool and len(remaining) == 1:
@@ -923,7 +682,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                     ]},
                     "evidence_request": request.model_dump(),
                     "current_evidence": reports_for_request(report_snapshot, request, registry),
-                    "attempted_tools": sorted(request_state["attempted_tools"]),
+                    "attempted_tools": sorted(request_state["used"]),
                     "remaining_tools": remaining,
                     "require_tool": require_tool,
                 }
@@ -932,15 +691,13 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                 if selected_tool is None:
                     if require_tool:
                         raise RuntimeError(f"Verifier stopped before acquiring evidence for request {ref}")
-                    request_state.update(
-                        stopped=True,
-                        stop_reason=str(decision.get("stop_reason", "Verifier stopped evidence acquisition.")),
-                    )
+                    stop_reason = str(decision.get("stop_reason", "Verifier stopped evidence acquisition."))
+                    request_state["done"] = True
                     append_runtime_trace(
                         values.get("runtime_trace_path"), node="verifier",
                         event="verifier_request_stopped", round_id=state["control"]["round"],
                         payload={"wave": wave, "request_ref": ref, "remaining_tools": remaining,
-                                 "stop_reason": request_state["stop_reason"]},
+                                 "stop_reason": stop_reason},
                     )
                     continue
                 if selected_tool not in remaining:
@@ -950,7 +707,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             if key in scheduled:
                 raise ValueError(f"Verifier selected a tool already scheduled this partition: {key}")
             scheduled.add(key)
-            request_state["attempted_tools"].add(selected_tool)
+            request_state["used"].add(selected_tool)
             selected[ref] = selected_tool
             append_runtime_trace(
                 values.get("runtime_trace_path"), node="verifier",
@@ -1125,7 +882,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         new_rows_all.extend(new_rows_wave)
         if mandatory_partition_screen:
             for item in request_states.values():
-                item.update(stopped=True, stop_reason="mandatory_partition_screen_complete")
+                item["done"] = True
         append_runtime_trace(
             values.get("runtime_trace_path"), node="verifier", event="evidence_reports",
             round_id=state["control"]["round"],
@@ -1143,15 +900,13 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         values.get("runtime_trace_path"), node="verifier",
         event="verifier_acquisition_complete", round_id=state["control"]["round"],
         payload={"wave_count": wave, "request_states": [
-            {"request_ref": ref, "attempted_tools": sorted(item["attempted_tools"]),
-             "stop_reason": item["stop_reason"]}
+            {"request_ref": ref, "attempted_tools": sorted(item["used"]),
+             "done": item["done"]}
             for ref, item in sorted(request_states.items())
         ]},
     )
     state["reports"] = working_reports
-    state["evidence_memory"][signature] = copy.deepcopy(working_reports)
     state["tool_evidence"] = working_tool_evidence
-    state["round_evidence"] = new_rows_all
     state["control"]["pending_evidence_requests"] = []
     state["control"]["next"] = "router"
     state["control"]["trace"].append({
@@ -1160,8 +915,7 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
         "report_count": len(working_reports),
     })
     return {
-        "reports": working_reports, "evidence_memory": state["evidence_memory"],
-        "tool_evidence": working_tool_evidence, "round_evidence": new_rows_all,
+        "reports": working_reports, "tool_evidence": working_tool_evidence,
         "control": state["control"],
     }
 
@@ -1340,7 +1094,7 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
         },
     )
     state["partition"] = {"sets": new_sets}
-    state["reports"] = copy.deepcopy(state["evidence_memory"].get(new_signature, []))
+    state["reports"] = []
     state["revision_plan"] = plan.model_dump()
     state["revision_result"] = result
     state["history"][-1]["revision_plan"] = plan.model_dump()

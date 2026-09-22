@@ -196,10 +196,8 @@ class ReviewState(TypedDict, total=False):
     """Shared partition, evidence ledger, and run control."""
 
     partition: dict[str, Any]
-    round_evidence: list[dict[str, Any]]
     tool_evidence: list[dict[str, Any]]
     reports: list[dict[str, Any]]
-    evidence_memory: dict[str, list[dict[str, Any]]]
     router_plan: dict[str, Any] | None
     revision_plan: dict[str, Any] | None
     revision_result: dict[str, Any] | None
