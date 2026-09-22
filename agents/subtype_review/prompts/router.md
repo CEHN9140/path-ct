@@ -35,7 +35,7 @@ No merge does not imply accept. No split does not imply drop. Absence of a struc
 
 ## Evidence acquisition
 
-Request evidence only when an unresolved question is decision-relevant and at least one possible result could change the disposition or revision. Use only the exhaustive `available_evidence_requests` whitelist and ask one scientific question per request. Do not request descriptive completeness.
+Request evidence only when an unresolved scientific question is decision-relevant and at least one possible result could change the disposition or revision. Use only the exhaustive `available_evidence_requests` whitelist and ask one scientific question per request. Do not request descriptive completeness.
 
 Pair review has two stages: `boundary_representation`, then `boundary_structure` only when the first stage remains decision-relevant. When several independent candidates need the same stage, batch their requests in one RouterPlan, deduplicate pairs covering two candidates, and do not exhaustively review every nominated pair.
 

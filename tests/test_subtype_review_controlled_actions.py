@@ -202,12 +202,10 @@ def test_controlled_fixture_evidence_is_visible_in_router_input(tmp_path):
     refs = {row["report_ref"] for row in captured["evidence_reports"]}
     assert {"ER:A-membership", "ER:A-biology", "ER:B-membership", "ER:C-structure",
             "ER:D-boundary", "ER:D-structure"}.issubset(refs)
-    assert {item["report_ref"] for item in captured["completed_evidence_requests"]} >= {
-        "ER:A-membership", "ER:B-membership", "ER:C-structure", "ER:D-boundary", "ER:D-structure",
-    }
+    assert "available_evidence_requests" in captured
 
 
-def test_single_eligible_tool_bypasses_verifier_selector():
+def test_single_eligible_tool_still_uses_verifier_selector():
     from agents.subtype_review.graph import verifier_node
 
     calls = {"select": 0, "audit": 0, "tool": 0}
@@ -215,7 +213,9 @@ def test_single_eligible_tool_bypasses_verifier_selector():
         def invoke(self, payload):
             if payload["mode"] == "select":
                 calls["select"] += 1
-                raise AssertionError("single eligible tool should bypass selection")
+                assert payload["remaining_tools"] == ["only_tool"]
+                assert payload["require_tool"] is True
+                return {"selected_tool": "only_tool"}
             calls["audit"] += 1
             required = payload["required_reports"][0]
             required = {key: value for key, value in required.items() if key != "evidence_guidance"}
@@ -238,7 +238,7 @@ def test_single_eligible_tool_bypasses_verifier_selector():
     }}
     verifier_node(state, {"verifier_model": Verifier(), "tool_registry": registry,
                           "patient_states_by_id": {}, "data_root": "/tmp", "config_dir": "configs"})
-    assert calls == {"select": 0, "audit": 1, "tool": 1}
+    assert calls == {"select": 1, "audit": 1, "tool": 1}
 
 
 def test_nonfirst_request_with_one_remaining_tool_can_stop():
@@ -366,10 +366,8 @@ def test_completed_request_retry_feedback_names_existing_report(tmp_path):
         "config_dir": "configs", "artifact_root": str(tmp_path),
     })
     feedback = payloads[1]["validation_feedback"]
-    invalid = feedback["invalid_evidence_requests"][0]
-    assert "already been answered" in invalid["reason"]
-    assert invalid["existing_report_refs"] == ["ER:boundary"]
-    assert any(item["report_ref"] == "ER:boundary" for item in feedback["completed_evidence_requests"])
+    assert "error" in feedback
+    assert "available_evidence_requests" not in feedback
 
 
 def test_structural_pair_candidates_are_visible_and_drop_requires_one_review(tmp_path):

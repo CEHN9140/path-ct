@@ -3,17 +3,13 @@ import pytest
 
 from agents.subtype_review.graph import (
     eligible_tools_for_request,
-    build_pair_review_status,
     initial_review_state,
     partition_signature,
     router_node,
     terminal_accountability_refs,
     validate_router_plan,
 )
-from agents.subtype_review.evidence_semantics import (
-    EVIDENCE_ROLE_CONTRACTS,
-)
-from agents.subtype_review.schemas import EVIDENCE_DIMENSIONS, EvidenceRequest, RouterAction, RouterPlan
+from agents.subtype_review.schemas import EvidenceRequest, RouterAction, RouterPlan
 from agents.subtype_review.tools import TOOL_REGISTRY
 from agents.subtype_review.llm import summarize_reports
 
@@ -41,44 +37,6 @@ def terminal_action(action, target="C1", refs=None):
         action=action, target_ids=[target], n_children=None,
         evidence_report_refs=refs or ["ER:partition"], reason="reason",
     )
-
-
-def test_partition_reports_update_partition_coverage_without_nesting():
-    state = initial_review_state([{
-        "set_id": "C1", "member_ids": ["P1", "P2"],
-        "generator": {"initial_k": 8, "geometry": {"type": "hidden"}},
-    }])
-    signature = partition_signature(state["partition"]["sets"])
-    state["tool_evidence"].append({
-        "tool_name": "structural_diagnostics", "scope": "partition",
-        "target_ids": [], "partition_signature": signature,
-    })
-    state["reports"].append({
-        "dimension": "cross_modal_consistency", "scope": "partition",
-        "target_ids": [], "report_ref": "ER:partition",
-    })
-    captured = {}
-
-    class Router:
-        def invoke(self, payload):
-            captured.update(payload)
-            return {"actions": [], "evidence_requests": [{
-                "dimension": "biological_support", "scope": "set",
-                "target_ids": ["C1"], "focus": "transcriptomic_phenotype",
-                "question": "Clarify C1 phenotype.",
-            }]}
-
-    runtime = {
-        "router_model": Router(), "tool_registry": TOOL_REGISTRY,
-        "patient_states_by_id": {}, "data_root": "/tmp",
-        "artifact_root": "/tmp", "config_dir": "configs",
-    }
-    router_node(state, runtime)
-
-    assert all("generator" not in item for item in captured["partition"]["sets"])
-    coverage = captured["evidence_coverage"]["partition"]
-    assert coverage["cross_modal_consistency"] == "assessed"
-    assert set(coverage) == set(EVIDENCE_DIMENSIONS)
 
 
 def test_question_focus_binds_cross_modal_tool_family():
@@ -190,36 +148,6 @@ def test_structural_revision_does_not_require_terminal_accountability_refs():
     validate_router_plan(plan, state, set(), terminal_accountability_refs_by_target={"C1": {"ER:other"}, "C2": {"ER:other"}})
 
 
-def test_pair_review_status_boundary_only():
-    reports = [{
-        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
-        "scope": "pair", "target_ids": ["C1", "C2"],
-        "request_foci": ["boundary_representation"],
-    }]
-    status = build_pair_review_status(reports, {
-        ("cross_modal_consistency", "pair", ("C1", "C2"), "boundary_structure"),
-    })
-    assert status[0]["boundary_representation_report_ref"] == "ER:boundary"
-    assert status[0]["boundary_structure_report_ref"] is None
-    assert status[0]["boundary_structure_available"] is True
-
-
-def test_pair_review_status_boundary_and_structure_complete():
-    reports = [{
-        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
-        "scope": "pair", "target_ids": ["C1", "C2"],
-        "request_foci": ["boundary_representation"],
-    }, {
-        "report_ref": "ER:structure", "dimension": "cross_modal_consistency",
-        "scope": "pair", "target_ids": ["C1", "C2"],
-        "request_foci": ["boundary_structure"],
-    }]
-    status = build_pair_review_status(reports, set())
-    assert status[0]["boundary_representation_report_ref"] == "ER:boundary"
-    assert status[0]["boundary_structure_report_ref"] == "ER:structure"
-    assert status[0]["boundary_structure_available"] is False
-
-
 def test_accept_with_membership_but_without_biology_fails():
     state = terminal_validation_state([{
         "report_ref": "ER:membership", "dimension": "cross_modal_consistency",
@@ -295,12 +223,6 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         }
         router_node(state, runtime)
         assert captured["workflow_constraints"]["allowed_structural_actions"] == allowed_actions
-        assert captured["evidence_dimension_contracts"] == EVIDENCE_ROLE_CONTRACTS
-        forbidden_actions = captured["workflow_constraints"]["forbidden_structural_actions"]
-        assert forbidden_actions == ([] if "merge" in allowed_actions else [{
-            "action": "merge",
-            "reason": "This workflow does not permit a merge that leaves fewer than two current sets.",
-        }])
         assert any(
             item["dimension"] == "cross_modal_consistency"
             and item["scope"] == "pair" and item["target_ids"] == pair
@@ -312,7 +234,6 @@ def test_structural_action_legality_is_explicit_and_pair_review_remains_availabl
         ]
         context = next(row for row in trace_rows if row["event"] == "router_context")
         assert context["workflow_constraints"] == captured["workflow_constraints"]
-        assert context["evidence_dimension_contracts"] == EVIDENCE_ROLE_CONTRACTS
 
 
 def test_router_receives_remaining_question_foci_without_tool_or_aspect_names():

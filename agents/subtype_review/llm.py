@@ -412,7 +412,7 @@ class VerifierChatModel:
                 calls = list(additional.get("tool_calls", []) or [])
             if not calls:
                 if require_tool:
-                    last_error = "selection returned no tool call when exactly one eligible tool call was required"
+                    last_error = "Verifier must call exactly one eligible tool before stopping this EvidenceRequest."
                 else:
                     return {
                         "selected_tool": None,
@@ -449,7 +449,7 @@ class VerifierChatModel:
                     )},
                 ]
         message = f"Verifier tool selection remained invalid after retries: {last_error}"
-        if last_error.startswith("selection returned no tool call"):
+        if last_error.startswith("Verifier must call exactly one eligible tool"):
             raise RuntimeError(message)
         raise ValueError(message)
 

@@ -329,7 +329,7 @@ def test_verifier_first_selection_still_requires_tool_call():
     model = BoundModel([])
     model.invoke = lambda messages: SimpleNamespace(content="STOP", tool_calls=[], additional_kwargs={})
     verifier = VerifierChatModel(model, AuditModel(), "prompt", [SimpleNamespace(name="wxs")])
-    with pytest.raises(RuntimeError, match="no tool call when exactly one eligible tool call was required"):
+    with pytest.raises(RuntimeError, match="must call exactly one eligible tool"):
         verifier.invoke({
             "mode": "select", "remaining_tools": ["wxs"], "require_tool": True,
         })
