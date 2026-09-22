@@ -47,20 +47,6 @@ def tool_result(
     return result
 
 
-def affinity_matrices(output_root: str) -> tuple[list[str], dict[str, np.ndarray]]:
-    candidate_root = Path(output_root) / "candidate_subtype"
-    patient_ids = [str(value) for value in json.loads((candidate_root / "affinity_patient_order.json").read_text())]
-    matrices = {
-        name: np.asarray(np.load(candidate_root / f"{name}_affinity.npy"), dtype=float)
-        for name in ("ct", "wsi", "rna", "wxs")
-    }
-    matrices["fused"] = np.asarray(np.load(candidate_root / "fused_similarity.npy"), dtype=float)
-    shape = (len(patient_ids), len(patient_ids))
-    if any(matrix.shape != shape or not np.isfinite(matrix).all() for matrix in matrices.values()):
-        raise ValueError("Production four-view affinity matrices do not match patient order")
-    return patient_ids, matrices
-
-
 def candidate_consensus_geometry(
     output_root: str,
     all_cluster_states: list[Mapping[str, Any]],
@@ -92,14 +78,6 @@ def candidate_consensus_geometry(
     matrix = np.clip((matrix + matrix.T) / 2, 0, 1)
     np.fill_diagonal(matrix, 0.0)
     return patient_ids, matrix
-
-
-def fused_distance_matrix(output_root: str) -> tuple[list[str], np.ndarray]:
-    patient_ids, matrices = affinity_matrices(output_root)
-    fused = np.clip((matrices["fused"] + matrices["fused"].T) / 2, 0, 1)
-    distance = 1.0 - fused
-    np.fill_diagonal(distance, 0.0)
-    return patient_ids, distance
 
 
 def distance_kernel(distance: np.ndarray) -> np.ndarray:
@@ -209,9 +187,6 @@ def representation_concordance(
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = modality_distance_matrices(output_root)
-    fused_patient_ids, fused_distances = fused_distance_matrix(output_root)
-    if fused_patient_ids != patient_ids:
-        raise ValueError("Fused distance patient order does not match native distance matrices")
     index = {patient_id: position for position, patient_id in enumerate(patient_ids)}
     memberships = {
         str(item["set_id"]): set(map(str, item["member_ids"]))
@@ -223,13 +198,48 @@ def representation_concordance(
         raise ValueError(f"Current memberships are absent from native distance matrices: {missing_members}")
     if scope == "partition":
         case_ids = [case_id for case_id in patient_ids if case_id in partition_members]
-        labels = np.asarray([
-            next(set_id for set_id, members in memberships.items() if case_id in members)
-            for case_id in case_ids
-        ])
-        comparison = "current_partition_labels"
-        report_key = "partition"
-        grv_case_ids = case_ids
+        positions = [index[case_id] for case_id in case_ids]
+        settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["cross_modal"]["concordance"]
+        permutations = int(settings["permutations"])
+        bootstrap_repeats = int(settings["bootstrap_repeats"])
+        rng = np.random.default_rng(int(settings["random_seed"]))
+        concordance = {}
+        for left, right in combinations(("ct", "wsi", "rna", "wxs"), 2):
+            left_distance = matrices[left][np.ix_(positions, positions)]
+            right_distance = matrices[right][np.ix_(positions, positions)]
+            observed = generalized_rv(left_distance, right_distance)
+            if observed is None:
+                ci, valid_n, permutation_p = None, 0, None
+            else:
+                bootstrapped = []
+                for _ in range(bootstrap_repeats):
+                    sample = rng.integers(0, len(positions), size=len(positions))
+                    value = generalized_rv(
+                        left_distance[np.ix_(sample, sample)],
+                        right_distance[np.ix_(sample, sample)],
+                    )
+                    if value is not None:
+                        bootstrapped.append(value)
+                valid_n = len(bootstrapped)
+                ci = [float(value) for value in np.quantile(bootstrapped, [0.025, 0.975])] if valid_n >= 2 else None
+                left_kernel, right_kernel = distance_kernel(left_distance), distance_kernel(right_distance)
+                denominator = np.linalg.norm(left_kernel) * np.linalg.norm(right_kernel)
+                exceed = 0
+                for _ in range(permutations):
+                    perm = rng.permutation(len(positions))
+                    permuted = right_kernel[np.ix_(perm, perm)]
+                    exceed += float(np.sum(left_kernel * permuted) / denominator) >= observed
+                permutation_p = (exceed + 1) / (permutations + 1)
+            concordance[f"{left}__{right}"] = {
+                "grv": observed, "bootstrap_ci95": ci,
+                "bootstrap_valid_n": valid_n, "permutation_p": permutation_p,
+                "permutations": permutations,
+            }
+        return tool_result("representation_concordance", {"partition": {"partition": {
+            "geometry_concordance_patient_n": len(case_ids),
+            "comparison": "partition_patient_geometry",
+            "geometry_concordance": concordance,
+        }}})
     elif scope == "set":
         target = target_ids[0]
         case_ids = [case_id for case_id in patient_ids if case_id in partition_members]
@@ -239,7 +249,6 @@ def representation_concordance(
         ])
         comparison = "full_partition_labels"
         report_key = target
-        grv_case_ids = [case_id for case_id in patient_ids if case_id in memberships[target]]
     else:
         left, right = target_ids
         selected = memberships[left] | memberships[right]
@@ -247,56 +256,7 @@ def representation_concordance(
         labels = np.asarray([left if case_id in memberships[left] else right for case_id in case_ids])
         comparison = "candidate_pair"
         report_key = "|".join(sorted(target_ids))
-        grv_case_ids = case_ids
-
     positions = [index[case_id] for case_id in case_ids]
-    grv_positions = [index[case_id] for case_id in grv_case_ids]
-    settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["cross_modal"]["concordance"]
-    permutations = int(settings["permutations"])
-    bootstrap_repeats = int(settings["bootstrap_repeats"])
-    rng = np.random.default_rng(int(settings["random_seed"]))
-    concordance = {}
-    for left, right in combinations(("ct", "wsi", "rna", "wxs"), 2):
-        left_distance = matrices[left][np.ix_(grv_positions, grv_positions)]
-        right_distance = matrices[right][np.ix_(grv_positions, grv_positions)]
-        observed = generalized_rv(left_distance, right_distance)
-        if observed is None:
-            ci = None
-            valid_n = 0
-            permutation_p = None
-        else:
-            bootstrapped = []
-            n = len(grv_positions)
-            for _ in range(bootstrap_repeats):
-                sample = rng.integers(0, n, size=n)
-                value = generalized_rv(
-                    left_distance[np.ix_(sample, sample)],
-                    right_distance[np.ix_(sample, sample)],
-                )
-                if value is not None:
-                    bootstrapped.append(value)
-            valid_n = len(bootstrapped)
-            ci = (
-                [float(value) for value in np.quantile(bootstrapped, [0.025, 0.975])]
-                if valid_n >= 2 else None
-            )
-            left_kernel = distance_kernel(left_distance)
-            right_kernel = distance_kernel(right_distance)
-            denominator = np.linalg.norm(left_kernel) * np.linalg.norm(right_kernel)
-            exceed = 0
-            for _ in range(permutations):
-                perm = rng.permutation(len(grv_positions))
-                permuted = right_kernel[np.ix_(perm, perm)]
-                perm_grv = float(np.sum(left_kernel * permuted) / denominator)
-                exceed += perm_grv >= observed
-            permutation_p = (exceed + 1) / (permutations + 1)
-        concordance[f"{left}__{right}"] = {
-            "grv": observed,
-            "bootstrap_ci95": ci,
-            "bootstrap_valid_n": valid_n,
-            "permutation_p": permutation_p,
-            "permutations": permutations,
-        }
     alignment = {
         name: current_membership_alignment(
             matrices[name][np.ix_(positions, positions)],
@@ -305,18 +265,10 @@ def representation_concordance(
         )
         for name in ("ct", "wsi", "rna", "wxs")
     }
-    integrated_alignment = current_membership_alignment(
-        fused_distances[np.ix_(positions, positions)],
-        labels,
-        target_ids[0] if scope == "set" else None,
-    )
     output = {
         "alignment_patient_n": len(case_ids),
-        "geometry_concordance_patient_n": len(grv_case_ids),
         "comparison": comparison,
-        "integrated_membership_alignment": integrated_alignment,
         "native_view_membership_alignment": alignment,
-        "geometry_concordance": concordance,
     }
     return tool_result("representation_concordance", {scope: {report_key: output}})
 
@@ -333,14 +285,9 @@ def structural_diagnostics(
     from sklearn.metrics import adjusted_rand_score, silhouette_score
     from utils.llm_utils import load_yaml_file
 
-    patient_ids, matrices = affinity_matrices(output_root)
-    consensus_patient_ids, fused = candidate_consensus_geometry(
+    patient_ids, consensus = candidate_consensus_geometry(
         output_root, all_cluster_states
     )
-    if consensus_patient_ids != patient_ids:
-        raise ValueError("Candidate consensus patient order does not match affinity patient order")
-    full_fused_distance = np.clip(1.0 - matrices["fused"], 0, 1)
-    np.fill_diagonal(full_fused_distance, 0.0)
     native_patient_ids, native_distances = modality_distance_matrices(output_root)
     if native_patient_ids != patient_ids:
         raise ValueError("Native distance matrices do not match fused affinity patient order")
@@ -391,7 +338,7 @@ def structural_diagnostics(
     if scope == "partition":
         internal = {}
         for set_id, members in set_members.items():
-            local = fused[np.ix_([index[item] for item in members], [index[item] for item in members])]
+            local = consensus[np.ix_([index[item] for item in members], [index[item] for item in members])]
             upper = local[np.triu_indices(len(local), 1)]
             max_k = min(max_children, len(members) // min_size)
             gaps = eigengap(local, max_k)
@@ -404,7 +351,7 @@ def structural_diagnostics(
             }
         boundaries = []
         for left, right in combinations(sorted(set_members), 2):
-            cross = fused[np.ix_([index[item] for item in set_members[left]], [index[item] for item in set_members[right]])]
+            cross = consensus[np.ix_([index[item] for item in set_members[left]], [index[item] for item in set_members[right]])]
             boundaries.append({"target_ids": [left, right], "mean_between_affinity": float(cross.mean())})
         neighbors = int(settings["nearest_merge_neighbors"])
         selected = {
@@ -429,7 +376,7 @@ def structural_diagnostics(
     members = scoped_groups(scope, target_ids, all_cluster_states)
     output = {}
     for key, case_ids in members.items():
-        local = fused[np.ix_([index[item] for item in case_ids], [index[item] for item in case_ids])]
+        local = consensus[np.ix_([index[item] for item in case_ids], [index[item] for item in case_ids])]
         max_k = min(max_children, len(case_ids) // min_size)
         spectrum = eigengap(local, max_k)
         if scope == "set":
@@ -441,11 +388,13 @@ def structural_diagnostics(
                 sizes = np.bincount(labels, minlength=k)
                 if int(sizes.min()) < min_size or len(np.unique(labels)) != k:
                     continue
+                local_distance = 1.0 - local
+                np.fill_diagonal(local_distance, 0.0)
                 solutions[str(k)] = {
                     "child_sizes": sorted(map(int, sizes)),
                     "normalized_cut": normalized_cut(local, labels),
-                    "integrated_fused_separation": current_membership_alignment(
-                        full_fused_distance[np.ix_([index[item] for item in case_ids], [index[item] for item in case_ids])],
+                    "candidate_consensus_separation": current_membership_alignment(
+                        local_distance,
                         labels,
                     ),
                     "native_view_separation": native_separation(case_ids, labels),
@@ -531,32 +480,58 @@ def rna_pathway_enrichment(
             f"feature artifact, found: {sorted(rna_paths)}"
         )
 
-    frame = pd.read_csv(next(iter(rna_paths))).set_index("case_id")
+    gene_settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["rna"]
+    counts_path = Path(next(iter(rna_paths))).resolve()
+    gene_sets_path = Path(gene_settings["hallmark_gene_sets_path"]).resolve()
+    min_overlap = int(gene_settings["min_pathway_overlap"])
+    gsea_permutations = int(gene_settings.get("gsea_permutations", 1000))
+    seed = int(gene_settings.get("seed", 20260920))
+    cache_root = Path(output_root) / "subtype_review" / "tool_cache" / "rna_pathway_enrichment"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    members_by_set = {
+        set_id: set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
+        for set_id in target_ids
+    }
+    case_ids = sorted(all_members)
+    results = {}
+    uncached = []
+    for set_id, members in members_by_set.items():
+        target_ids_in_matrix = [case_id for case_id in case_ids if case_id in members]
+        rest_ids = [case_id for case_id in case_ids if case_id not in members]
+        cache_payload = {
+            "version": int(gene_settings.get("cache_version", 1)),
+            "target_ids": target_ids_in_matrix,
+            "rest_ids": rest_ids,
+            "counts": [str(counts_path), counts_path.stat().st_size, counts_path.stat().st_mtime_ns],
+            "gene_sets": [str(gene_sets_path), gene_sets_path.stat().st_size, gene_sets_path.stat().st_mtime_ns],
+            "min_pathway_overlap": min_overlap,
+            "gsea_permutations": gsea_permutations,
+            "seed": seed,
+        }
+        cache_key = hashlib.sha256(json.dumps(cache_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        cache_path = cache_root / f"{cache_key}.json"
+        if cache_path.is_file():
+            results[set_id] = json.loads(cache_path.read_text(encoding="utf-8"))
+        else:
+            uncached.append((set_id, members, target_ids_in_matrix, rest_ids, cache_path))
+    if not uncached:
+        return tool_result("rna_pathway_enrichment", {"set": results})
+
+    frame = pd.read_csv(counts_path).set_index("case_id")
     frame.index = frame.index.map(str)
     missing_counts = sorted(all_members - set(frame.index))
     if missing_counts:
-        raise ValueError(
-            "Raw RNA count matrix does not cover the full candidate cohort: "
-            f"{missing_counts}"
-        )
+        raise ValueError("Raw RNA count matrix does not cover the full candidate cohort: " f"{missing_counts}")
     counts_array = frame.to_numpy(dtype=float)
     if not np.isfinite(counts_array).all() or np.any(counts_array < 0) or not np.allclose(counts_array, np.rint(counts_array)):
         raise ValueError("Raw RNA count matrix must contain finite nonnegative integers")
-    gene_settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["rna"]
-    gene_sets_path = gene_settings["hallmark_gene_sets_path"]
     gene_sets = {}
     for line in Path(gene_sets_path).read_text(encoding="utf-8").splitlines():
         fields = line.rstrip().split("\t")
         if len(fields) > 2:
             gene_sets[fields[0]] = set(fields[2:]) & set(frame.columns)
-    min_overlap = int(gene_settings["min_pathway_overlap"])
     gene_sets = {name: genes for name, genes in gene_sets.items() if len(genes) >= min_overlap}
-    results = {}
-    for set_id in target_ids:
-        members = set(next(item["member_ids"] for item in all_cluster_states if item["set_id"] == set_id))
-        case_ids = sorted(all_members)
-        target_ids_in_matrix = [case_id for case_id in case_ids if case_id in members]
-        rest_ids = [case_id for case_id in case_ids if case_id not in members]
+    for set_id, members, target_ids_in_matrix, rest_ids, cache_path in uncached:
         set_n, rest_n = len(target_ids_in_matrix), len(rest_ids)
         if set_n < 2 or rest_n < 2:
             results[set_id] = {
@@ -566,6 +541,7 @@ def rna_pathway_enrichment(
                 "reason": "DESeq2 target-versus-rest contrast requires at least two samples in both groups.",
                 "pathways": [],
             }
+            cache_path.write_text(json.dumps(results[set_id], ensure_ascii=False), encoding="utf-8")
             continue
         contrast_ids = target_ids_in_matrix + rest_ids
         counts = frame.loc[contrast_ids].astype(np.int64)
@@ -577,7 +553,7 @@ def rna_pathway_enrichment(
             metadata=metadata,
             design="~condition",
             refit_cooks=True,
-            n_cpus=1,
+            n_cpus=int(gene_settings.get("n_cpus", 1)),
             quiet=True,
         )
         dds.deseq2()
@@ -586,7 +562,7 @@ def rna_pathway_enrichment(
             contrast=["condition", "target", "rest"],
             cooks_filter=False,
             independent_filter=False,
-            n_cpus=1,
+            n_cpus=int(gene_settings.get("n_cpus", 1)),
             quiet=True,
         )
         differential_stats.run_wald_test()
@@ -604,6 +580,7 @@ def rna_pathway_enrichment(
                 "reason": "Fewer than two finite gene statistics were available for preranked enrichment.",
                 "pathways": [],
             }
+            cache_path.write_text(json.dumps(results[set_id], ensure_ascii=False), encoding="utf-8")
             continue
         ranked_genes = set(ranking["gene"].astype(str))
         eligible_gene_sets = {
@@ -619,14 +596,16 @@ def rna_pathway_enrichment(
                 "reason": "No configured pathway met the minimum overlap with finite ranked genes.",
                 "pathways": [],
             }
+            cache_path.write_text(json.dumps(results[set_id], ensure_ascii=False), encoding="utf-8")
             continue
         result = prerank(
             rnk=ranking[["gene", "stat"]],
             gene_sets=eligible_gene_sets,
             min_size=min_overlap,
             max_size=500,
-            permutation_num=1000,
-            seed=20260920,
+            permutation_num=gsea_permutations,
+            seed=seed,
+            threads=int(gene_settings.get("gsea_threads", 1)),
             outdir=None,
             verbose=False,
         ).res2d
@@ -645,6 +624,7 @@ def rna_pathway_enrichment(
             "ranking_method": "pydeseq2_wald_statistic",
             "finite_ranked_gene_n": finite_ranked_gene_n, "pathways": rows[:30],
         }
+        cache_path.write_text(json.dumps(results[set_id], ensure_ascii=False), encoding="utf-8")
     return tool_result("rna_pathway_enrichment", {"set": results})
 
 
@@ -1014,16 +994,13 @@ def confounder_representation_effect(
     from utils.llm_utils import load_yaml_file
 
     patient_ids, matrices = modality_distance_matrices(output_root)
-    candidate_root = Path(output_root) / "candidate_subtype"
-    fused_distance = np.asarray(np.load(candidate_root / "fused_distance.npy"), dtype=float)
-    if (
-        fused_distance.shape != (len(patient_ids), len(patient_ids))
-        or not np.isfinite(fused_distance).all()
-        or not np.allclose(fused_distance, fused_distance.T, atol=1e-8)
-        or np.min(fused_distance) < 0
-        or not np.allclose(np.diag(fused_distance), 0.0, atol=1e-8)
-    ):
-        raise ValueError("Fused native distance does not match patient order or is invalid")
+    consensus_patient_ids, consensus = candidate_consensus_geometry(
+        output_root, all_cluster_states
+    )
+    if consensus_patient_ids != patient_ids:
+        raise ValueError("Candidate consensus patient order does not match native distance matrices")
+    consensus_distance = 1.0 - consensus
+    np.fill_diagonal(consensus_distance, 0.0)
     index = {case_id: position for position, case_id in enumerate(patient_ids)}
     factors = technical_values(patient_states_by_id, output_root)
     settings = load_yaml_file(Path(config_dir) / "subtype_review.yaml")["confounder"]
@@ -1039,8 +1016,8 @@ def confounder_representation_effect(
         available = [case_id for case_id in patient_ids if factors.get(case_id, {}).get(factor) not in (None, "")]
         labels = [str(factors[case_id][factor]) for case_id in available]
         levels, counts = np.unique(labels, return_counts=True)
-        modality = "fused" if factor == "tissue_source_site" else "ct"
-        source = fused_distance if modality == "fused" else matrices["ct"]
+        modality = "candidate_consensus" if factor == "tissue_source_site" else "ct"
+        source = consensus_distance if modality == "candidate_consensus" else matrices["ct"]
         positions = [index[case_id] for case_id in available]
         local_distance = source[np.ix_(positions, positions)]
         result = {
@@ -1187,13 +1164,13 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     "representation_concordance": {
         "aspect": "affinity_geometry_concordance",
         "dimension": "cross_modal_consistency", "scopes": ("set", "pair", "partition"),
-        "description": "Compare integrated fused and four-view native patient geometries with GRV, permutation and bootstrap uncertainty, and measure current candidate-label alignment without reclustering.",
+        "description": "Assess current candidate membership or pair-boundary representation in CT, WSI, RNA, and WXS native patient-distance geometries; partition scope additionally evaluates cross-view patient-geometry concordance with GRV uncertainty.",
         "question_foci": {"set": ("membership_representation",), "pair": ("boundary_representation",), "partition": ("patient_geometry_concordance",)},
         "selection_guidance": (
-            "Use when the EvidenceRequest asks whether an existing candidate membership or pair boundary is "
-            "represented in integrated multimodal and native patient geometries. Integrated alignment is the "
-            "primary membership evidence; native views explain modality-specific support or disagreement and are "
-            "not votes. It does not assess internal subdivision or split granularity."
+            "Use for current membership or pair-boundary representation in native modality geometries. Interpret "
+            "the four views jointly; they are not votes and no single modality is automatically authoritative. "
+            "Set/pair scope does not assess internal subdivision. Partition-scope patient_geometry_concordance is "
+            "the only scope that computes global cross-view GRV uncertainty."
         ),
         "function": representation_concordance,
     },

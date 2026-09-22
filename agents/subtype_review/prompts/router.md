@@ -261,6 +261,8 @@ Workflow legality is not scientific evidence.
 
 Use `pair_review_status` only to determine which stages of a pair review have actually been completed. It is provenance, not scientific evidence.
 
+`completed_evidence_requests` lists scientific questions already answered for the current partition. Before emitting an EvidenceRequest, check its exact dimension/scope/target_ids/focus key against this list. If the exact question is already answered, reuse the listed Evidence Report instead of requesting it again. `available_evidence_requests` remains the exhaustive whitelist for new evidence acquisition.
+
 When `latest_acquisition_closure.required_terminal_report_refs_by_target` contains report references, terminal actions must cite and account for them.
 
 When `terminal_accountability_report_refs_by_target` contains report references, terminal actions must include all corresponding target-specific references.

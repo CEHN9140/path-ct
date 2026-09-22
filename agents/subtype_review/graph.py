@@ -474,11 +474,25 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     continue
                 key = (name, scope, tuple(target_ids))
                 if key not in completed:
-                    for focus in metadata.get("question_foci", {}).get(scope, ()):
+                    foci = metadata.get("question_foci", {}).get(scope, ())
+                    if not foci and name == "structural_diagnostics" and scope == "partition":
+                        foci = ("partition_structural_screen",)
+                    for focus in foci:
                         request_key = (dimension, scope, tuple(target_ids), focus)
                         available_aspects.setdefault(request_key, set()).add(metadata.get("aspect", name))
 
     available = set(available_aspects)
+    completed_evidence_requests = [
+        {
+            "dimension": report["dimension"],
+            "scope": report["scope"],
+            "target_ids": list(report.get("target_ids", [])),
+            "focus": focus,
+            "report_ref": report["report_ref"],
+        }
+        for report in state["reports"]
+        for focus in report.get("request_foci", [])
+    ]
     option_groups: dict[tuple[str, str, tuple[str, ...]], dict[str, set[str]]] = {}
     for (dimension, scope, target_ids, focus), aspects in available_aspects.items():
         group = option_groups.setdefault(
@@ -542,6 +556,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
         "evidence_coverage": coverage,
         "evidence_dimension_contracts": copy.deepcopy(EVIDENCE_ROLE_CONTRACTS),
         "available_evidence_requests": router_request_options,
+        "completed_evidence_requests": completed_evidence_requests,
         "latest_acquisition_closure": closure_payload,
         "terminal_accountability_report_refs_by_target": {
             target: sorted(refs) for target, refs in terminal_accountability.items()
@@ -562,6 +577,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             "evidence_coverage": coverage,
             "evidence_dimension_contracts": payload["evidence_dimension_contracts"],
             "available_evidence_requests": router_request_options,
+            "completed_evidence_requests": completed_evidence_requests,
             "latest_acquisition_closure": closure_payload,
             "terminal_accountability_report_refs_by_target": {
                 target: sorted(refs) for target, refs in terminal_accountability.items()
@@ -592,15 +608,26 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
             except ValueError as exc:
                 if attempt >= retries:
                     raise
+                completed_by_key = {}
+                for item in completed_evidence_requests:
+                    key = (item["dimension"], item["scope"], tuple(item["target_ids"]), item["focus"])
+                    completed_by_key.setdefault(key, []).append(item["report_ref"])
                 invalid_requests = [
                     {
                         "dimension": request.dimension,
                         "scope": request.scope,
                         "target_ids": list(request.target_ids),
                         "focus": request.focus,
-                        "reason": "No currently eligible evidence tool remains for this request."
-                        if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
+                        "reason": (
+                            "This EvidenceRequest has already been answered for the current partition. "
+                            "Reuse the existing Evidence Report instead of requesting it again."
+                            if (request.dimension, request.scope, tuple(request.target_ids), request.focus) in completed_by_key
+                            else "No currently eligible evidence tool remains for this request."
+                        ) if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
                         else "This evidence request is duplicated within the RouterPlan.",
+                        "existing_report_refs": completed_by_key.get(
+                            (request.dimension, request.scope, tuple(request.target_ids), request.focus), []
+                        ),
                     }
                     for request in plan.evidence_requests
                     if (request.dimension, request.scope, tuple(request.target_ids), request.focus) not in available
@@ -623,6 +650,7 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     "error": str(exc),
                     "invalid_evidence_requests": invalid_requests,
                     "available_evidence_requests": router_request_options,
+                    "completed_evidence_requests": completed_evidence_requests,
                     "instruction": (
                         "Repair the RouterPlan according to the validation error. Use only "
                         "available_evidence_requests and current Evidence Reports. Do not preserve "
@@ -787,8 +815,6 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
             )
             if mandatory_partition_screen:
                 remaining = [name for name in remaining if name == "structural_diagnostics"]
-                if not remaining:
-                    raise ValueError("Mandatory partition structural screen requires structural_diagnostics to be eligible")
                 selected_tool = "structural_diagnostics"
                 require_tool = True
             elif not remaining:
@@ -804,6 +830,8 @@ def verifier_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[s
                              "stop_reason": request_state["stop_reason"]},
                 )
                 continue
+            elif require_tool and len(remaining) == 1:
+                selected_tool = remaining[0]
             else:
                 require_tool = not request_state["attempted_tools"]
                 selection_payload = {

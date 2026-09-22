@@ -58,6 +58,7 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
     patient_ids = [f"P{i}" for i in range(6)]
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
+    (candidate / "consensus_cluster").mkdir()
     (candidate / "affinity_patient_order.json").write_text(json.dumps(patient_ids))
     modalities = ("ct", "wsi", "rna", "wxs")
     for offset, modality in enumerate(modalities):
@@ -88,13 +89,7 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
         "ct__wsi", "ct__rna", "ct__wxs", "wsi__rna", "wsi__wxs", "rna__wxs",
     }
     assert all("bootstrap_ci95" in row and "permutation_p" in row for row in result["geometry_concordance"].values())
-    assert "integrated_membership_alignment" in result
-    assert set(result["native_view_membership_alignment"]) == set(modalities)
-    assert "current_membership_alignment" not in result
-    assert result["alignment_patient_n"] == 6
     assert result["geometry_concordance_patient_n"] == 6
-    assert abs(result["native_view_membership_alignment"]["ct"]["silhouette"]) < 1e-12
-    assert np.isclose(result["native_view_membership_alignment"]["ct"]["mean_within_distance"], 0.2)
 
     target_result = representation_concordance(
         {}, str(tmp_path), [
@@ -104,7 +99,10 @@ def test_representation_concordance_uses_native_distances_and_candidate_labels(t
     )["metrics"]["set"]["C1"]
     assert target_result["comparison"] == "full_partition_labels"
     assert target_result["alignment_patient_n"] == 6
-    assert target_result["geometry_concordance_patient_n"] == 3
+    assert set(target_result["native_view_membership_alignment"]) == set(modalities)
+    assert "integrated_membership_alignment" not in target_result
+    assert "geometry_concordance" not in target_result
+    assert "geometry_concordance_patient_n" not in target_result
 
 
 def write_structural_fixture(tmp_path, matrix):
@@ -250,6 +248,7 @@ def test_confounder_geometry_calls_real_skbio_and_separates_test_families(tmp_pa
     patient_ids = [f"P{i:02}" for i in range(12)]
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
+    (candidate / "consensus_cluster").mkdir()
     (candidate / "affinity_patient_order.json").write_text(json.dumps(patient_ids))
     rng = np.random.default_rng(3)
     points = rng.normal(size=(len(patient_ids), 4))
@@ -259,6 +258,9 @@ def test_confounder_geometry_calls_real_skbio_and_separates_test_families(tmp_pa
     for modality in ("ct", "wsi", "rna", "wxs"):
         np.save(candidate / f"{modality}_distance.npy", ct_distance)
     np.save(candidate / "fused_distance.npy", fused_distance)
+    consensus = (fused_distance.max() - fused_distance) / max(fused_distance.max(), 1.0)
+    np.fill_diagonal(consensus, 0.0)
+    np.save(candidate / "consensus_cluster" / "consensus_matrix_Ktest.npy", consensus)
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "subtype_review.yaml").write_text(
@@ -273,8 +275,16 @@ def test_confounder_geometry_calls_real_skbio_and_separates_test_families(tmp_pa
         for index, case_id in enumerate(patient_ids)
     }
     monkeypatch.setattr(review_tools, "technical_values", lambda *_: values)
+    generator = {"geometry": {
+        "type": "resampled_consensus_coassignment",
+        "matrix_relative_path": "consensus_cluster/consensus_matrix_Ktest.npy",
+        "patient_order_relative_path": "affinity_patient_order.json",
+    }}
     result = review_tools.confounder_representation_effect(
-        {}, str(tmp_path), str(config_dir), [], "partition", [],
+        {}, str(tmp_path), str(config_dir), [
+            {"set_id": "C1", "member_ids": patient_ids[:6], "generator": generator},
+            {"set_id": "C2", "member_ids": patient_ids[6:], "generator": generator},
+        ], "partition", [],
     )["metrics"]["partition"]
 
     for factor in ("tissue_source_site", "ct_phase"):
@@ -289,7 +299,10 @@ def test_confounder_geometry_calls_real_skbio_and_separates_test_families(tmp_pa
     for index, case_id in enumerate(patient_ids):
         values[case_id]["ct_phase"] = "singleton" if index == 0 else "common"
     sparse_result = review_tools.confounder_representation_effect(
-        {}, str(tmp_path), str(config_dir), [], "partition", [],
+        {}, str(tmp_path), str(config_dir), [
+            {"set_id": "C1", "member_ids": patient_ids[:6], "generator": generator},
+            {"set_id": "C2", "member_ids": patient_ids[6:], "generator": generator},
+        ], "partition", [],
     )["metrics"]["partition"]["ct_phase"]["permdisp"]
     assert sparse_result["test"] == "not_estimable"
     assert "at least two observations" in sparse_result["reason"]

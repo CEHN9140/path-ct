@@ -61,15 +61,12 @@ METRIC_SEMANTICS = {
     },
     ("cross_modal_consistency", "affinity_geometry_concordance"): {
         "alignment_patient_n": "Number of patients contributing to the full-partition current-label alignment calculation.",
-        "geometry_concordance_patient_n": "Number of patients contributing to the GRV geometry-concordance calculation; for set scope this is the target candidate size.",
+        "geometry_concordance_patient_n": "Number of patients contributing to partition-level GRV geometry concordance.",
         "grv": "Overall shared structure between two modality patient geometries computed from their native distance matrices; not mechanistic agreement or independent validation.",
         "bootstrap_ci95/bootstrap_valid_n": "Paired patient bootstrap uncertainty interval and number of nondegenerate replicates.",
         "permutation_p/permutations": "One-sided permutation evidence under exchangeable patient correspondence between the two geometries; not an action threshold.",
         "comparison": "Defines whether alignment uses full current partition labels or the selected candidate pair.",
-        "integrated_membership_alignment.mean_silhouette/median_silhouette/negative_fraction": "Primary current-label alignment in the integrated fused multimodal geometry; set scope summarizes target samples under full partition labels.",
-        "integrated_membership_alignment.mean_within_distance/mean_between_distance": "Within-label and between-label distances in the integrated fused geometry.",
-        "integrated_membership_alignment.nearest_competing_set": "Nearest competing current set in integrated fused geometry for set scope.",
-        "native_view_membership_alignment": "Modality-specific support or disagreement profiles; native views are not votes and do not replace integrated alignment.",
+        "native_view_membership_alignment": "Current-label representation measured independently in CT, WSI, RNA, and WXS native patient-distance geometries; synthesize the views jointly rather than using vote counting or unanimity.",
         "nearest_competing_set/mean_distance_to_each_other_set": "The competing current set with the smallest target-to-set native distance and the corresponding distances.",
         "mean_within_distance/mean_between_distance": "Mean native distance among same-label or different-label patient pairs under the current membership comparison.",
     },
@@ -90,11 +87,11 @@ METRIC_SEMANTICS = {
         ),
         "nearest_pair_targets/nearest_pair_affinities": "Relatively close candidate pairs and their between-set affinity; a pair-review entry point, not a merge conclusion.",
         "solutions[K].normalized_cut": "Graph normalized-cut cost for a feasible internal split; lower values indicate less cross-child edge mass relative to child volume.",
-        "solutions[K].integrated_fused_separation": "Separation of candidate-consensus split labels when projected into the full integrated fused geometry.",
+        "solutions[K].candidate_consensus_separation": "Separation of proposed split labels in the resampled consensus co-assignment geometry used for candidate generation.",
         "solutions[K].child_sizes": "Sizes and balance of children for a feasible split; feasibility is not scientific support.",
         "solutions[K].native_view_separation": "Standard native-distance silhouettes after projecting the proposed split labels into each source modality; these do not replace fused-graph evidence.",
         "current_boundary_normalized_cut": "Graph normalized-cut cost of the current pair boundary.",
-        "left_volume/right_volume": "Fused-graph volumes of the two current pair sides.",
+        "left_volume/right_volume": "Candidate-consensus graph volumes of the two current pair sides.",
         "independent_two_way_spectral_ari": "Agreement between the current pair labels and an independent two-way spectral partition of their union; it is boundary evidence, not an action rule.",
         "union_eigengap": "Spectral structure of the union of the two sets; it does not itself prescribe merging.",
     },
@@ -111,7 +108,7 @@ METRIC_SEMANTICS = {
         "permdisp.f_statistic/permdisp.permutation_p/permdisp.q_value": "Whether technical-factor levels differ in multivariate dispersion; when dispersion differs, PERMANOVA may reflect both location and dispersion.",
         "distance_regression.r_squared": "Univariable association magnitude between a continuous acquisition factor and CT native-distance geometry.",
         "distance_regression.pseudo_f/permutation_p/q_value": "Distance-based regression statistic and permutation evidence, with its own BH family.",
-        "modality": "Geometry used: fused for tissue source site and CT native distance for CT acquisition factors.",
+        "modality": "Geometry used: candidate-generation consensus for tissue source site and CT native distance for CT acquisition factors.",
         "n/levels/level_counts": "Sample count and factor-level coverage contributing to the analysis.",
         "interpretation_boundary": "A significant PERMANOVA does not establish technical artifact or causation; a nonsignificant PERMDISP does not establish absence of confounding.",
     },
@@ -125,7 +122,7 @@ METRIC_SEMANTICS = {
 
 INTERPRETATION_REQUIREMENTS = {
     "biological_support": ["Integrate pathway or mutation direction, magnitude, coherence, sample availability, and multiplicity."],
-        "cross_modal_consistency": ["Explicitly explain what current-label alignment indicates about representation of the current membership or boundary. Do not stop at global GRV interpretation: GRV describes global patient-geometry similarity and is not itself current-boundary support. For membership or pair-boundary representation, treat integrated_membership_alignment in the fused multimodal geometry as primary; use native_view_membership_alignment only to describe modality-specific support or disagreement. Native views are not votes and cannot replace or override integrated alignment. Describe direction, magnitude, and uncertainty without making accept, drop, split, or merge recommendations. No reclustering is performed. Internal-subdivision evidence informs split or granularity only; absence of subdivision is neither positive nor negative evidence about independence from neighboring candidates. Weak pair separation does not recommend merge, and feasible internal solutions do not recommend split. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
+    "cross_modal_consistency": ["For membership or pair-boundary representation, synthesize CT, WSI, RNA, and WXS native patient-geometry results jointly. Do not use modality vote counting, majority rules, unanimity, or fixed thresholds. Interpret direction, magnitude, negative fraction, within-versus-between distance contrast, nearest competing set, and material cross-modal disagreement. Strong support in one modality does not automatically override material disagreement in others, but disagreement does not automatically invalidate a candidate. State whether the overall native-view pattern provides coherent, weak, conflicting, or limited evidence without making accept, drop, split, or merge recommendations. Global GRV is only partition-level patient-geometry concordance. Internal-subdivision evidence informs split or granularity only; absence of subdivision is neither positive nor negative evidence about independence from neighboring candidates. For set-level subdivision, interpret actual feasible k>=2 solutions and their measurements; partition-level screening does not provide those solutions."],
     "confounder_exclusion": ["Separate association from causation and discuss coverage and factor imbalance. Respect evidence scope: partition-scope association describes a partition-wide technical concern and must not be presented as a candidate-specific confounder association; set-scope association can directly inform candidate-specific alternative explanations. Interpret PERMANOVA together with PERMDISP. A significant PERMANOVA is not proof of technical artifact; nonsignificance does not establish absence of confounding. PERMANOVA, PERMDISP, and continuous distance-regression p-values belong to separate BH families."],
     "known_label_echo": ["Describe taxonomy correspondence conservatively; do not call it external validation."],
 }
@@ -155,15 +152,14 @@ SCOPE_INTERPRETATIONS = {
         "identify a simple merge solution. Integrate both with the other evidence."
     ),
     ("affinity_geometry_concordance", "set"): (
-        "For set scope, integrated fused-geometry silhouette is the primary membership evidence. It is computed under the full current multi-cluster partition and the target samples are "
-        "summarized. For each target patient, silhouette compares within-cluster distance with the nearest competing "
-        "current cluster; the other clusters are not pooled into one rest group. Interpret nearest_competing_set, "
-        "mean_distance_to_each_other_set, and negative_fraction together with the mean and median silhouette. "
-        "Native-view alignments describe modality-specific support or disagreement and are not votes. This evidence bears directly on membership representation but does not by itself determine accept or drop."
+        "For set scope, each native patient-distance geometry is evaluated under the full current partition labels. "
+        "Interpret nearest_competing_set, mean_distance_to_each_other_set, within-versus-between distances, and "
+        "silhouette summaries jointly; the native views are not votes. This evidence bears directly on membership "
+        "representation but does not by itself determine accept or drop."
     ),
     ("affinity_geometry_concordance", "pair"): (
-        "For pair scope, integrated fused-geometry current-label alignment directly addresses whether the existing boundary between the two current "
-        "candidate sets is represented. Native-view alignments provide modality-specific support or disagreement. Little within-label versus between-label "
+        "For pair scope, native patient-distance current-label alignments directly address whether the existing boundary between the two current "
+        "candidate sets is represented. The four views provide joint support or disagreement, not votes. Little within-label versus between-label "
         "distinction provides limited geometric support for the current boundary; consistently represented separation "
         "provides positive evidence that the boundary is expressed in the available geometries. This evidence does not "
         "itself determine whether the pair should be merged; integrate it with biological, confounder, and other structural "

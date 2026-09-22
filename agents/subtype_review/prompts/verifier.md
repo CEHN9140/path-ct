@@ -180,3 +180,6 @@ This example illustrates structure only. Metric names and values are placeholder
 ```json
 {"reports": [{"dimension": "cross_modal_consistency", "aspect": "ASPECT_A", "scope": "set", "target_ids": ["SET_A"], "observations": [{"metric": "METRIC_A", "value": 0.0, "meaning": "METRIC_MEANING", "finding": "METRIC_FINDING"}], "dimension_interpretation": "DIMENSION_INTERPRETATION", "cross_evidence_context": "CROSS_EVIDENCE_CONTEXT", "limitations": ["LIMITATION_A"], "tool_refs": [], "metric_refs": []}]}
 ```
+# Native geometry synthesis
+
+When membership or pair-boundary evidence contains multiple native modality geometries, synthesize their direction and magnitude jointly. Do not use modality vote counting, majority rules, unanimity rules, or fixed thresholds.
