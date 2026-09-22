@@ -205,8 +205,10 @@ def validate_router_plan(
         seen = set()
         for request in plan.evidence_requests:
             key = (request.dimension, request.scope, tuple(request.target_ids))
-            if key not in available or key in seen:
-                raise ValueError("EvidenceRequest is unavailable or duplicated")
+            if key not in available:
+                raise ValueError(f"EvidenceRequest is unavailable: {key}")
+            if key in seen:
+                raise ValueError(f"EvidenceRequest is duplicated: {key}")
             seen.add(key)
         return
 
@@ -231,7 +233,11 @@ def validate_router_plan(
             )
     if structural:
         if len(plan.actions) != 1 or len(structural) != 1:
-            raise ValueError("A revision round must contain exactly one split or merge")
+            actions = [item.action for item in plan.actions]
+            raise ValueError(
+                "A revision round must contain exactly one action, and that action must be one "
+                f"split or one merge; received actions={actions}"
+            )
         action = structural[0]
         if action.action == "split":
             target = action.target_ids[0]
@@ -952,13 +958,14 @@ def reviser_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[st
     new_sets = [replacement for item in current for replacement in replacements.get(set_id(item), [item])]
     new_sets.sort(key=set_id)
     new_signature = partition_signature(new_sets)
+    validated_plans = [*plan.split_plans, *plan.merge_plans]
     result = {
         "old_partition_signature": signature,
         "new_partition_signature": new_signature,
         "operation": action.action,
         "target_ids": action.target_ids,
         "new_set_ids": [set_id(item) for item in new_sets if set_id(item) not in by_id],
-        "metric_refs": sorted({ref for item in plans for ref in item.metric_refs}),
+        "metric_refs": sorted({ref for item in validated_plans for ref in item.metric_refs}),
     }
     append_runtime_trace(
         values.get("runtime_trace_path"),

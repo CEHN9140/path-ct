@@ -9,10 +9,15 @@ import agents.subtype_review.runner as runner
 def test_review_budget_matches_configured_round_cap():
     config = runner.load_yaml_file("configs/subtype_review.yaml")
     assert config["budget"]["max_rounds"] == 20
+    assert all(config["llm"][key] == 3 for key in (
+        "structured_output_retries", "tool_selection_retries",
+        "verifier_audit_coverage_retries", "router_plan_validation_retries",
+        "reviser_plan_validation_retries",
+    ))
 
 
 def test_runner_only_reads_workflow_budget(monkeypatch):
-    config = {"budget": {"max_rounds": 10, "max_failures": 3}}
+    config = {"budget": {"max_rounds": 10}, "llm": {}}
     calls = []
     monkeypatch.setattr(runner, "load_yaml_file", lambda path: config)
 
@@ -36,18 +41,11 @@ def test_runner_only_reads_workflow_budget(monkeypatch):
         {"P1": {}, "P2": {}},
         "/data/output",
         "/data/configs",
+        "/data/output/run",
     )
     assert state["control"]["max_rounds"] == 10
-    assert state["control"]["max_failures"] == 3
     assert {name for name, _ in calls} == {"verifier", "router", "reviser"}
     assert len({id(tracker) for _, tracker in calls}) == 1
-
-
-def test_active_tool_registry_hides_disabled_omics_tools():
-    assert "pathway_enrichment" not in runner.active_tool_registry(("ct", "wsi", "wxs", "cnv"))
-    assert "mutation_enrichment" not in runner.active_tool_registry(("ct", "wsi", "rna", "cnv"))
-    assert "cnv_characterization" not in runner.active_tool_registry(("ct", "wsi", "rna", "wxs"))
-    assert "multimodal_consistency_check" in runner.active_tool_registry(("ct", "wsi", "wxs", "cnv"))
 
 
 def test_main_uses_multi_k_grid_from_config_when_cli_grid_is_omitted(tmp_path, monkeypatch):

@@ -59,3 +59,18 @@ def test_aggregation_rejects_incomplete_grid_before_clearing_outputs(tmp_path):
         pass
     else:
         raise AssertionError("incomplete grid must fail before aggregation")
+
+
+def test_aggregation_rejects_overlapping_accept_sets_within_run(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    (candidate / "affinity_patient_order.json").write_text(json.dumps(["P1", "P2", "P3"]))
+    write_run(tmp_path, 2, 1, [{"P1", "P2"}, {"P2", "P3"}])
+    try:
+        run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 2}}, "sig")
+    except ValueError as exc:
+        assert "overlap" in str(exc)
+    else:
+        raise AssertionError("overlapping accepted sets must fail")

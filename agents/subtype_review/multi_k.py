@@ -17,6 +17,7 @@ from utils.llm_utils import load_yaml_file
 def collect_accept_observations(run_files: list[tuple[int, int, Path]], patient_ids: set[str]) -> list[dict[str, Any]]:
     observations = []
     for initial_k, repeat, path in run_files:
+        assigned: set[str] = set()
         for item in json.loads(path.read_text(encoding="utf-8")):
             members = [str(member) for member in item["member_ids"]]
             member_set = set(members)
@@ -24,6 +25,9 @@ def collect_accept_observations(run_files: list[tuple[int, int, Path]], patient_
                 raise ValueError(f"Accepted set contains duplicate patients: {path}")
             if not member_set.issubset(patient_ids):
                 raise ValueError(f"Accepted set contains patients outside candidate cohort: {path}")
+            if assigned.intersection(member_set):
+                raise ValueError(f"Accepted sets overlap within run: {path}")
+            assigned.update(member_set)
             observations.append({
                 "observation_id": f"K{initial_k}_repeat{repeat}_{item['set_id']}",
                 "initial_k": initial_k, "repeat": repeat, "set_id": str(item["set_id"]),
