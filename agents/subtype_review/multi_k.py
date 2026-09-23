@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Mapping
@@ -17,9 +18,6 @@ from utils.io import write_json
 from utils.llm_utils import load_yaml_file
 
 DEFAULT_MULTI_K_CONFIG: dict[str, Any] = {
-    "initial_ks": [2, 3, 4, 5, 6, 7, 8],
-    "repeats": [1, 2, 3],
-    "parallel_runs": 4,
     "min_subtype_size": 10,
     "patient_recurrence": {
         "similarity_threshold": 0.9,
@@ -57,34 +55,39 @@ def collect_accept_observations(run_files: list[dict[str, Any]], patient_ids: se
 
 def collect_usable_runs(
     output_root: str,
-    config: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     runs_root = Path(output_root) / "subtype_review" / "runs"
-    params = config.get("multi_k", DEFAULT_MULTI_K_CONFIG)
     usable_runs = []
     audit = []
-    for initial_k in sorted(set(map(int, params["initial_ks"]))):
-        for repeat in sorted(set(map(int, params["repeats"]))):
-            run_root = runs_root / f"K{initial_k}" / f"repeat{repeat}"
-            inspection = inspect_review_run(run_root)
-            detail = {
-                "initial_k": initial_k, "repeat": repeat, "run_root": str(run_root),
-                "status": inspection["status"], "reason": inspection["reason"],
+    discovered = []
+    for k_dir in runs_root.glob("K*"):
+        k_match = re.fullmatch(r"K(\d+)", k_dir.name)
+        if not k_match or not k_dir.is_dir():
+            continue
+        for repeat_dir in k_dir.glob("repeat*"):
+            repeat_match = re.fullmatch(r"repeat(\d+)", repeat_dir.name)
+            if repeat_match and repeat_dir.is_dir():
+                discovered.append((int(k_match.group(1)), int(repeat_match.group(1)), repeat_dir))
+    for initial_k, repeat, run_root in sorted(discovered):
+        inspection = inspect_review_run(run_root)
+        detail = {
+            "initial_k": initial_k, "repeat": repeat, "run_root": str(run_root),
+            "status": inspection["status"], "reason": inspection["reason"],
+            "input_signature": inspection["input_signature"],
+            "candidate_signature": inspection["candidate_signature"],
+            "sets_path": inspection["sets_path"],
+            "error_type": inspection["error_type"],
+            "error_message": inspection["error_message"],
+        }
+        audit.append(detail)
+        if inspection["status"] == "complete":
+            usable_runs.append({
+                "initial_k": initial_k, "repeat": repeat,
+                "run_root": str(run_root),
+                "sets_path": inspection["sets_path"],
                 "input_signature": inspection["input_signature"],
                 "candidate_signature": inspection["candidate_signature"],
-                "sets_path": inspection["sets_path"],
-                "error_type": inspection["error_type"],
-                "error_message": inspection["error_message"],
-            }
-            audit.append(detail)
-            if inspection["status"] == "complete":
-                usable_runs.append({
-                    "initial_k": initial_k, "repeat": repeat,
-                    "run_root": str(run_root),
-                    "sets_path": inspection["sets_path"],
-                    "input_signature": inspection["input_signature"],
-                    "candidate_signature": inspection["candidate_signature"],
-                })
+            })
     return usable_runs, audit
 
 
@@ -279,6 +282,7 @@ def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]]
     summary = {
         "status": "complete", "analysis_type": "patient_recurrence_subtype_clustering",
         "aggregation_signature": aggregation_signature, "run_count": run_count,
+        "discovered_run_count": len(run_audit),
         "included_run_count": len(included), "excluded_run_count": len(excluded),
         "total_accept_set_count": len(observations), "min_subtype_size": min_subtype_size,
         "recurrent_set_count": len(recurrent_sets),
@@ -295,11 +299,13 @@ def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]]
     write_json(output_dir / "aggregation_manifest.json", {
         **aggregation_manifest,
         "aggregation_signature": aggregation_signature,
-        "configured_run_count": len(run_audit),
+        "discovered_run_count": len(run_audit),
+        "discovered_initial_ks": sorted({row["initial_k"] for row in run_audit}),
+        "discovered_repeats": sorted({row["repeat"] for row in run_audit}),
         "included_run_count": len(included),
         "excluded_run_count": len(excluded),
         "excluded_runs": excluded,
-        "usable_runs_by_k": usable_runs_by_k,
+        "discovered_runs_by_k": usable_runs_by_k,
         "run_audit": run_audit,
     })
     write_json(output_dir / "aggregation_summary.json", summary)
@@ -318,7 +324,7 @@ def run_multi_k_aggregation(
     if len(patient_set) != len(patient_ids):
         raise ValueError("Candidate patient order contains duplicate IDs")
     params = config.get("multi_k", DEFAULT_MULTI_K_CONFIG)
-    run_files, run_audit = collect_usable_runs(output_root, config)
+    run_files, run_audit = collect_usable_runs(output_root)
     if not run_files:
         raise ValueError("No usable completed Agent runs were found.")
     candidate_signatures = {
@@ -329,19 +335,15 @@ def run_multi_k_aggregation(
             "Included Agent runs reference multiple candidate signatures: "
             + ", ".join(sorted(map(str, candidate_signatures)))
         )
-    configured_initial_ks = sorted(set(map(int, params["initial_ks"])))
-    configured_repeats = sorted(set(map(int, params["repeats"])))
     included_runs = [
         {"initial_k": run["initial_k"], "repeat": run["repeat"]}
         for run in run_files
     ]
     included_initial_ks = sorted({row["initial_k"] for row in included_runs})
     included_repeats = sorted({row["repeat"] for row in included_runs})
-    aggregation_params = {
-        **params,
-        "initial_ks": configured_initial_ks,
-        "repeats": configured_repeats,
-    }
+    patient_params = params.get("patient_recurrence", DEFAULT_MULTI_K_CONFIG["patient_recurrence"])
+    min_subtype_size = int(params.get("min_subtype_size", DEFAULT_MULTI_K_CONFIG["min_subtype_size"]))
+    aggregation_params = {"patient_recurrence": patient_params}
     run_manifest = []
     for run in run_files:
         sets_path = Path(run["sets_path"])
@@ -358,8 +360,8 @@ def run_multi_k_aggregation(
         "aggregation_version": 2,
         "agent_input_signatures": input_signatures,
         "candidate_signature": next(iter(candidate_signatures), None),
-        "configured_initial_ks": configured_initial_ks,
-        "configured_repeats": configured_repeats,
+        "discovered_initial_ks": sorted({row["initial_k"] for row in run_audit}),
+        "discovered_repeats": sorted({row["repeat"] for row in run_audit}),
         "included_initial_ks": included_initial_ks,
         "included_repeats": included_repeats,
         "included_runs": included_runs,
@@ -377,11 +379,10 @@ def run_multi_k_aggregation(
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     observations = collect_accept_observations(run_files, patient_set)
-    recurrent_sets = build_recurrent_sets(observations, int(params["min_subtype_size"]), usable_run_count=len(run_files))
-    patient_params = params.get("patient_recurrence", {})
+    recurrent_sets = build_recurrent_sets(observations, min_subtype_size, usable_run_count=len(run_files))
     patient_recurrence = {
         "similarity_threshold": float(patient_params.get("similarity_threshold", 0.9)),
-        "min_subtype_size": int(patient_params.get("min_subtype_size", params["min_subtype_size"])),
+        "min_subtype_size": int(patient_params.get("min_subtype_size", min_subtype_size)),
         "min_common_occurrences": int(patient_params.get("min_common_occurrences", 2)),
         "min_supporting_ks": int(patient_params.get("min_supporting_ks", 2)),
     }
@@ -393,7 +394,7 @@ def run_multi_k_aggregation(
         output_dir, observations, recurrent_sets,
         aggregation_manifest=aggregation_manifest,
         aggregation_signature=aggregation_signature,
-        run_count=len(run_files), min_subtype_size=int(params["min_subtype_size"]),
+        run_count=len(run_files), min_subtype_size=min_subtype_size,
         run_audit=run_audit, patient_subtypes=patient_subtypes,
         patient_recurrence=patient_recurrence,
     )

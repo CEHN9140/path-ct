@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agents.subtype_review.graph import build_review_graph, initial_review_state, save_review_outputs
-from agents.subtype_review.multi_k import DEFAULT_MULTI_K_CONFIG
 from agents.subtype_review.run_io import inspect_review_run
 from agents.subtype_review.schemas import RevisionPlan, RouterPlan
 from agents.subtype_review.llm import (
@@ -21,6 +20,12 @@ from agents.subtype_review.tools import TOOL_REGISTRY
 from utils.cache_utils import file_content_identity, hash_payload
 from utils.io import write_json
 from utils.llm_utils import load_yaml_file
+
+DEFAULT_REVIEW_GRID_CONFIG = {
+    "initial_ks": [2, 3, 4, 5, 6, 7, 8],
+    "repeats": [1, 2, 3],
+    "parallel_runs": 4,
+}
 
 
 def run_subtype_review(
@@ -183,7 +188,7 @@ def summarize_review_grid(
 ) -> dict[str, Any]:
     root = Path(output_root) / "subtype_review" / "runs"
     buckets = {name: [] for name in ("complete", "failed", "incomplete", "missing", "stale", "invalid")}
-    multi_k = config.get("multi_k", DEFAULT_MULTI_K_CONFIG)
+    multi_k = config.get("multi_k", DEFAULT_REVIEW_GRID_CONFIG)
     configured_ks = sorted(set(map(int, multi_k["initial_ks"])))
     configured_repeats = sorted(set(map(int, multi_k["repeats"])))
     for initial_k in configured_ks:
@@ -281,7 +286,7 @@ def run_review_grid(
         configured_parallel_runs = (
             review_config["multi_k"].get("parallel_runs", 1)
             if "multi_k" in review_config
-            else DEFAULT_MULTI_K_CONFIG["parallel_runs"]
+            else DEFAULT_REVIEW_GRID_CONFIG["parallel_runs"]
         )
         workers = max(1, int(parallel_runs or configured_parallel_runs))
         if workers == 1:

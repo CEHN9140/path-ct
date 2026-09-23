@@ -131,6 +131,11 @@ def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
     candidate.mkdir()
     (candidate / "affinity_patient_order.json").write_text(json.dumps(["P1", "P2"]))
     write_run(tmp_path, 4, 2, [{"P1", "P2"}])
+    failed = tmp_path / "subtype_review" / "runs" / "K8" / "repeat1"
+    failed.mkdir(parents=True)
+    (failed / "run_metadata.json").write_text(json.dumps({
+        "status": "failed", "error_type": "RuntimeError", "error_message": "boom",
+    }))
     result = run_multi_k_aggregation(str(tmp_path), {
         "multi_k": {"initial_ks": [2, 4, 8], "repeats": [1, 2, 3], "min_subtype_size": 2},
     })
@@ -138,18 +143,18 @@ def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
     manifest = json.loads(
         (tmp_path / "subtype_review" / "multi_k" / "aggregation_manifest.json").read_text()
     )
-    assert manifest["configured_initial_ks"] == [2, 4, 8]
-    assert manifest["configured_repeats"] == [1, 2, 3]
+    assert manifest["discovered_initial_ks"] == [4, 8]
+    assert manifest["discovered_repeats"] == [1, 2]
     assert manifest["included_initial_ks"] == [4]
     assert manifest["included_repeats"] == [2]
     assert manifest["included_runs"] == [{"initial_k": 4, "repeat": 2}]
     assert manifest["run_audit"]
-    assert len(manifest["run_audit"]) == 9
+    assert len(manifest["run_audit"]) == 2
     assert sum(row["status"] == "complete" for row in manifest["run_audit"]) == 1
-    assert manifest["configured_run_count"] == 9
+    assert manifest["discovered_run_count"] == 2
     assert manifest["included_run_count"] == 1
-    assert manifest["excluded_run_count"] == 8
-    assert manifest["usable_runs_by_k"] == {"2": 0, "4": 1, "8": 0}
+    assert manifest["excluded_run_count"] == 1
+    assert manifest["discovered_runs_by_k"] == {"4": 1, "8": 0}
 
 
 def test_inspect_review_run_excludes_corrupt_json(tmp_path):
