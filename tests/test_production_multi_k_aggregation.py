@@ -1,10 +1,13 @@
 import json
 
 
-def write_run(root, k, repeat, accepted_sets, signature="sig"):
+def write_run(root, k, repeat, accepted_sets, signature="sig", candidate_signature=None):
     run = root / "subtype_review" / "runs" / f"K{k}" / f"repeat{repeat}"
     run.mkdir(parents=True)
-    (run / "run_metadata.json").write_text(json.dumps({"status": "complete", "input_signature": signature}))
+    metadata = {"status": "complete", "input_signature": signature}
+    if candidate_signature is not None:
+        metadata["candidate_signature"] = candidate_signature
+    (run / "run_metadata.json").write_text(json.dumps(metadata))
     (run / "final_review_summary.json").write_text(json.dumps({"status": "review_complete", "raw_control_status": "complete"}))
     (run / "final_subtype_sets.json").write_text(json.dumps([
         {"set_id": f"S{index}", "member_ids": sorted(members)}
@@ -39,20 +42,13 @@ def test_summary_scans_configured_grid_and_classifies_stale_and_failed(tmp_path)
     assert summary["missing_run_count"] == 1
 
 
-def test_multi_k_cli_reads_active_experiment_signature(tmp_path, monkeypatch):
+def test_multi_k_cli_reads_completed_runs_without_active_experiment(tmp_path, monkeypatch):
     import agents.subtype_review.multi_k as multi_k
 
     candidate = tmp_path / "candidate_subtype"
     candidate.mkdir()
     (candidate / "affinity_patient_order.json").write_text('["P1", "P2"]')
     write_run(tmp_path, 2, 1, [{"P1", "P2"}], signature="active")
-    experiment_dir = tmp_path / "subtype_review"
-    (experiment_dir / "active_review_experiment.json").write_text(
-        json.dumps({"input_signature": "active"})
-    )
-    (experiment_dir / "agent_grid_summary.json").write_text(
-        json.dumps({"input_signature": "wrong"})
-    )
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "subtype_review.yaml").write_text(
@@ -91,7 +87,7 @@ def test_aggregation_writes_new_outputs_and_clears_old_state_files(tmp_path):
     stale.mkdir(parents=True)
     (stale / "state_merge_summary.json").write_text("stale")
     write_run(tmp_path, 2, 1, [set(patients)])
-    result = run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10}}, "sig")
+    result = run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10}})
     assert result["status"] == "complete"
     assert result["total_accept_set_count"] == 1
     assert (stale / "accept_set_observations.csv").is_file()
@@ -106,7 +102,7 @@ def test_aggregation_rejects_when_no_usable_run_exists(tmp_path):
     candidate.mkdir()
     (candidate / "affinity_patient_order.json").write_text('["P1"]')
     try:
-        run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10}}, "sig")
+        run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10}})
     except ValueError as exc:
         assert "No usable completed Agent runs" in str(exc)
     else:
@@ -121,7 +117,7 @@ def test_aggregation_rejects_overlapping_accept_sets_within_run(tmp_path):
     (candidate / "affinity_patient_order.json").write_text(json.dumps(["P1", "P2", "P3"]))
     write_run(tmp_path, 2, 1, [{"P1", "P2"}, {"P2", "P3"}])
     try:
-        run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 2}}, "sig")
+        run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 2}})
     except ValueError as exc:
         assert "overlap" in str(exc)
     else:
@@ -137,7 +133,7 @@ def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
     write_run(tmp_path, 4, 2, [{"P1", "P2"}])
     result = run_multi_k_aggregation(str(tmp_path), {
         "multi_k": {"initial_ks": [2, 4, 8], "repeats": [1, 2, 3], "min_subtype_size": 2},
-    }, "sig")
+    })
     assert result["status"] == "complete"
     manifest = json.loads(
         (tmp_path / "subtype_review" / "multi_k" / "aggregation_manifest.json").read_text()
@@ -162,6 +158,24 @@ def test_inspect_agent_run_excludes_corrupt_json(tmp_path):
     run = tmp_path / "K2" / "repeat1"
     run.mkdir(parents=True)
     (run / "run_metadata.json").write_text("{broken", encoding="utf-8")
-    usable, detail = inspect_agent_run(run, "sig")
+    usable, detail = inspect_agent_run(run)
     assert not usable
     assert detail["reason"] == "invalid_run_metadata_json"
+
+
+def test_aggregation_rejects_mixed_candidate_signatures(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    (candidate / "affinity_patient_order.json").write_text('["P1", "P2"]')
+    write_run(tmp_path, 2, 1, [{"P1", "P2"}], candidate_signature="candidate-a")
+    write_run(tmp_path, 3, 1, [{"P1", "P2"}], candidate_signature="candidate-b")
+    try:
+        run_multi_k_aggregation(tmp_path.as_posix(), {
+            "multi_k": {"initial_ks": [2, 3], "repeats": [1], "min_subtype_size": 2},
+        })
+    except ValueError as exc:
+        assert "multiple candidate signatures" in str(exc)
+    else:
+        raise AssertionError("mixed candidate signatures must be rejected")

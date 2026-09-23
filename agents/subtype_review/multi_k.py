@@ -36,7 +36,7 @@ def collect_accept_observations(run_files: list[tuple[int, int, Path]], patient_
     return observations
 
 
-def inspect_agent_run(run_root: Path, active_input_signature: str) -> tuple[bool, dict[str, Any]]:
+def inspect_agent_run(run_root: Path) -> tuple[bool, dict[str, Any]]:
     metadata_path = run_root / "run_metadata.json"
     summary_path = run_root / "final_review_summary.json"
     sets_path = run_root / "final_subtype_sets.json"
@@ -48,8 +48,6 @@ def inspect_agent_run(run_root: Path, active_input_signature: str) -> tuple[bool
         return False, {"status": "excluded", "reason": "invalid_run_metadata_json"}
     if not isinstance(metadata, dict):
         return False, {"status": "excluded", "reason": "invalid_run_metadata_json"}
-    if metadata.get("input_signature") != active_input_signature:
-        return False, {"status": "excluded", "reason": "input_signature_mismatch", "input_signature": metadata.get("input_signature")}
     if metadata.get("status") != "complete":
         return False, {"status": "excluded", "reason": f"run_status_{metadata.get('status', 'unknown')}"}
     if not summary_path.is_file():
@@ -70,13 +68,17 @@ def inspect_agent_run(run_root: Path, active_input_signature: str) -> tuple[bool
         return False, {"status": "excluded", "reason": "invalid_final_subtype_sets_json"}
     if not isinstance(sets, list):
         return False, {"status": "excluded", "reason": "invalid_final_subtype_sets"}
-    return True, {"status": "included", "input_signature": metadata["input_signature"], "sets_path": str(sets_path)}
+    return True, {
+        "status": "included",
+        "input_signature": metadata.get("input_signature"),
+        "candidate_signature": metadata.get("candidate_signature"),
+        "sets_path": str(sets_path),
+    }
 
 
 def collect_usable_runs(
     output_root: str,
     config: Mapping[str, Any],
-    active_input_signature: str,
 ) -> tuple[list[tuple[int, int, Path]], list[dict[str, Any]]]:
     runs_root = Path(output_root) / "subtype_review" / "runs"
     params = config["multi_k"]
@@ -85,7 +87,7 @@ def collect_usable_runs(
     for initial_k in sorted(set(map(int, params["initial_ks"]))):
         for repeat in sorted(set(map(int, params["repeats"]))):
             run_root = runs_root / f"K{initial_k}" / f"repeat{repeat}"
-            usable, detail = inspect_agent_run(run_root, active_input_signature)
+            usable, detail = inspect_agent_run(run_root)
             audit.append({"initial_k": initial_k, "repeat": repeat, "run_root": str(run_root), **detail})
             if usable:
                 usable_runs.append((initial_k, repeat, run_root / "final_subtype_sets.json"))
@@ -175,7 +177,6 @@ def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]]
 def run_multi_k_aggregation(
     output_root: str,
     config: Mapping[str, Any],
-    input_signature: str,
 ) -> dict[str, Any]:
     root = Path(output_root)
     patient_order_path = root / "candidate_subtype" / "affinity_patient_order.json"
@@ -185,9 +186,19 @@ def run_multi_k_aggregation(
     if len(patient_set) != len(patient_ids):
         raise ValueError("Candidate patient order contains duplicate IDs")
     params = config["multi_k"]
-    run_files, run_audit = collect_usable_runs(output_root, config, input_signature)
+    run_files, run_audit = collect_usable_runs(output_root, config)
     if not run_files:
-        raise ValueError("No usable completed Agent runs were found for the active input signature.")
+        raise ValueError("No usable completed Agent runs were found.")
+    candidate_signatures = {
+        row.get("candidate_signature")
+        for row in run_audit
+        if row.get("status") == "included" and row.get("candidate_signature")
+    }
+    if len(candidate_signatures) > 1:
+        raise ValueError(
+            "Included Agent runs reference multiple candidate signatures: "
+            + ", ".join(sorted(map(str, candidate_signatures)))
+        )
     configured_initial_ks = sorted(set(map(int, params["initial_ks"])))
     configured_repeats = sorted(set(map(int, params["repeats"])))
     included_runs = [
@@ -204,10 +215,23 @@ def run_multi_k_aggregation(
     run_manifest = []
     for initial_k, repeat, sets_path in run_files:
         metadata = json.loads((sets_path.parent / "run_metadata.json").read_text(encoding="utf-8"))
-        run_manifest.append({"initial_k": initial_k, "repeat": repeat, "agent_input_signature": metadata["input_signature"], "final_subtype_sets_path": str(sets_path.resolve()), "final_subtype_sets_sha256": hashlib.sha256(sets_path.read_bytes()).hexdigest()})
+        run_manifest.append({
+            "initial_k": initial_k,
+            "repeat": repeat,
+            "agent_input_signature": metadata.get("input_signature"),
+            "candidate_signature": metadata.get("candidate_signature"),
+            "final_subtype_sets_path": str(sets_path.resolve()),
+            "final_subtype_sets_sha256": hashlib.sha256(sets_path.read_bytes()).hexdigest(),
+        })
+    input_signatures = sorted({
+        str(row["agent_input_signature"])
+        for row in run_manifest
+        if row.get("agent_input_signature")
+    })
     aggregation_manifest = {
         "aggregation_version": 2,
-        "agent_input_signature": input_signature,
+        "agent_input_signatures": input_signatures,
+        "candidate_signature": next(iter(candidate_signatures), None),
         "configured_initial_ks": configured_initial_ks,
         "configured_repeats": configured_repeats,
         "included_initial_ks": included_initial_ks,
@@ -237,11 +261,8 @@ def main() -> None:
     parser.add_argument("--config-dir", default="configs")
     args = parser.parse_args()
     config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
-    experiment_path = Path(args.output_root) / "subtype_review" / "active_review_experiment.json"
-    experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
-    input_signature = experiment["input_signature"]
     print(json.dumps(
-        run_multi_k_aggregation(args.output_root, config, input_signature),
+        run_multi_k_aggregation(args.output_root, config),
         ensure_ascii=False,
         indent=2,
     ))
