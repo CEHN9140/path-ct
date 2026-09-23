@@ -531,11 +531,11 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "Make the terminal action and rationale scientifically consistent. "
                         "Do not merely rephrase the rationale to bypass validation. Re-evaluate "
                         "the disposition using only the cited Evidence Reports and available_evidence_requests. "
-                        "If the evidence supports that terminal acceptance is not warranted and no "
-                        "decision-relevant request remains, use drop. If an available request could "
-                        "change the disposition, request that evidence instead of emitting terminal actions. "
-                        "Retain accept only when the cited evidence supports independent representation "
-                        "and material contradictions are resolved."
+                        "If an available evidence request could materially change the disposition, request "
+                        "that evidence instead of emitting terminal actions. Otherwise, use accept only when "
+                        "the evidence positively supports a defensible independent subtype, and use drop only "
+                        "when the candidate lacks sufficient defensible discovery value after plausible "
+                        "structural alternatives have been considered."
                     )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),

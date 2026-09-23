@@ -5,6 +5,7 @@ from agents.subtype_review.graph import (
     eligible_tools_for_request,
     initial_review_state,
     partition_signature,
+    reason_contradicts_action,
     router_node,
     terminal_accountability_refs,
     validate_router_plan,
@@ -12,6 +13,35 @@ from agents.subtype_review.graph import (
 from agents.subtype_review.schemas import EvidenceRequest, RouterAction, RouterPlan
 from agents.subtype_review.tools import TOOL_REGISTRY
 from agents.subtype_review.llm import summarize_reports
+
+
+def test_accept_reason_contradiction_is_detected():
+    assert reason_contradicts_action(
+        "accept",
+        "Terminal acceptance is not warranted on the current evidence.",
+    )
+
+
+def test_accept_reason_qualification_is_not_overblocked():
+    assert not reason_contradicts_action(
+        "accept",
+        "Acceptance is not warranted by biology alone, but the supported "
+        "boundary establishes independent representation.",
+    )
+
+
+def test_drop_reason_contradiction_is_detected():
+    assert reason_contradicts_action(
+        "drop",
+        "The candidate should be retained.",
+    )
+
+
+def test_positive_accept_reason_is_not_flagged():
+    assert not reason_contradicts_action(
+        "accept",
+        "The candidate remains a defensible independent discovery-stage unit.",
+    )
 
 
 def terminal_validation_state(reports):
