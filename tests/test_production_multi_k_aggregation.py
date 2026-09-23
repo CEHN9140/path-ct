@@ -47,7 +47,7 @@ def test_aggregation_writes_new_outputs_and_clears_old_state_files(tmp_path):
     assert not (stale / "state_merge_summary.json").exists()
 
 
-def test_aggregation_rejects_incomplete_grid_before_clearing_outputs(tmp_path):
+def test_aggregation_rejects_when_no_usable_run_exists(tmp_path):
     from agents.subtype_review.multi_k import run_multi_k_aggregation
 
     candidate = tmp_path / "candidate_subtype"
@@ -55,8 +55,8 @@ def test_aggregation_rejects_incomplete_grid_before_clearing_outputs(tmp_path):
     (candidate / "affinity_patient_order.json").write_text('["P1"]')
     try:
         run_multi_k_aggregation(str(tmp_path), {"multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10}}, "sig")
-    except FileNotFoundError:
-        pass
+    except ValueError as exc:
+        assert "No usable completed Agent runs" in str(exc)
     else:
         raise AssertionError("incomplete grid must fail before aggregation")
 
@@ -74,3 +74,28 @@ def test_aggregation_rejects_overlapping_accept_sets_within_run(tmp_path):
         assert "overlap" in str(exc)
     else:
         raise AssertionError("overlapping accepted sets must fail")
+
+
+def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    (candidate / "affinity_patient_order.json").write_text(json.dumps(["P1", "P2"]))
+    write_run(tmp_path, 4, 2, [{"P1", "P2"}])
+    result = run_multi_k_aggregation(str(tmp_path), {
+        "multi_k": {"initial_ks": [2, 4, 8], "repeats": [1, 2, 3], "min_subtype_size": 2},
+    }, "sig")
+    assert result["status"] == "complete"
+    manifest = json.loads(
+        (tmp_path / "subtype_review" / "multi_k" / "aggregation_manifest.json").read_text()
+    )
+    assert manifest["initial_ks"] == [4]
+    assert manifest["repeats"] == [2]
+    assert manifest["run_audit"]
+    assert len(manifest["run_audit"]) == 9
+    assert sum(row["status"] == "included" for row in manifest["run_audit"]) == 1
+    assert manifest["configured_run_count"] == 9
+    assert manifest["included_run_count"] == 1
+    assert manifest["excluded_run_count"] == 8
+    assert manifest["usable_runs_by_k"] == {"2": 0, "4": 1, "8": 0}

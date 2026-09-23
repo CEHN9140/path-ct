@@ -144,7 +144,9 @@ prompt_dir: {Path(__file__).resolve().parents[1] / 'agents/subtype_review/prompt
         "candidate-signature",
     )
 
-    assert result["multi_k_ready"] is False
+    assert result["requested_run_count"] == 1
+    assert result["complete_run_count"] == 1
+    assert "multi_k_ready" not in result
     assert (tmp_path / "output/subtype_review/runs/K2/repeat1").is_dir()
     assert not (tmp_path / "output/subtype_review/multi_k").exists()
 
@@ -256,7 +258,8 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
         partitions, {"P1": {}}, output_root, str(config_dir),
         (2, 3), (1, 2), "candidate-signature",
     )
-    assert result["multi_k_ready"] is True
+    assert result["requested_run_count"] == 4
+    assert result["complete_run_count"] == 4
     assert len(reviewed) == 4
 
     (Path(result["run_root"]) / "K3" / "repeat2" / "final_subtype_sets.json").unlink()
@@ -264,7 +267,9 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
         partitions, {"P1": {}}, output_root, str(config_dir),
         (2,), (1,), "candidate-signature",
     )
-    assert partial["multi_k_ready"] is False
+    assert partial["requested_run_count"] == 1
+    assert partial["complete_run_count"] == 1
+    assert "multi_k_ready" not in partial
     assert len(reviewed) == 4
 
 
@@ -309,4 +314,6 @@ def test_changing_only_configured_grid_reuses_existing_agent_run(tmp_path, monke
     result = runner.run_review_grid(*args)
 
     assert len(reviewed) == 1
-    assert result["multi_k_ready"] is False
+    assert result["requested_run_count"] == 1
+    assert result["complete_run_count"] == 1
+    assert "multi_k_ready" not in result

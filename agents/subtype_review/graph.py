@@ -307,6 +307,11 @@ def router_validation_feedback(exc: Exception) -> dict[str, Any]:
             "review. Request one available unreviewed pair review before terminal disposition; do not force "
             "merge or exhaustively review every pair."
         ),
+        "STRUCTURAL_PREREQUISITE_CITATION_MISSING": (
+            "The required structural evidence already exists. Do not request it again. Add every report "
+            "reference listed in details.required_report_refs to the action's evidence_report_refs, and do "
+            "not change the scientific action solely to repair this provenance omission."
+        ),
         "MERGE_NOT_ALLOWED": (
             "Merge is not an allowed structural action in the current workflow. Do not emit merge again "
             "in this round. Choose an available evidence request, a legal split, or a complete terminal "
@@ -384,10 +389,30 @@ def validate_router_plan(
         action = structural[0]
         if action.action == "split":
             target = action.target_ids[0]
-            report = next((row for row in cited if row["dimension"] == "cross_modal_consistency"
-                           and row["aspect"] == "structural_diagnostics" and row["scope"] == "set"
-                           and row["target_ids"] == [target]), None)
-            if report is None:
+            existing_reports = [
+                row for row in state["reports"]
+                if row["dimension"] == "cross_modal_consistency"
+                and row["aspect"] == "structural_diagnostics"
+                and row["scope"] == "set"
+                and row["target_ids"] == [target]
+            ]
+            cited_reports = [
+                row for row in cited
+                if row["dimension"] == "cross_modal_consistency"
+                and row["aspect"] == "structural_diagnostics"
+                and row["scope"] == "set"
+                and row["target_ids"] == [target]
+            ]
+            if existing_reports and not cited_reports:
+                raise RouterPlanValidationError(
+                    "STRUCTURAL_PREREQUISITE_CITATION_MISSING",
+                    "Split must cite the existing exact-set internal_subdivision Evidence Report.",
+                    action="split",
+                    target_ids=[target],
+                    required_focus="internal_subdivision",
+                    required_report_refs=sorted(row["report_ref"] for row in existing_reports),
+                )
+            if not existing_reports:
                 request_available = (
                     "cross_modal_consistency", "set", (target,), "internal_subdivision"
                 ) in available
@@ -421,13 +446,38 @@ def validate_router_plan(
                     current_set_ids=sorted(current),
                     allowed_structural_actions=["split"],
                 )
+            all_pair_reports = [
+                row for row in state["reports"]
+                if row["dimension"] == "cross_modal_consistency"
+                and row["scope"] == "pair"
+                and sorted(row["target_ids"]) == targets
+            ]
             pair_reports = [
                 row for row in cited
                 if row["dimension"] == "cross_modal_consistency"
                 and row["scope"] == "pair"
                 and sorted(row["target_ids"]) == targets
             ]
-            if not any("boundary_representation" in row.get("request_foci", []) for row in pair_reports):
+            existing_boundary_representation = [
+                row for row in all_pair_reports
+                if "boundary_representation" in row.get("request_foci", [])
+            ]
+            cited_boundary_representation = [
+                row for row in pair_reports
+                if "boundary_representation" in row.get("request_foci", [])
+            ]
+            if existing_boundary_representation and not cited_boundary_representation:
+                raise RouterPlanValidationError(
+                    "STRUCTURAL_PREREQUISITE_CITATION_MISSING",
+                    "Merge must cite the existing exact-pair boundary_representation Evidence Report.",
+                    action="merge",
+                    target_ids=targets,
+                    required_focus="boundary_representation",
+                    required_report_refs=sorted(
+                        row["report_ref"] for row in existing_boundary_representation
+                    ),
+                )
+            if not existing_boundary_representation:
                 request_available = (
                     "cross_modal_consistency", "pair", tuple(targets), "boundary_representation"
                 ) in available
@@ -438,11 +488,28 @@ def validate_router_plan(
                     required_focus="boundary_representation",
                     request_available=request_available,
                 )
-            if not any(
-                row.get("aspect") == "structural_diagnostics"
+            existing_boundary_structure = [
+                row for row in all_pair_reports
+                if row.get("aspect") == "structural_diagnostics"
                 and "boundary_structure" in row.get("request_foci", [])
-                for row in pair_reports
-            ):
+            ]
+            cited_boundary_structure = [
+                row for row in pair_reports
+                if row.get("aspect") == "structural_diagnostics"
+                and "boundary_structure" in row.get("request_foci", [])
+            ]
+            if existing_boundary_structure and not cited_boundary_structure:
+                raise RouterPlanValidationError(
+                    "STRUCTURAL_PREREQUISITE_CITATION_MISSING",
+                    "Merge must cite the existing exact-pair boundary_structure Evidence Report.",
+                    action="merge",
+                    target_ids=targets,
+                    required_focus="boundary_structure",
+                    required_report_refs=sorted(
+                        row["report_ref"] for row in existing_boundary_structure
+                    ),
+                )
+            if not existing_boundary_structure:
                 request_available = (
                     "cross_modal_consistency", "pair", tuple(targets), "boundary_structure"
                 ) in available

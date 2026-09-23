@@ -70,19 +70,24 @@ def test_main_uses_configured_process_workers_for_successful_cases(tmp_path, mon
         main,
         "candidate_proposer",
         lambda states, **_kwargs: {
-            "candidate_partitions": {},
+            "candidate_partitions": {
+                2: [{"set_id": "C1", "member_ids": ["A", "B"]}],
+            },
             "candidate_signature": "candidate-signature",
-            "patient_states": states,
+            "patient_states_by_id": {state["case_id"]: state for state in states},
         },
     )
     monkeypatch.setattr(
         main,
         "run_review_grid",
         lambda *_args, **_kwargs: {
-            "multi_k_ready": False,
             "runs": [],
             "run_root": "runs",
             "input_signature": "input-signature",
+            "requested_run_count": 1,
+            "complete_run_count": 0,
+            "failed_runs": [],
+            "incomplete_runs": [],
         },
     )
     monkeypatch.setattr(main, "write_json", lambda *_args: None)

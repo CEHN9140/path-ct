@@ -109,6 +109,113 @@ def test_merge_not_allowed_is_not_auto_repaired_into_scientific_action():
     assert protocol_repair_plan(error) is None
 
 
+def structural_router_state(reports):
+    sets = [
+        {"set_id": "C1", "member_ids": ["P1"]},
+        {"set_id": "C2", "member_ids": ["P2"]},
+        {"set_id": "C3", "member_ids": ["P3"]},
+    ]
+    state = initial_review_state(sets)
+    signature = partition_signature(sets)
+    state["reports"] = [
+        {
+            "report_ref": "ER:partition", "dimension": "cross_modal_consistency",
+            "aspect": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        },
+        *reports,
+    ]
+    state["tool_evidence"] = [{
+        "tool_name": "structural_diagnostics", "scope": "partition", "target_ids": [],
+        "partition_signature": signature,
+        "metrics": {"partition": {
+            "nearest_pair_affinities": [{
+                "target_ids": ["C1", "C2"], "mean_between_affinity": 0.2,
+            }],
+        }},
+    }]
+    return state
+
+
+def test_router_node_auto_requests_missing_boundary_structure(tmp_path):
+    boundary = {
+        "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
+        "aspect": "affinity_geometry_concordance", "scope": "pair",
+        "target_ids": ["C1", "C2"], "request_foci": ["boundary_representation"],
+    }
+    state = structural_router_state([boundary])
+
+    class Router:
+        config = {"router_plan_validation_retries": 0}
+
+        def invoke(self, payload):
+            return {
+                "actions": [{
+                    "action": "merge", "target_ids": ["C1", "C2"], "n_children": None,
+                    "evidence_report_refs": ["ER:boundary"], "reason": "revise boundary",
+                }],
+                "evidence_requests": [],
+            }
+
+    result = router_node(state, {
+        "router_model": Router(), "tool_registry": TOOL_REGISTRY,
+        "patient_states_by_id": {}, "data_root": str(tmp_path),
+        "artifact_root": str(tmp_path), "config_dir": "configs",
+    })
+    assert result["router_plan"]["actions"] == []
+    request = result["router_plan"]["evidence_requests"][0]
+    assert request["focus"] == "boundary_structure"
+    assert request["target_ids"] == ["C1", "C2"]
+
+
+def test_router_node_requests_existing_boundary_citation_on_retry(tmp_path):
+    reports = [
+        {
+            "report_ref": "ER:boundary", "dimension": "cross_modal_consistency",
+            "aspect": "affinity_geometry_concordance", "scope": "pair",
+            "target_ids": ["C1", "C2"], "request_foci": ["boundary_representation"],
+        },
+        {
+            "report_ref": "ER:structure", "dimension": "cross_modal_consistency",
+            "aspect": "structural_diagnostics", "scope": "pair",
+            "target_ids": ["C1", "C2"], "request_foci": ["boundary_structure"],
+        },
+    ]
+    state = structural_router_state(reports)
+
+    class Router:
+        config = {"router_plan_validation_retries": 1}
+
+        def __init__(self):
+            self.calls = 0
+            self.payloads = []
+
+        def invoke(self, payload):
+            self.calls += 1
+            self.payloads.append(payload)
+            refs = ["ER:boundary"] if self.calls == 1 else ["ER:boundary", "ER:structure"]
+            return {
+                "actions": [{
+                    "action": "merge", "target_ids": ["C1", "C2"], "n_children": None,
+                    "evidence_report_refs": refs, "reason": "revise boundary",
+                }],
+                "evidence_requests": [],
+            }
+
+    model = Router()
+    result = router_node(state, {
+        "router_model": model, "tool_registry": TOOL_REGISTRY,
+        "patient_states_by_id": {}, "data_root": str(tmp_path),
+        "artifact_root": str(tmp_path), "config_dir": "configs",
+    })
+    assert model.calls == 2
+    assert result["router_plan"]["actions"][0]["evidence_report_refs"] == [
+        "ER:boundary", "ER:structure",
+    ]
+    feedback = model.payloads[1]["validation_feedback"]
+    assert feedback["code"] == "STRUCTURAL_PREREQUISITE_CITATION_MISSING"
+    assert feedback["details"]["required_report_refs"] == ["ER:structure"]
+
+
 def terminal_validation_state(reports):
     state = initial_review_state([
         {"set_id": "C1", "member_ids": ["P1", "P2"]},
