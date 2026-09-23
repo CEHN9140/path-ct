@@ -36,6 +36,35 @@ from utils.llm_utils import load_yaml_file
 from utils.tool_utils import to_jsonable
 
 
+ACCEPT_REASON_CONTRADICTIONS = (
+    "accept is not justified",
+    "accept is not supported",
+    "cannot justify accept",
+    "does not justify accept",
+    "retention remains unsupported",
+    "independent retention is unsupported",
+    "acceptance is not justified",
+    "retention is not justified",
+    "terminal acceptance is not warranted",
+    "acceptance is not warranted on the current evidence",
+    "retention is not warranted on the current evidence",
+)
+DROP_REASON_CONTRADICTIONS = (
+    "drop is not justified",
+    "dropping is not justified",
+    "candidate should be retained",
+)
+
+
+def reason_contradicts_action(action: str, reason: str) -> bool:
+    normalized = " ".join(reason.casefold().split())
+    if action == "accept":
+        return any(phrase in normalized for phrase in ACCEPT_REASON_CONTRADICTIONS)
+    if action == "drop":
+        return any(phrase in normalized for phrase in DROP_REASON_CONTRADICTIONS)
+    return False
+
+
 def partition_signature(sets: list[dict[str, Any]]) -> str:
     payload = [
         {"set_id": set_id(item), "member_ids": sorted(map(str, item["member_ids"]))}
@@ -309,23 +338,19 @@ def validate_router_plan(
                 "Terminal action must cite all target-specific set/pair Evidence Reports "
                 f"acquired for this candidate; missing {sorted(missing_refs)}"
             )
-        reason = action.reason.casefold()
-        if action.action == "accept" and any(phrase in reason for phrase in (
-            "accept is not justified", "accept is not supported", "cannot justify accept",
-            "does not justify accept", "retention remains unsupported",
-            "independent retention is unsupported", "acceptance is not justified",
-            "retention is not justified",
-        )):
+        if reason_contradicts_action(action.action, action.reason):
+            if action.action == "accept":
+                message = (
+                    "Router action contradicts its own rationale: accept was emitted while "
+                    "the reason explicitly rejects retention."
+                )
+            else:
+                message = (
+                    "Router action contradicts its own rationale: drop was emitted while "
+                    "the reason explicitly rejects dropping."
+                )
             raise ValueError(
-                "Router action contradicts its own rationale: accept was emitted while "
-                "the reason explicitly rejects retention."
-            )
-        if action.action == "drop" and any(phrase in reason for phrase in (
-            "drop is not justified", "dropping is not justified", "candidate should be retained",
-        )):
-            raise ValueError(
-                "Router action contradicts its own rationale: drop was emitted while "
-                "the reason explicitly rejects dropping."
+                message
             )
         if action.action == "drop":
             target = action.target_ids[0]
@@ -500,6 +525,17 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                         "unreviewed pair. If that boundary remains materially questionable and boundary_structure "
                         "is available, acquire boundary_structure before terminal disposition. Do not force merge "
                         "and do not exhaustively review every pair."
+                    )
+                elif "Router action contradicts its own rationale" in str(exc):
+                    feedback["instruction"] = (
+                        "Make the terminal action and rationale scientifically consistent. "
+                        "Do not merely rephrase the rationale to bypass validation. Re-evaluate "
+                        "the disposition using only the cited Evidence Reports and available_evidence_requests. "
+                        "If the evidence supports that terminal acceptance is not warranted and no "
+                        "decision-relevant request remains, use drop. If an available request could "
+                        "change the disposition, request that evidence instead of emitting terminal actions. "
+                        "Retain accept only when the cited evidence supports independent representation "
+                        "and material contradictions are resolved."
                     )
                 append_runtime_trace(
                     values.get("runtime_trace_path"),
