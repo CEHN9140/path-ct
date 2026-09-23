@@ -25,6 +25,9 @@ def test_main_uses_configured_process_workers_for_successful_cases(tmp_path, mon
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     (config_dir / "ct_radiomics.yaml").write_text("num_workers: 2\n", encoding="utf-8")
+    (config_dir / "subtype_review.yaml").write_text(
+        "multi_k:\n  initial_ks: [2]\n  repeats: [1]\n", encoding="utf-8"
+    )
     submitted = []
     worker_counts = []
 
@@ -89,6 +92,11 @@ def test_main_uses_configured_process_workers_for_successful_cases(tmp_path, mon
             "failed_runs": [],
             "incomplete_runs": [],
         },
+    )
+    monkeypatch.setattr(
+        main,
+        "build_review_input_signature",
+        lambda **_kwargs: ("input-signature", {}),
     )
     monkeypatch.setattr(main, "write_json", lambda *_args: None)
 

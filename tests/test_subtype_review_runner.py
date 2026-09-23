@@ -80,3 +80,34 @@ def test_main_uses_multi_k_grid_from_config_when_cli_grid_is_omitted(tmp_path, m
     main.main()
     assert captured["initial_ks"] == [8]
     assert captured["repeats"] == [3]
+
+
+def test_main_accepts_explicit_run_pairs_and_rejects_mixed_grid_flags(tmp_path, monkeypatch):
+    import main
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "subtype_review.yaml").write_text(
+        "multi_k:\n  initial_ks: [2, 3]\n  repeats: [1, 2]\n", encoding="utf-8"
+    )
+    data_path = tmp_path / "cases.json"
+    data_path.write_text("[]", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(main, "run_pipeline", lambda args, cases: captured.update(vars(args)) or {})
+    monkeypatch.setattr(
+        "sys.argv", ["main.py", "--data-json-path", str(data_path),
+        "--config-dir", str(config_dir), "--run", "3:2", "--run", "2:1"]
+    )
+    main.main()
+    assert captured["run_pairs"] == [(3, 2), (2, 1)]
+
+    monkeypatch.setattr(
+        "sys.argv", ["main.py", "--data-json-path", str(data_path),
+        "--config-dir", str(config_dir), "--run", "3:2", "--repeat", "2"]
+    )
+    try:
+        main.main()
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("mixed --run and --repeat flags must be rejected")

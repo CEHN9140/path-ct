@@ -19,6 +19,15 @@ def file_identity(path: str) -> dict[str, Any]:
     }
 
 
+def file_content_identity(path: str | Path) -> dict[str, Any]:
+    file_path = Path(path).expanduser().resolve()
+    digest = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"size": int(file_path.stat().st_size), "sha256": digest.hexdigest()}
+
+
 def semantic_config(value: Any, runtime_keys: Iterable[str] = ()) -> Any:
     runtime_keys = {str(key).lower() for key in runtime_keys}
     if isinstance(value, Mapping):

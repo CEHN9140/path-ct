@@ -237,9 +237,9 @@ def main() -> None:
     parser.add_argument("--config-dir", default="configs")
     args = parser.parse_args()
     config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
-    grid_summary_path = Path(args.output_root) / "subtype_review" / "agent_grid_summary.json"
-    grid_summary = json.loads(grid_summary_path.read_text(encoding="utf-8"))
-    input_signature = grid_summary["input_signature"]
+    experiment_path = Path(args.output_root) / "subtype_review" / "active_review_experiment.json"
+    experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+    input_signature = experiment["input_signature"]
     print(json.dumps(
         run_multi_k_aggregation(args.output_root, config, input_signature),
         ensure_ascii=False,

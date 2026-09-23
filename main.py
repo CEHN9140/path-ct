@@ -17,7 +17,11 @@ from agents.evidence_builder import (
 )
 from agents.inventory import inventory_case
 from agents.quality_control import ct_qc, wsi_qc
-from agents.subtype_review.runner import run_review_grid
+from agents.subtype_review.runner import (
+    build_review_input_signature,
+    run_review_grid,
+    summarize_review_grid,
+)
 from utils.patient_store import save_patient_states
 from utils.io import write_json
 from utils.tool_utils import safe_identifier, to_jsonable
@@ -167,6 +171,27 @@ def run_pipeline(
             "Agent patient states do not match the candidate cohort: "
             f"missing={missing}, extra={extra}"
         )
+    review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
+    configured_ks = sorted(set(map(int, review_config["multi_k"]["initial_ks"])))
+    configured_repeats = sorted(set(map(int, review_config["multi_k"]["repeats"])))
+    active_input_signature, signature_manifest = build_review_input_signature(
+        candidate_signature=candidate_output["candidate_signature"],
+        patient_states_by_id=patient_states_by_id,
+        output_root=str(args.output_root),
+        config_dir=str(args.config_dir),
+    )
+    active_experiment = {
+        "signature_version": 2,
+        "input_signature": active_input_signature,
+        "candidate_signature": candidate_output["candidate_signature"],
+        "configured_initial_ks": configured_ks,
+        "configured_repeats": configured_repeats,
+        "signature_manifest": signature_manifest,
+    }
+    write_json(
+        Path(args.output_root) / "subtype_review" / "active_review_experiment.json",
+        active_experiment,
+    )
     review_grid = run_review_grid(
         candidate_output["candidate_partitions"],
         patient_states_by_id,
@@ -175,6 +200,7 @@ def run_pipeline(
         tuple(args.initial_ks),
         tuple(args.repeats),
         candidate_output["candidate_signature"],
+        run_pairs=getattr(args, "run_pairs", None),
         force=args.force,
         parallel_runs=getattr(args, "parallel_runs", None),
     )
@@ -185,15 +211,23 @@ def run_pipeline(
         f"incomplete={len(review_grid['incomplete_runs'])}",
         flush=True,
     )
-    result = {
-        "agent_run_count": len(review_grid["runs"]),
-        "agent_runs_root": review_grid["run_root"],
-        "requested_run_count": review_grid["requested_run_count"],
-        "complete_run_count": review_grid["complete_run_count"],
-        "failed_runs": review_grid["failed_runs"],
-        "incomplete_runs": review_grid["incomplete_runs"],
-        "input_signature": review_grid["input_signature"],
+    grid_summary = summarize_review_grid(
+        output_root=args.output_root,
+        config=review_config,
+        active_input_signature=review_grid["input_signature"],
+    )
+    requested_pairs = review_grid.get(
+        "requested_pairs",
+        [{"initial_k": k, "repeat": repeat}
+         for k in args.initial_ks for repeat in args.repeats],
+    )
+    grid_summary["last_invocation"] = {
+        "requested_runs": requested_pairs,
+        "parallel_runs": getattr(args, "parallel_runs", None),
     }
+    grid_summary["agent_run_count"] = grid_summary["complete_run_count"]
+    grid_summary["agent_runs_root"] = review_grid["run_root"]
+    result = grid_summary
     write_json(
         Path(args.output_root) / "subtype_review" / "agent_grid_summary.json",
         result,
@@ -205,6 +239,21 @@ def run_pipeline(
     return result
 
 
+def parse_run_pair(value: str) -> tuple[int, int]:
+    try:
+        k_text, repeat_text = value.split(":", 1)
+        k, repeat = int(k_text), int(repeat_text)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "--run must use K:REPEAT format, e.g. --run 4:2"
+        ) from exc
+    if k < 2:
+        raise argparse.ArgumentTypeError("K must be >= 2")
+    if repeat < 1:
+        raise argparse.ArgumentTypeError("repeat must be >= 1")
+    return k, repeat
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Four-view patient-resampled multi-K subtype review pipeline."
@@ -214,13 +263,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-dir", type=str, default=DEFAULT_CONFIG_DIR)
     parser.add_argument("--initial-k", dest="initial_ks", type=int, action="append")
     parser.add_argument("--repeat", dest="repeats", type=int, action="append")
+    parser.add_argument("--run", dest="run_pairs", type=parse_run_pair, action="append")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--parallel-runs", type=int, default=None)
     return parser
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.run_pairs and (args.initial_ks is not None or args.repeats is not None):
+        parser.error("--run cannot be combined with --initial-k or --repeat")
     args.config_dir = str(Path(args.config_dir).expanduser().resolve())
     from utils.llm_utils import load_yaml_file
 

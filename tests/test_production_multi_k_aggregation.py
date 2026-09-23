@@ -12,6 +12,58 @@ def write_run(root, k, repeat, accepted_sets, signature="sig"):
     ]))
 
 
+def test_summary_scans_configured_grid_and_classifies_stale_and_failed(tmp_path):
+    from agents.subtype_review.runner import summarize_review_grid
+
+    write_run(tmp_path, 2, 1, [{"P1"}], signature="active")
+    failed = tmp_path / "subtype_review" / "runs" / "K2" / "repeat2"
+    failed.mkdir(parents=True)
+    (failed / "run_metadata.json").write_text(json.dumps({
+        "status": "failed", "input_signature": "active",
+        "error_type": "RuntimeError", "error_message": "boom",
+    }))
+    stale = tmp_path / "subtype_review" / "runs" / "K3" / "repeat1"
+    stale.mkdir(parents=True)
+    (stale / "run_metadata.json").write_text(json.dumps({
+        "status": "complete", "input_signature": "old",
+    }))
+    summary = summarize_review_grid(
+        output_root=str(tmp_path),
+        config={"multi_k": {"initial_ks": [2, 3], "repeats": [1, 2]}},
+        active_input_signature="active",
+    )
+    assert summary["configured_run_count"] == 4
+    assert summary["complete_run_count"] == 1
+    assert summary["failed_run_count"] == 1
+    assert summary["stale_run_count"] == 1
+    assert summary["missing_run_count"] == 1
+
+
+def test_multi_k_cli_reads_active_experiment_signature(tmp_path, monkeypatch):
+    import agents.subtype_review.multi_k as multi_k
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    (candidate / "affinity_patient_order.json").write_text('["P1", "P2"]')
+    write_run(tmp_path, 2, 1, [{"P1", "P2"}], signature="active")
+    experiment_dir = tmp_path / "subtype_review"
+    (experiment_dir / "active_review_experiment.json").write_text(
+        json.dumps({"input_signature": "active"})
+    )
+    (experiment_dir / "agent_grid_summary.json").write_text(
+        json.dumps({"input_signature": "wrong"})
+    )
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    (config_dir / "subtype_review.yaml").write_text(
+        "multi_k:\n  initial_ks: [2]\n  repeats: [1]\n  min_subtype_size: 2\n"
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["multi_k", "--output-root", str(tmp_path), "--config-dir", str(config_dir)]
+    )
+    multi_k.main()
+
+
 def test_closed_recurrent_accept_sets_preserve_observation_frequency():
     from agents.subtype_review.multi_k import build_recurrent_sets
 
