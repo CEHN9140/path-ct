@@ -92,20 +92,23 @@
             "tool_results.structural_diagnostics.metrics.pair.K4_C0001|K4_C0004.union_eigengap.eigengaps.3",
             "tool_results.structural_diagnostics.metrics.pair.K4_C0001|K4_C0004.union_eigengap.eigengaps.4"
           ],
-          "rationale": "Router authorized merging K4_C0001 and K4_C0004. The union is single-cluster-dominated (candidate_k=1, eigengap 0.492), which is merge-compatible and must not be read as preserving the two-set boundary; the current-boundary ARI=1.0 with high normalized-cut cost (0.550) and markedly imbalanced side volumes indicates the two-way split is not independently supported. Boundary representation is materially conflicting across modalities (WXS silhouette 0.315 vs CT -0.027), and the two sets share biological direction (oxidative-phosphorylation down-regulation; VHL-enriched/PBRM1-depleted driver pattern), so the union is more consistent with a single unit than with two independently retained sets."
+          "rationale": "Router authorized a provisional merge of K4_C0001 and K4_C0004. Structural diagnostics show the highest normalized-cut cost (0.550) and a union eigengap dominated by the single-cluster resolution (candidate_k=1, leading gap 0.492), which is merge-compatible. Native geometry is conflicting (CT negative, RNA/WSI/WXS weak positive), and membership representation is weak/conflicting for both sets. This plan executes the authorized merge using only the relevant available structural metric refs; it is provisional and returns to normal review."
         }
       }
     ]
   },
   {
-    "set_id": "K4_C0002",
+    "set_id": "K4_C0002_M_K4_C0003",
     "member_ids": [
       "TCGA-B0-4821",
+      "TCGA-B0-5088",
       "TCGA-B0-5106",
       "TCGA-B0-5117",
       "TCGA-B0-5697",
       "TCGA-B0-5698",
+      "TCGA-B0-5702",
       "TCGA-B0-5706",
+      "TCGA-B0-5709",
       "TCGA-B0-5712",
       "TCGA-B8-4151",
       "TCGA-B8-4153",
@@ -114,48 +117,25 @@
       "TCGA-B8-5164",
       "TCGA-B8-5546",
       "TCGA-B8-5550",
+      "TCGA-B8-5551",
       "TCGA-B8-5553",
       "TCGA-B8-A54D",
       "TCGA-B8-A54E",
       "TCGA-B8-A54F",
       "TCGA-B8-A54G",
+      "TCGA-BP-4167",
       "TCGA-BP-4770",
       "TCGA-BP-4782",
-      "TCGA-BP-4972",
-      "TCGA-BP-4994",
-      "TCGA-BP-5000",
-      "TCGA-BP-5190",
-      "TCGA-BP-5191",
-      "TCGA-CZ-4863",
-      "TCGA-CZ-4865",
-      "TCGA-CZ-5462",
-      "TCGA-CZ-5468",
-      "TCGA-CZ-5988"
-    ],
-    "revision_lineage": [],
-    "generator": {
-      "initial_k": 4,
-      "partition_id": "consensus_hierarchical_K4",
-      "geometry": {
-        "type": "resampled_consensus_coassignment",
-        "matrix_relative_path": "consensus_cluster/consensus_matrix_K4.npy",
-        "patient_order_relative_path": "affinity_patient_order.json"
-      }
-    }
-  },
-  {
-    "set_id": "K4_C0003",
-    "member_ids": [
-      "TCGA-B0-5088",
-      "TCGA-B0-5702",
-      "TCGA-B0-5709",
-      "TCGA-B8-5551",
-      "TCGA-BP-4167",
       "TCGA-BP-4962",
       "TCGA-BP-4971",
+      "TCGA-BP-4972",
       "TCGA-BP-4992",
+      "TCGA-BP-4994",
+      "TCGA-BP-5000",
       "TCGA-BP-5010",
       "TCGA-BP-5175",
+      "TCGA-BP-5190",
+      "TCGA-BP-5191",
       "TCGA-CJ-4637",
       "TCGA-CJ-4641",
       "TCGA-CJ-4900",
@@ -164,10 +144,14 @@
       "TCGA-CJ-6027",
       "TCGA-CJ-6028",
       "TCGA-CJ-6030",
+      "TCGA-CZ-4863",
+      "TCGA-CZ-4865",
+      "TCGA-CZ-5462",
+      "TCGA-CZ-5468",
       "TCGA-CZ-5985",
+      "TCGA-CZ-5988",
       "TCGA-G6-A5PC"
     ],
-    "revision_lineage": [],
     "generator": {
       "initial_k": 4,
       "partition_id": "consensus_hierarchical_K4",
@@ -176,6 +160,38 @@
         "matrix_relative_path": "consensus_cluster/consensus_matrix_K4.npy",
         "patient_order_relative_path": "affinity_patient_order.json"
       }
-    }
+    },
+    "revision_lineage": [
+      {
+        "action": "merge",
+        "parent_set_ids": [
+          "K4_C0002",
+          "K4_C0003"
+        ],
+        "plan": {
+          "action": "merge",
+          "target_ids": [
+            "K4_C0002",
+            "K4_C0003"
+          ],
+          "metric_refs": [
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.current_boundary_normalized_cut",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.independent_two_way_spectral_ari",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.left_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.mean_between_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.mean_within_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.member_n",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.right_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.candidate_eigengap",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.candidate_k",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.eigengaps.1",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.eigengaps.2",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.eigengaps.3",
+            "tool_results.structural_diagnostics.metrics.pair.K4_C0002|K4_C0003.union_eigengap.eigengaps.4"
+          ],
+          "rationale": "Router authorized a provisional merge of K4_C0002 and K4_C0003. Exact-pair structural diagnostics are merge-compatible: substantial normalized-cut cost (0.532) indicates appreciable cross-boundary connectivity, and the union eigengap shows candidate_k=2 (leading gap 0.487), resolving the union as a single two-cluster structure rather than two independently retained units. Membership representation is weak-to-conflicting for both sets, and the pair boundary representation is weak and mixed. The coherent but complementary transcriptomic phenotypes are consistent with a single unit containing two biological facets. This plan executes the authorized merge using only the relevant available structural metric refs; it is provisional and returns to normal review."
+        }
+      }
+    ]
   }
 ]
