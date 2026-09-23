@@ -179,3 +179,27 @@ def test_aggregation_rejects_mixed_candidate_signatures(tmp_path):
         assert "multiple candidate signatures" in str(exc)
     else:
         raise AssertionError("mixed candidate signatures must be rejected")
+
+
+def test_two_layer_consensus_writes_unique_families_and_core_mapping(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    patients = ["P1", "P2", "P3", "P4"]
+    (candidate / "affinity_patient_order.json").write_text(json.dumps(patients))
+    accepted = [{"P1", "P2"}, {"P3", "P4"}]
+    for k in (2, 3):
+        for repeat in (1, 2):
+            write_run(tmp_path, k, repeat, accepted, candidate_signature="candidate")
+    result = run_multi_k_aggregation(str(tmp_path), {
+        "multi_k": {"initial_ks": [2, 3], "repeats": [1, 2], "min_subtype_size": 2},
+    })
+    output = tmp_path / "subtype_review" / "multi_k"
+    assert result["stable_family_count"] == 2
+    assert (output / "patient_coacceptance.npy").is_file()
+    assert (output / "family_count_diagnostics.csv").is_file()
+    assert (output / "recurrent_set_family_map.csv").is_file()
+    membership = json.loads((output / "stable_subtype_sets.json").read_text())
+    assert sorted(sum((family["member_ids"] for family in membership), [])) == patients
+    assert len({patient for family in membership for patient in family["member_ids"]}) == len(patients)
