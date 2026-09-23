@@ -74,7 +74,7 @@
             "K5_C0005"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0003 and K5_C0005 positively represented in patient geometry, or is the high between-set affinity consistent with a single merged unit?"
+          "question": "Is the boundary between K5_C0003 and K5_C0005 positively represented in patient geometry, or is there substantial cross-boundary connectivity suggesting they should be merged?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -84,7 +84,7 @@
             "K5_C0005"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0001 and K5_C0005 positively represented in patient geometry, or is the high between-set affinity consistent with a single merged unit?"
+          "question": "Is the boundary between K5_C0001 and K5_C0005 positively represented in patient geometry, or is there substantial cross-boundary connectivity suggesting they should be merged?"
         }
       ]
     }
@@ -103,7 +103,7 @@
             "K5_C0005"
           ],
           "focus": "boundary_structure",
-          "question": "Does the union of K5_C0001 and K5_C0005 resolve to a single cluster (candidate_k=1) with high normalized-cut cost and weak independent representation, indicating the current boundary is not structurally supported?"
+          "question": "Does the exact-pair structural evidence (union eigengap and normalized-cut cost) support preserving the K5_C0001 | K5_C0005 boundary, or is the union better represented as a single cluster?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -113,7 +113,7 @@
             "K5_C0005"
           ],
           "focus": "boundary_structure",
-          "question": "Does the union of K5_C0003 and K5_C0005 resolve to a single cluster (candidate_k=1) with high normalized-cut cost and weak independent representation, indicating the current boundary is not structurally supported?"
+          "question": "Does the exact-pair structural evidence (union eigengap and normalized-cut cost) support preserving the K5_C0003 | K5_C0005 boundary, or is the union better represented as a single cluster?"
         }
       ]
     }
@@ -131,12 +131,10 @@
           ],
           "n_children": null,
           "evidence_report_refs": [
-            "ER:ecde77f9b5cb:biological_support:rna_pathway_enrichment:set:202237211d",
-            "ER:ecde77f9b5cb:biological_support:rna_pathway_enrichment:set:d30e998589",
             "ER:ecde77f9b5cb:cross_modal_consistency:affinity_geometry_concordance:pair:a131530a6a",
             "ER:ecde77f9b5cb:cross_modal_consistency:structural_diagnostics:pair:a131530a6a"
           ],
-          "reason": "For the K5_C0001–K5_C0005 boundary, boundary_representation is materially conflicting: WSI shows clear separation (silhouette 0.393) while CT (0.029), RNA (0.040), and WXS (0.023) show near-zero silhouettes with substantial negative fractions (0.33, 0.38, 0.13), so one modality expresses the boundary and three do not. The corresponding boundary_structure evidence is merge-compatible: independent two-way spectral ARI is near zero (0.044), normalized-cut cost is high (0.904), within-side affinity (0.394) exceeds between-side affinity (0.230) only modestly, and the union is dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.733). A weak/conflicting current boundary together with a single-cluster-dominated union supports merging for re-review. K5_C0005 is very small (4 members), so its geometry is unstable, and its proliferative RNA phenotype (E2F/MYC/G2M) differs from K5_C0001's OXPHOS-down/TGF-beta/WNT phenotype; these biological differences oppose but do not mechanically preclude a provisional merge, which returns the union for normal review."
+          "reason": "The K5_C0001–K5_C0005 boundary is weak and materially cross-modally discordant: WSI expresses the boundary (silhouette 0.393) while CT (0.029), RNA (0.040), and WXS (0.023) show near-zero silhouette with within- and between-label distances nearly equal. Structurally the current boundary is poorly reproduced (spectral ARI 0.044), normalized-cut cost is high (0.904) indicating substantial cross-boundary connectivity, and the union is single-cluster dominated (candidate_k=1, leading eigengap 0.733), which is merge-compatible. The K5_C0005 side is very small in graph volume (38.3 vs 499.3), so the current two-unit representation is weakly supported. This coherent weak-boundary plus single-cluster-dominated-union pattern supports a provisional merge for re-review."
         }
       ],
       "evidence_requests": []
@@ -153,8 +151,11 @@
           "metric_refs": [
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.current_boundary_normalized_cut",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.independent_two_way_spectral_ari",
+            "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.left_volume",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.mean_between_affinity",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.mean_within_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.member_n",
+            "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.right_volume",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.candidate_eigengap",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.candidate_k",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.eigengaps.1",
@@ -162,10 +163,10 @@
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.eigengaps.3",
             "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.eigengaps.4"
           ],
-          "rationale": "Router authorized a provisional merge of K5_C0001 and K5_C0005 for re-review. Boundary-structure evidence is merge-compatible: near-zero independent two-way spectral ARI (0.044), high normalized-cut cost (0.904), within-side affinity (0.394) only modestly exceeding between-side affinity (0.230), and a union dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.733). Boundary-representation evidence is conflicting across modalities (WSI silhouette 0.393 vs CT 0.029, RNA 0.040, WXS 0.023), and K5_C0005 is very small (4 members), so its geometry is unstable. Biological phenotypes differ (K5_C0001 OXPHOS-down/TGF-beta/WNT vs K5_C0005 E2F/MYC/G2M proliferation), which opposes but does not mechanically preclude a provisional merge. This plan executes only the Router's authorized action and returns the union for normal review; it is not acceptance or final subtype assignment."
+          "rationale": "Router authorized a provisional merge of K5_C0001 and K5_C0005. Structural diagnostics show a weak current boundary (normalized-cut 0.904, spectral ARI 0.044) and a single-cluster-dominated union (candidate_k=1, leading eigengap 0.733), which is merge-compatible; the K5_C0005 side is very small in graph volume (38.3 vs 499.3). Native-view concordance is materially discordant (WSI silhouette 0.393 vs CT 0.029, RNA 0.040, WXS 0.023). This plan executes the Router's exact action for re-review and is not acceptance or final subtype assignment."
         }
       ],
-      "rationale": "Execute the Router's single authorized merge of K5_C0001 and K5_C0005 using only the relevant available structural metric refs; no split is planned."
+      "rationale": "Execute the Router's authorized merge of K5_C0001 and K5_C0005 using only the relevant available structural metric refs; no split is planned."
     },
     "revision_result": {
       "old_partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4904\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\"],\"set_id\":\"K5_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"},{\"member_ids\":[\"TCGA-BP-4164\",\"TCGA-CJ-4903\",\"TCGA-CJ-6033\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0005\"}]",
@@ -181,8 +182,11 @@
       "metric_refs": [
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.current_boundary_normalized_cut",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.independent_two_way_spectral_ari",
+        "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.left_volume",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.mean_between_affinity",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.mean_within_affinity",
+        "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.member_n",
+        "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.right_volume",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.candidate_eigengap",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.candidate_k",
         "tool_results.structural_diagnostics.metrics.pair.K5_C0001|K5_C0005.union_eigengap.eigengaps.1",
@@ -221,7 +225,7 @@
             "K5_C0001_M_K5_C0005"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does the merged set K5_C0001_M_K5_C0005 show a coherent, interpretable biological identity (or a reproducible two-phenotype structure) that would justify retaining it as an independent discovery-stage unit rather than a modality-specific artifact?"
+          "question": "Does the merged set K5_C0001_M_K5_C0005 show a coherent, interpretable biological identity (transcriptomic phenotype) that is compatible with its current membership?"
         },
         {
           "dimension": "biological_support",
@@ -230,7 +234,7 @@
             "K5_C0002"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K5_C0002 have a substantively interpretable biological identity supporting its retention as an independent discovery-stage unit?"
+          "question": "Does K5_C0002 show a coherent, interpretable biological identity (transcriptomic phenotype) supporting its independent representation?"
         },
         {
           "dimension": "biological_support",
@@ -239,7 +243,7 @@
             "K5_C0003"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K5_C0003 have a substantively interpretable biological identity supporting its retention as an independent discovery-stage unit?"
+          "question": "Does K5_C0003 show a coherent, interpretable biological identity (transcriptomic phenotype) supporting its independent representation?"
         },
         {
           "dimension": "biological_support",
@@ -248,7 +252,7 @@
             "K5_C0004"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K5_C0004 have a substantively interpretable biological identity supporting its retention as an independent discovery-stage unit?"
+          "question": "Does K5_C0004 show a coherent, interpretable biological identity (transcriptomic phenotype) supporting its independent representation?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -258,7 +262,7 @@
             "K5_C0003"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0002 and K5_C0003 consistently represented across modalities, or does it lack cross-modal support such that merging them for re-review is scientifically plausible?"
+          "question": "Is the boundary between K5_C0002 and K5_C0003 positively represented across modalities, or does it show substantial cross-boundary connectivity that would make a merge scientifically plausible?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -268,7 +272,7 @@
             "K5_C0002"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0001_M_K5_C0005 and K5_C0002 consistently represented across modalities, or does it lack cross-modal support such that merging them for re-review is scientifically plausible?"
+          "question": "Is the boundary between K5_C0001_M_K5_C0005 and K5_C0002 positively represented across modalities, or does it show substantial cross-boundary connectivity that would make a merge scientifically plausible?"
         }
       ]
     }
@@ -287,7 +291,7 @@
             "K5_C0003"
           ],
           "focus": "boundary_structure",
-          "question": "Does the union of K5_C0002 and K5_C0003 resolve as a single cluster or as two structurally separable units, given the conflicting boundary representation across modalities?"
+          "question": "Does the union of K5_C0002 and K5_C0003 resolve as a single cluster (candidate_k=1) with high cross-boundary connectivity, or as two structurally distinct clusters, given that boundary representation is weak and conflicting across native modalities?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -297,7 +301,7 @@
             "K5_C0002"
           ],
           "focus": "boundary_structure",
-          "question": "Does the union of K5_C0001_M_K5_C0005 and K5_C0002 resolve as a single cluster or as two structurally separable units, given the weak boundary representation across modalities?"
+          "question": "Does the union of K5_C0001_M_K5_C0005 and K5_C0002 resolve as a single cluster (candidate_k=1) with high cross-boundary connectivity, or as two structurally distinct clusters, given that boundary representation is weak across CT, RNA, and WSI?"
         }
       ]
     }
@@ -310,39 +314,23 @@
       "evidence_requests": [
         {
           "dimension": "cross_modal_consistency",
-          "scope": "set",
+          "scope": "pair",
           "target_ids": [
-            "K5_C0001_M_K5_C0005"
-          ],
-          "focus": "membership_representation",
-          "question": "Does the exact-set membership of K5_C0001_M_K5_C0005 show a coherent, independently represented patient geometry that supports retaining it as a single discovery-stage unit?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K5_C0002"
-          ],
-          "focus": "membership_representation",
-          "question": "Does the exact-set membership of K5_C0002 show a coherent, independently represented patient geometry that supports retaining it as a single discovery-stage unit?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
+            "K5_C0001_M_K5_C0005",
             "K5_C0003"
           ],
-          "focus": "membership_representation",
-          "question": "Does the exact-set membership of K5_C0003 show a coherent, independently represented patient geometry that supports retaining it as a single discovery-stage unit?"
+          "focus": "boundary_representation",
+          "question": "Across native patient geometries, is the boundary between K5_C0001_M_K5_C0005 and K5_C0003 positively represented, or is it weak/absent as seen for the K5_C0001_M_K5_C0005–K5_C0002 pair?"
         },
         {
           "dimension": "cross_modal_consistency",
-          "scope": "set",
+          "scope": "pair",
           "target_ids": [
+            "K5_C0003",
             "K5_C0004"
           ],
-          "focus": "membership_representation",
-          "question": "Does the exact-set membership of K5_C0004 show a coherent, independently represented patient geometry that supports retaining it as a single discovery-stage unit?"
+          "focus": "boundary_representation",
+          "question": "Across native patient geometries, is the boundary between K5_C0003 and K5_C0004 positively represented, supporting their independence, or is it weak/absent?"
         }
       ]
     }
@@ -360,8 +348,18 @@
             "K5_C0001_M_K5_C0005",
             "K5_C0003"
           ],
-          "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0001_M_K5_C0005 and K5_C0003 represented in the native patient geometries, and does it support keeping them as separate units?"
+          "focus": "boundary_structure",
+          "question": "Does the union of K5_C0001_M_K5_C0005 and K5_C0003 resolve as a single cluster or as two structurally distinct clusters, and how strong is the cross-boundary connectivity?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K5_C0003",
+            "K5_C0004"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the union of K5_C0003 and K5_C0004 resolve as a single cluster or as two structurally distinct clusters, and how strong is the cross-boundary connectivity?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -371,23 +369,167 @@
             "K5_C0004"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0001_M_K5_C0005 and K5_C0004 represented in the native patient geometries, and does it support keeping them as separate units?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "pair",
-          "target_ids": [
-            "K5_C0003",
-            "K5_C0004"
-          ],
-          "focus": "boundary_representation",
-          "question": "Is the boundary between K5_C0003 and K5_C0004 represented in the native patient geometries, and does it support keeping them as separate units?"
+          "question": "How well is the boundary between K5_C0001_M_K5_C0005 and K5_C0004 represented across the native patient geometries?"
         }
       ]
     }
   },
   {
     "round": 10,
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-6033\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0001_M_K5_C0005\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"}]",
+    "router_plan": {
+      "actions": [],
+      "evidence_requests": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K5_C0001_M_K5_C0005",
+            "K5_C0004"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the union of K5_C0001_M_K5_C0005 and K5_C0004 resolve as a single-cluster-dominated structure (merge-compatible) or as a well-separated two-cluster structure, given that native-view boundary representation for this pair is weak and conflicting (CT negative silhouette, RNA/WSI near-zero, WXS modest)?"
+        }
+      ]
+    }
+  },
+  {
+    "round": 11,
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-6033\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0001_M_K5_C0005\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"}]",
+    "router_plan": {
+      "actions": [],
+      "evidence_requests": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0001_M_K5_C0005"
+          ],
+          "focus": "internal_subdivision",
+          "question": "Does the merged set K5_C0001_M_K5_C0005 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent cluster?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0002"
+          ],
+          "focus": "internal_subdivision",
+          "question": "Does K5_C0002 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent cluster?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0003"
+          ],
+          "focus": "internal_subdivision",
+          "question": "Does K5_C0003 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent cluster?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0004"
+          ],
+          "focus": "internal_subdivision",
+          "question": "Does K5_C0004 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent cluster?"
+        }
+      ]
+    }
+  },
+  {
+    "round": 12,
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-6033\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0001_M_K5_C0005\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"}]",
+    "router_plan": {
+      "actions": [],
+      "evidence_requests": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0001_M_K5_C0005"
+          ],
+          "focus": "membership_representation",
+          "question": "Does the exact-set membership of K5_C0001_M_K5_C0005 show coherent, positively supported representation across native patient geometries, sufficient to establish it as an independent discovery-stage unit?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0002"
+          ],
+          "focus": "membership_representation",
+          "question": "Does the exact-set membership of K5_C0002 show coherent, positively supported representation across native patient geometries, sufficient to establish it as an independent discovery-stage unit?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0003"
+          ],
+          "focus": "membership_representation",
+          "question": "Does the exact-set membership of K5_C0003 show coherent, positively supported representation across native patient geometries, sufficient to establish it as an independent discovery-stage unit?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0004"
+          ],
+          "focus": "membership_representation",
+          "question": "Does the exact-set membership of K5_C0004 show coherent, positively supported representation across native patient geometries, sufficient to establish it as an independent discovery-stage unit?"
+        }
+      ]
+    }
+  },
+  {
+    "round": 13,
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-6033\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0001_M_K5_C0005\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"}]",
+    "router_plan": {
+      "actions": [],
+      "evidence_requests": [
+        {
+          "dimension": "biological_support",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0001_M_K5_C0005"
+          ],
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence provide an independent, interpretable biological identity for K5_C0001_M_K5_C0005 that is compatible with its transcriptomic phenotype, given its weak and conflicting native-view membership representation?"
+        },
+        {
+          "dimension": "biological_support",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0002"
+          ],
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence corroborate a distinct biological identity for K5_C0002, whose native-view membership representation is weak and conflicting across modalities?"
+        },
+        {
+          "dimension": "biological_support",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0003"
+          ],
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence corroborate a distinct biological identity for K5_C0003, whose native-view membership representation is weak and conflicting and whose set size is small?"
+        },
+        {
+          "dimension": "biological_support",
+          "scope": "set",
+          "target_ids": [
+            "K5_C0004"
+          ],
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence corroborate a distinct biological identity for K5_C0004, whose native-view membership representation is weak and conflicting and whose set size is small?"
+        }
+      ]
+    }
+  },
+  {
+    "round": 14,
     "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5696\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-6033\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-G6-A8L7\"],\"set_id\":\"K5_C0001_M_K5_C0005\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4972\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5988\"],\"set_id\":\"K5_C0002\"},{\"member_ids\":[\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4167\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-5175\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\"],\"set_id\":\"K5_C0003\"},{\"member_ids\":[\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-5010\",\"TCGA-BP-5174\",\"TCGA-BP-5192\",\"TCGA-BP-5196\",\"TCGA-CJ-4902\",\"TCGA-CZ-5984\"],\"set_id\":\"K5_C0004\"}]",
     "router_plan": {
       "actions": [
@@ -399,13 +541,17 @@
           "n_children": null,
           "evidence_report_refs": [
             "ER:90f2a2b85bd7:biological_support:rna_pathway_enrichment:set:05ce3f5cc5",
+            "ER:90f2a2b85bd7:biological_support:wxs_mutation_enrichment:set:05ce3f5cc5",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:2d60cc84c2",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:52a9c2b93f",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:88ab919190",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:set:05ce3f5cc5",
-            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:88ab919190"
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:2d60cc84c2",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:52a9c2b93f",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:88ab919190",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:set:05ce3f5cc5"
           ],
-          "reason": "Interpretable biological identity: coordinated suppression of OXPHOS, immune/allograft, interferon, complement, xenobiotic and ROS programs with WNT/beta-catenin up-regulation (set:05ce3f5cc5). Membership representation is weak-to-conflicting (CT negative, RNA null, WSI/WXS small positive), but the boundary to its nearest competitor K5_C0002 is positively supported by structural diagnostics showing a partially represented current boundary (independent two-way spectral ARI ~0.69, within-side affinity exceeding between-side affinity) despite a single-cluster-dominated union (pair:88ab919190). Boundaries to K5_C0003 and K5_C0004 are modestly-to-weakly represented with three views giving positive separation for K5_C0003 (pair:2d60cc84c2) and WXS positive for K5_C0004 (pair:52a9c2b93f). No supported split or merge alternative is available, and the candidate retains a defensible independent discovery-stage identity."
+          "reason": "Substantive biological identity: RNA shows broad down-regulation of OXPHOS/immune/interferon programs (NES -1.7 to -2.1, FDR q 0.001) and WXS shows PBRM1/VHL-high, BAP1-low (PBRM1 OR 15.66, q_global 1.18e-05), a coherent ccRCC-associated phenotype. Membership representation is weak (set-scope silhouettes -0.070 to 0.092), but independence is affirmatively supported by pair boundaries: the K5_C0001_M_K5_C0005–K5_C0004 boundary has perfect spectral ARI (1.0) with within-affinity 0.398 vs between 0.108, and the K5_C0001_M_K5_C0005–K5_C0003 boundary has ARI 0.792 with within 0.399 vs between 0.111. Internal subdivision is not supported (screen_candidate_k=1, leading eigengap 0.733; higher-k native projections near zero/negative). No supported split or merge rescue remains."
         },
         {
           "action": "accept",
@@ -415,13 +561,15 @@
           "n_children": null,
           "evidence_report_refs": [
             "ER:90f2a2b85bd7:biological_support:rna_pathway_enrichment:set:57f1efc247",
+            "ER:90f2a2b85bd7:biological_support:wxs_mutation_enrichment:set:57f1efc247",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:88ab919190",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:c693bccb00",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:set:57f1efc247",
             "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:88ab919190",
-            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:c693bccb00"
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:c693bccb00",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:set:57f1efc247"
           ],
-          "reason": "Coherent, strongly up-shifted metabolic identity (OXPHOS NES 2.853, protein secretion, fatty acid metabolism, adipogenesis, mTORC1, peroxisome, estrogen response, ROS all FDR q=0.001) (set:57f1efc247). Membership representation is weak-to-conflicting (three of four views negative, CT marginal), but the boundary to K5_C0003 is positively supported by structural diagnostics showing a well-represented current boundary (independent two-way spectral ARI ~0.92, within-side affinity clearly exceeding between-side affinity) despite a single-cluster-dominated union (pair:c693bccb00). The boundary to K5_C0001_M_K5_C0005 is weakly represented (pair:88ab919190). No supported split or merge alternative is available, and the candidate retains a defensible independent discovery-stage identity."
+          "reason": "Substantive biological identity: RNA shows coordinated up-regulation of OXPHOS (NES 2.85), fatty acid metabolism, adipogenesis, mTORC1, peroxisome, and ROS programs (FDR q 0.001), and WXS shows VHL depletion (OR 0.032, q_global 3.07e-07) with PBRM1 depletion (q_driver 0.037), a coherent VHL/PBRM1-low ccRCC phenotype distinct from the PBRM1/VHL-high identity of K5_C0001_M_K5_C0005. Membership representation is weak (set-scope silhouettes -0.083 to 0.022), but independence is affirmatively supported by the K5_C0002–K5_C0003 boundary: within-affinity 0.450 vs between 0.151 with high spectral ARI 0.920. Internal subdivision is not supported (screen_candidate_k=1, leading eigengap 0.726; k=2 native projections weak 0.016–0.102). No supported split or merge rescue remains."
         },
         {
           "action": "accept",
@@ -431,13 +579,17 @@
           "n_children": null,
           "evidence_report_refs": [
             "ER:90f2a2b85bd7:biological_support:rna_pathway_enrichment:set:fb62f0d939",
+            "ER:90f2a2b85bd7:biological_support:wxs_mutation_enrichment:set:fb62f0d939",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:2d60cc84c2",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:adfe8c5640",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:c693bccb00",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:set:fb62f0d939",
-            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:c693bccb00"
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:2d60cc84c2",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:adfe8c5640",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:c693bccb00",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:set:fb62f0d939"
           ],
-          "reason": "Distinct immune/inflammatory identity (allograft rejection NES 2.777, IFN-gamma 2.630, IFN-alpha 2.607, IL6/JAK/STAT3 2.174, inflammatory response 1.961, complement 1.834, all FDR q=0.001) (set:fb62f0d939). Membership representation is conflicting (RNA and CT positive, WSI and WXS negative), but the boundary to K5_C0002 is positively supported by structural diagnostics showing a well-represented current boundary (ARI ~0.92, within-side affinity clearly exceeding between-side affinity) (pair:c693bccb00). The boundary to K5_C0004 is weakly and inconsistently represented (pair:adfe8c5640), and to K5_C0001_M_K5_C0005 weakly-to-modestly represented (pair:2d60cc84c2). No supported split or merge alternative is available, and the candidate retains a defensible independent discovery-stage identity."
+          "reason": "Substantive biological identity: RNA shows coordinated up-regulation of allograft rejection (NES 2.78), interferon-gamma/alpha responses (2.63/2.61), IL6/JAK/STAT3, inflammatory response, and complement (FDR q 0.001), and WXS shows strong BAP1 enrichment (OR 23.06, q_global 0.018) with no VHL/PBRM1 enrichment, a coherent BAP1-high ccRCC phenotype distinct from the other sets. Membership representation is weak (set-scope silhouettes -0.086 to 0.144), but independence is affirmatively supported by the K5_C0002–K5_C0003 boundary (within 0.450 vs between 0.151, ARI 0.920) and the K5_C0003–K5_C0004 boundary (within 0.629 vs between 0.131, ARI 0.871). Internal subdivision is not supported (screen_candidate_k=1, leading eigengap 0.925; k=2/k=3 native projections near zero/negative in RNA and WSI). No supported split or merge rescue remains."
         },
         {
           "action": "accept",
@@ -447,11 +599,15 @@
           "n_children": null,
           "evidence_report_refs": [
             "ER:90f2a2b85bd7:biological_support:rna_pathway_enrichment:set:a3cc944ab3",
+            "ER:90f2a2b85bd7:biological_support:wxs_mutation_enrichment:set:a3cc944ab3",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:52a9c2b93f",
             "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:pair:adfe8c5640",
-            "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:set:a3cc944ab3"
+            "ER:90f2a2b85bd7:cross_modal_consistency:affinity_geometry_concordance:set:a3cc944ab3",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:52a9c2b93f",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:pair:adfe8c5640",
+            "ER:90f2a2b85bd7:cross_modal_consistency:structural_diagnostics:set:a3cc944ab3"
           ],
-          "reason": "Interpretable mesenchymal/stromal identity (EMT NES 2.337, UV-response-DN 2.193, Hedgehog 1.956, angiogenesis 1.705, mitotic spindle 1.713 up; OXPHOS -1.931, ROS -1.616, MYC targets V2 -1.560 down) (set:a3cc944ab3). Membership representation is weak (three views negative, WXS degenerate/non-estimable), but the boundary to K5_C0003 is weakly and inconsistently represented with WXS and RNA giving positive separation (pair:adfe8c5640), and the boundary to K5_C0001_M_K5_C0005 is weakly represented with WXS positive (pair:52a9c2b93f). No supported split or merge alternative is available, and the candidate retains a defensible independent discovery-stage identity."
+          "reason": "Substantive biological identity: RNA shows up-regulation of EMT (NES 2.34), UV-response-DN, Hedgehog, angiogenesis, and mitotic spindle programs with down-regulation of OXPHOS/ROS/MYC targets (FDR q 0.001–0.033), and WXS shows VHL enrichment (14/14 mutated, q_driver 0.00134) with PBRM1 depletion (0/14, q_driver 0.0061), a coherent VHL-high/PBRM1-low phenotype distinct from the other sets. Membership representation is weak (set-scope silhouettes -0.066 to -0.052; WXS 1.0 is a degenerate artifact), but independence is affirmatively supported by the K5_C0003–K5_C0004 boundary (within 0.629 vs between 0.131, ARI 0.871) and the K5_C0001_M_K5_C0005–K5_C0004 boundary (within 0.398 vs between 0.108, ARI 1.0). Internal subdivision is not supported (screen_candidate_k=1, leading eigengap 0.958; no feasible k>=2 solutions). No supported split or merge rescue remains."
         }
       ],
       "evidence_requests": []
