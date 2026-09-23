@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Mapping
 from itertools import combinations
 from pathlib import Path
@@ -54,6 +55,13 @@ DROP_REASON_CONTRADICTIONS = (
     "dropping is not justified",
     "candidate should be retained",
 )
+
+
+class RouterPlanValidationError(ValueError):
+    def __init__(self, code: str, message: str, **details: Any) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details
 
 
 def reason_contradicts_action(action: str, reason: str) -> bool:
@@ -233,6 +241,102 @@ def initial_review_state(candidate_sets: list[dict[str, Any]]) -> ReviewState:
     }
 
 
+def protocol_repair_plan(exc: RouterPlanValidationError) -> RouterPlan | None:
+    if exc.code not in {
+        "MERGE_MISSING_BOUNDARY_REPRESENTATION",
+        "MERGE_MISSING_BOUNDARY_STRUCTURE",
+        "SPLIT_MISSING_INTERNAL_STRUCTURE",
+    } or not exc.details.get("request_available"):
+        return None
+
+    targets = list(exc.details["target_ids"])
+    focus = exc.details["required_focus"]
+    if focus == "boundary_representation":
+        question = (
+            "Assess whether the current boundary between these two candidate sets "
+            "is independently represented."
+        )
+    elif focus == "boundary_structure":
+        question = (
+            "Assess whether the current pair boundary is structurally preserved "
+            "or whether the union is merge-compatible."
+        )
+    else:
+        question = "Assess whether this candidate contains a meaningful and feasible internal subdivision."
+    return RouterPlan(
+        actions=[],
+        evidence_requests=[EvidenceRequest(
+            dimension="cross_modal_consistency",
+            scope="pair" if len(targets) == 2 else "set",
+            target_ids=targets,
+            focus=focus,
+            question=question,
+        )],
+    )
+
+
+def router_validation_feedback(exc: Exception) -> dict[str, Any]:
+    if not isinstance(exc, RouterPlanValidationError):
+        return {
+            "code": "WORKFLOW_CONTRACT_VIOLATION",
+            "error": str(exc),
+            "instruction": (
+                "Repair only the workflow contract violation. Use only available_evidence_requests "
+                "and current Evidence Reports. Do not invent evidence."
+            ),
+        }
+
+    feedback: dict[str, Any] = {
+        "code": exc.code,
+        "error": str(exc),
+        "details": exc.details,
+    }
+    instructions = {
+        "TERMINAL_COVERAGE_INVALID": (
+            "Return a complete terminal disposition. Use exactly one accept or drop action for every "
+            "current set listed in details.current_set_ids. Do not omit, repeat, or add a target, and "
+            "do not mix terminal actions with structural actions or evidence_requests."
+        ),
+        "TERMINAL_ACCOUNTABILITY_MISSING": (
+            "Include every target-specific Evidence Report reference listed in details.missing_report_refs "
+            "for the affected terminal action. Do not change the scientific action solely to satisfy this "
+            "provenance requirement."
+        ),
+        "DROP_PREMATURE": (
+            "The proposed drop is premature because a nominated neighboring pair lacks boundary_representation "
+            "review. Request one available unreviewed pair review before terminal disposition; do not force "
+            "merge or exhaustively review every pair."
+        ),
+        "MERGE_NOT_ALLOWED": (
+            "Merge is not an allowed structural action in the current workflow. Do not emit merge again "
+            "in this round. Choose an available evidence request, a legal split, or a complete terminal "
+            "accept/drop disposition. Merge-compatible evidence is not positive accept evidence."
+        ),
+        "SPLIT_CHILD_COUNT_INVALID": (
+            "Choose only a feasible n_children reported by the exact-set structural Evidence Report, or "
+            "choose another valid next step."
+        ),
+        "EVIDENCE_REQUEST_UNAVAILABLE": (
+            "The requested EvidenceRequest is unavailable. Use only an exact option exposed in "
+            "available_evidence_requests."
+        ),
+        "EVIDENCE_REQUEST_DUPLICATED": (
+            "Do not repeat the same EvidenceRequest in one RouterPlan. Use distinct available requests only."
+        ),
+        "ACTION_REASON_CONTRADICTION": (
+            "Make the terminal action and rationale scientifically consistent. Do not merely rephrase "
+            "the rationale to bypass validation. Re-evaluate using only cited Evidence Reports and "
+            "available evidence requests."
+        ),
+    }
+    feedback["instruction"] = instructions.get(
+        exc.code,
+        "Repair only the stated workflow contract violation using the current Evidence Reports and "
+        "available_evidence_requests.",
+    )
+    return feedback
+
+
 def validate_router_plan(
     plan: RouterPlan,
     state: Mapping[str, Any],
@@ -246,9 +350,17 @@ def validate_router_plan(
         for request in plan.evidence_requests:
             key = (request.dimension, request.scope, tuple(request.target_ids), request.focus)
             if key not in available:
-                raise ValueError(f"EvidenceRequest is unavailable: {key}")
+                raise RouterPlanValidationError(
+                    "EVIDENCE_REQUEST_UNAVAILABLE",
+                    f"EvidenceRequest is unavailable: {key}",
+                    request=key,
+                )
             if key in seen:
-                raise ValueError(f"EvidenceRequest is duplicated: {key}")
+                raise RouterPlanValidationError(
+                    "EVIDENCE_REQUEST_DUPLICATED",
+                    f"EvidenceRequest is duplicated: {key}",
+                    request=key,
+                )
             seen.add(key)
         return
 
@@ -276,16 +388,39 @@ def validate_router_plan(
                            and row["aspect"] == "structural_diagnostics" and row["scope"] == "set"
                            and row["target_ids"] == [target]), None)
             if report is None:
-                raise ValueError("Split requires its exact-set structural Evidence Report")
+                request_available = (
+                    "cross_modal_consistency", "set", (target,), "internal_subdivision"
+                ) in available
+                raise RouterPlanValidationError(
+                    "SPLIT_MISSING_INTERNAL_STRUCTURE",
+                    "Split requires its exact-set internal_subdivision Evidence Report.",
+                    target_ids=[target],
+                    required_focus="internal_subdivision",
+                    request_available=request_available,
+                )
             structural_result = next((row for row in state["tool_evidence"]
                 if row["partition_signature"] == partition_signature(current_sets(state))
                 and row["tool_name"] == "structural_diagnostics" and row["scope"] == "set"
                 and row["target_ids"] == [target]), None)
             solutions = structural_result["metrics"].get("set", {}).get(target, {}).get("solutions", {}) if structural_result else {}
             if str(action.n_children) not in solutions:
-                raise ValueError("Split child count must be a feasible structural solution")
+                raise RouterPlanValidationError(
+                    "SPLIT_CHILD_COUNT_INVALID",
+                    "Split child count must be a feasible structural solution",
+                    target_ids=[target],
+                    requested_n_children=action.n_children,
+                    feasible_n_children=sorted(solutions),
+                )
         else:
             targets = sorted(action.target_ids)
+            if not merge_legal:
+                raise RouterPlanValidationError(
+                    "MERGE_NOT_ALLOWED",
+                    "Merge is not an allowed structural action for the current partition.",
+                    target_ids=targets,
+                    current_set_ids=sorted(current),
+                    allowed_structural_actions=["split"],
+                )
             pair_reports = [
                 row for row in cited
                 if row["dimension"] == "cross_modal_consistency"
@@ -293,26 +428,49 @@ def validate_router_plan(
                 and sorted(row["target_ids"]) == targets
             ]
             if not any("boundary_representation" in row.get("request_foci", []) for row in pair_reports):
-                raise ValueError(
-                    "Merge requires its exact-pair boundary_representation Evidence Report"
+                request_available = (
+                    "cross_modal_consistency", "pair", tuple(targets), "boundary_representation"
+                ) in available
+                raise RouterPlanValidationError(
+                    "MERGE_MISSING_BOUNDARY_REPRESENTATION",
+                    "Merge requires its exact-pair boundary_representation Evidence Report.",
+                    target_ids=targets,
+                    required_focus="boundary_representation",
+                    request_available=request_available,
                 )
             if not any(
                 row.get("aspect") == "structural_diagnostics"
                 and "boundary_structure" in row.get("request_foci", [])
                 for row in pair_reports
             ):
-                raise ValueError(
-                    "Merge requires its exact-pair boundary_structure Evidence Report"
+                request_available = (
+                    "cross_modal_consistency", "pair", tuple(targets), "boundary_structure"
+                ) in available
+                raise RouterPlanValidationError(
+                    "MERGE_MISSING_BOUNDARY_STRUCTURE",
+                    "Merge requires its exact-pair boundary_structure Evidence Report.",
+                    target_ids=targets,
+                    required_focus="boundary_structure",
+                    request_available=request_available,
                 )
-            if len(current) - 1 < 2:
-                raise ValueError("Merge cannot collapse the subtype partition to a single whole-cohort set")
         return
 
     targets = [target for action in plan.actions for target in action.target_ids]
     if any(action.action not in {"accept", "drop"} for action in plan.actions):
         raise ValueError("Terminal disposition may only accept or drop sets")
-    if len(targets) != len(set(targets)) or set(targets) != current:
-        raise ValueError("Terminal actions must cover each current set exactly once")
+    target_counts = Counter(targets)
+    missing_targets = sorted(current - set(target_counts))
+    duplicate_targets = sorted(target for target, count in target_counts.items() if count > 1)
+    unexpected_targets = sorted(set(target_counts) - current)
+    if missing_targets or duplicate_targets or unexpected_targets:
+        raise RouterPlanValidationError(
+            "TERMINAL_COVERAGE_INVALID",
+            "Terminal actions must cover each current set exactly once.",
+            current_set_ids=sorted(current),
+            missing_target_ids=missing_targets,
+            duplicate_target_ids=duplicate_targets,
+            unexpected_target_ids=unexpected_targets,
+        )
     if not any(
         row["dimension"] == "cross_modal_consistency"
         and row["aspect"] == "structural_diagnostics"
@@ -334,9 +492,12 @@ def validate_router_plan(
         ))
         missing_refs = required_refs - set(action.evidence_report_refs)
         if missing_refs:
-            raise ValueError(
+            raise RouterPlanValidationError(
+                "TERMINAL_ACCOUNTABILITY_MISSING",
                 "Terminal action must cite all target-specific set/pair Evidence Reports "
-                f"acquired for this candidate; missing {sorted(missing_refs)}"
+                f"acquired for this candidate; missing {sorted(missing_refs)}",
+                target_ids=[action.target_ids[0]],
+                missing_report_refs=sorted(missing_refs),
             )
         if reason_contradicts_action(action.action, action.reason):
             if action.action == "accept":
@@ -349,8 +510,11 @@ def validate_router_plan(
                     "Router action contradicts its own rationale: drop was emitted while "
                     "the reason explicitly rejects dropping."
                 )
-            raise ValueError(
-                message
+            raise RouterPlanValidationError(
+                "ACTION_REASON_CONTRADICTION",
+                message,
+                action=action.action,
+                target_ids=list(action.target_ids),
             )
         if action.action == "drop":
             target = action.target_ids[0]
@@ -362,9 +526,12 @@ def validate_router_plan(
                 and "boundary_representation" in row.get("request_foci", [])
                 for row in state["reports"]
             ):
-                raise ValueError(
+                raise RouterPlanValidationError(
+                    "DROP_PREMATURE",
                     f"Drop is premature for {target}: the partition structural screen nominates "
-                    "neighboring pair alternatives, but none has received boundary_representation review."
+                    "neighboring pair alternatives, but none has received boundary_representation review.",
+                    target_ids=[target],
+                    nominated_pair_targets=[list(pair) for pair in sorted(candidate_pairs)],
                 )
         if action.action == "accept":
             target = action.target_ids[0]
@@ -502,41 +669,31 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                 )
                 break
             except ValueError as exc:
+                repair_plan = protocol_repair_plan(exc) if isinstance(exc, RouterPlanValidationError) else None
+                if repair_plan is not None:
+                    validate_router_plan(
+                        repair_plan,
+                        state,
+                        available,
+                        terminal_accountability_refs_by_target=terminal_accountability,
+                        merge_legal=merge_legal,
+                    )
+                    append_runtime_trace(
+                        values.get("runtime_trace_path"),
+                        node="router",
+                        event="router_plan_protocol_repair",
+                        round_id=control["round"],
+                        payload={
+                            "error_code": exc.code,
+                            "error": str(exc),
+                            "repair_plan": repair_plan.model_dump(),
+                        },
+                    )
+                    plan = repair_plan
+                    break
                 if attempt >= retries:
                     raise
-                feedback = {
-                    "error": str(exc),
-                    "instruction": (
-                        "Repair only the workflow contract violation. Use only available_evidence_requests "
-                        "and current Evidence Reports. Do not invent evidence."
-                    ),
-                }
-                if "Terminal action must cite all target-specific" in str(exc):
-                    feedback["instruction"] = (
-                        "Terminal evidence_report_refs must include every target-specific report listed "
-                        "in terminal_accountability_report_refs_by_target. Do not change "
-                        "the scientific action solely because a required reference was omitted."
-                    )
-                elif "Drop is premature" in str(exc):
-                    feedback["instruction"] = (
-                        "The proposed terminal drop is premature because the partition structural screen "
-                        "nominates a neighboring pair and none has received boundary_representation review. "
-                        "Request boundary_representation for one nominated pair, preferably the highest-affinity "
-                        "unreviewed pair. If that boundary remains materially questionable and boundary_structure "
-                        "is available, acquire boundary_structure before terminal disposition. Do not force merge "
-                        "and do not exhaustively review every pair."
-                    )
-                elif "Router action contradicts its own rationale" in str(exc):
-                    feedback["instruction"] = (
-                        "Make the terminal action and rationale scientifically consistent. "
-                        "Do not merely rephrase the rationale to bypass validation. Re-evaluate "
-                        "the disposition using only the cited Evidence Reports and available_evidence_requests. "
-                        "If an available evidence request could materially change the disposition, request "
-                        "that evidence instead of emitting terminal actions. Otherwise, use accept only when "
-                        "the evidence positively supports a defensible independent subtype, and use drop only "
-                        "when the candidate lacks sufficient defensible discovery value after plausible "
-                        "structural alternatives have been considered."
-                    )
+                feedback = router_validation_feedback(exc)
                 append_runtime_trace(
                     values.get("runtime_trace_path"),
                     node="router",
@@ -544,7 +701,9 @@ def router_node(state: ReviewState, runtime: Runtime[ReviewContext]) -> dict[str
                     round_id=control["round"],
                     payload={
                         "attempt": attempt + 1,
+                        "error_code": getattr(exc, "code", "WORKFLOW_CONTRACT_VIOLATION"),
                         "error": str(exc),
+                        "validation_feedback": feedback,
                         "available_evidence_requests": router_request_options,
                     },
                 )

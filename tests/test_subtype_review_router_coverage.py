@@ -5,8 +5,10 @@ from agents.subtype_review.graph import (
     eligible_tools_for_request,
     initial_review_state,
     partition_signature,
+    protocol_repair_plan,
     reason_contradicts_action,
     router_node,
+    RouterPlanValidationError,
     terminal_accountability_refs,
     validate_router_plan,
 )
@@ -42,6 +44,69 @@ def test_positive_accept_reason_is_not_flagged():
         "accept",
         "The candidate remains a defensible independent discovery-stage unit.",
     )
+
+
+def test_merge_legality_is_checked_before_merge_evidence():
+    state = initial_review_state([
+        {"set_id": "C1", "member_ids": ["P1"]},
+        {"set_id": "C2", "member_ids": ["P2"]},
+    ])
+    state["reports"] = [{
+        "report_ref": "ER:partition", "dimension": "cross_modal_consistency",
+        "aspect": "structural_diagnostics", "scope": "partition", "target_ids": [],
+    }]
+    action = RouterAction(action="merge", target_ids=["C1", "C2"], evidence_report_refs=["ER:partition"], reason="revise")
+    with pytest.raises(RouterPlanValidationError) as error:
+        validate_router_plan(RouterPlan(actions=[action]), state, set(), merge_legal=False)
+    assert error.value.code == "MERGE_NOT_ALLOWED"
+
+
+def test_terminal_coverage_error_reports_missing_targets():
+    state = terminal_validation_state([])
+    plan = RouterPlan(actions=[terminal_action("drop", "C1")])
+    with pytest.raises(RouterPlanValidationError) as error:
+        validate_router_plan(plan, state, set())
+    assert error.value.code == "TERMINAL_COVERAGE_INVALID"
+    assert error.value.details["missing_target_ids"] == ["C2"]
+
+
+def test_terminal_coverage_error_reports_duplicate_targets():
+    state = terminal_validation_state([])
+    plan = RouterPlan(actions=[terminal_action("drop", "C1"), terminal_action("drop", "C1")])
+    with pytest.raises(RouterPlanValidationError) as error:
+        validate_router_plan(plan, state, set())
+    assert error.value.code == "TERMINAL_COVERAGE_INVALID"
+    assert error.value.details["duplicate_target_ids"] == ["C1"]
+
+
+@pytest.mark.parametrize(
+    ("code", "targets", "focus"),
+    [
+        ("MERGE_MISSING_BOUNDARY_REPRESENTATION", ["C1", "C2"], "boundary_representation"),
+        ("MERGE_MISSING_BOUNDARY_STRUCTURE", ["C1", "C2"], "boundary_structure"),
+        ("SPLIT_MISSING_INTERNAL_STRUCTURE", ["C1"], "internal_subdivision"),
+    ],
+)
+def test_structural_prerequisites_can_be_protocol_repaired(code, targets, focus):
+    error = RouterPlanValidationError(
+        code,
+        "missing prerequisite",
+        target_ids=targets,
+        required_focus=focus,
+        request_available=True,
+    )
+    repaired = protocol_repair_plan(error)
+    assert repaired is not None
+    assert repaired.actions == []
+    assert repaired.evidence_requests[0].focus == focus
+    assert repaired.evidence_requests[0].target_ids == targets
+
+
+def test_merge_not_allowed_is_not_auto_repaired_into_scientific_action():
+    error = RouterPlanValidationError(
+        "MERGE_NOT_ALLOWED", "merge is disallowed", target_ids=["C1", "C2"]
+    )
+    assert protocol_repair_plan(error) is None
 
 
 def terminal_validation_state(reports):
