@@ -21,6 +21,7 @@ from agents.subtype_review.runner import (
     run_review_grid,
     summarize_review_grid,
 )
+from agents.subtype_review.multi_k import DEFAULT_MULTI_K_CONFIG
 from utils.patient_store import save_patient_states
 from utils.io import write_json
 from utils.tool_utils import safe_identifier, to_jsonable
@@ -171,8 +172,8 @@ def run_pipeline(
             f"missing={missing}, extra={extra}"
         )
     review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
-    configured_ks = sorted(set(map(int, review_config["multi_k"]["initial_ks"])))
-    configured_repeats = sorted(set(map(int, review_config["multi_k"]["repeats"])))
+    configured_ks = sorted(set(map(int, DEFAULT_MULTI_K_CONFIG["initial_ks"])))
+    configured_repeats = sorted(set(map(int, DEFAULT_MULTI_K_CONFIG["repeats"])))
     if args.run_pairs:
         requested_pairs = tuple(sorted(set(args.run_pairs)))
     else:
@@ -268,9 +269,8 @@ def main() -> None:
     args.config_dir = str(Path(args.config_dir).expanduser().resolve())
     from utils.llm_utils import load_yaml_file
 
-    multi_k = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")["multi_k"]
-    args.initial_ks = sorted(set(args.initial_ks or multi_k["initial_ks"]))
-    args.repeats = sorted(set(args.repeats or multi_k["repeats"]))
+    args.initial_ks = sorted(set(args.initial_ks or DEFAULT_MULTI_K_CONFIG["initial_ks"]))
+    args.repeats = sorted(set(args.repeats or DEFAULT_MULTI_K_CONFIG["repeats"]))
     case = json.loads(Path(args.data_json_path).read_text(encoding="utf-8"))
     if not isinstance(case, list):
         raise TypeError("data json must contain a JSON list.")

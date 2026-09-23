@@ -47,14 +47,12 @@ def test_runner_only_reads_workflow_budget(monkeypatch):
     assert len({id(tracker) for _, tracker in calls}) == 1
 
 
-def test_main_uses_multi_k_grid_from_config_when_cli_grid_is_omitted(tmp_path, monkeypatch):
+def test_main_uses_multi_k_grid_from_multi_k_defaults_when_cli_grid_is_omitted(tmp_path, monkeypatch):
     import main
 
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
-    (config_dir / "subtype_review.yaml").write_text(
-        "multi_k:\n  initial_ks: [3, 4]\n  repeats: [2]\n", encoding="utf-8"
-    )
+    (config_dir / "subtype_review.yaml").write_text("budget:\n  max_rounds: 1\n", encoding="utf-8")
     data_path = tmp_path / "cases.json"
     data_path.write_text("[]", encoding="utf-8")
     captured = {}
@@ -66,8 +64,8 @@ def test_main_uses_multi_k_grid_from_config_when_cli_grid_is_omitted(tmp_path, m
 
     main.main()
 
-    assert captured["initial_ks"] == [3, 4]
-    assert captured["repeats"] == [2]
+    assert captured["initial_ks"] == [2, 3, 4, 5, 6, 7, 8]
+    assert captured["repeats"] == [1, 2, 3]
 
     monkeypatch.setattr(
         "sys.argv",
