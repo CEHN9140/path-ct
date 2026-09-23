@@ -331,7 +331,7 @@ def ct_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path,
     return pd.read_csv(out / "ct_subtype_vs_core_rest.csv")
 
 
-def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path, top_marker_genes: int = 10) -> pd.DataFrame:
+def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path, top_marker_genes: int = 10, bootstrap_iterations: int = 2000) -> pd.DataFrame:
     from gseapy import prerank, ssgsea
     from pydeseq2.dds import DeseqDataSet
     from pydeseq2.ds import DeseqStats
@@ -395,13 +395,13 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
     z.T.to_csv(out / "rna_marker_gene_matrix.csv")
     pd.DataFrame({"case_id": context["core_patient_ids"], "subtype_id": [next(s for s,m in context["subtypes"].items() if p in m) for p in context["core_patient_ids"]]}).to_csv(out / "rna_marker_patient_annotation.csv", index=False)
     hallmark_sets = gene_sets["HALLMARK"]
+    hallmark_sets = {name: sorted(set(genes) & set(expr.columns)) for name, genes in hallmark_sets.items()}
+    hallmark_sets = {name: genes for name, genes in hallmark_sets.items() if len(genes) >= int(cfg["min_pathway_overlap"])}
     try:
-        ss = ssgsea(data=expr.loc[context["candidate_patient_ids"], :].T, gene_sets=hallmark_sets, sample_norm_method="rank", outdir=None, no_plot=True, threads=int(cfg.get("gsea_threads", 1)), verbose=False).res2d
+        ss = ssgsea(data=expr.loc[context["candidate_patient_ids"], :].T, gene_sets=hallmark_sets, sample_norm_method="rank", min_size=int(cfg["min_pathway_overlap"]), outdir=None, no_plot=True, threads=int(cfg.get("gsea_threads", 1)), verbose=False).res2d
         scores = ss.pivot(index="Name", columns="Term", values="ES").rename_axis("case_id").reindex(context["candidate_patient_ids"])
-    except Exception:
-        scores = pd.DataFrame(index=context["candidate_patient_ids"])
-        ranks = expr.loc[context["candidate_patient_ids"]].rank(axis=1, pct=True)
-        for name, genes in hallmark_sets.items(): scores[name] = ranks.reindex(columns=genes).mean(axis=1)
+    except Exception as exc:
+        raise RuntimeError("Hallmark ssGSEA failed; no alternate scoring method was substituted.") from exc
     scores.insert(0, "subtype_id", [next((s for s,m in context["subtypes"].items() if p in m), "") for p in scores.index])
     scores.insert(1, "is_core", scores.index.isin(context["core_patient_ids"]))
     scores.reset_index().to_csv(out / "rna_hallmark_ssgsea_scores.csv", index=False)
@@ -410,7 +410,7 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
     pd.DataFrame(hallmark_omnibus).to_csv(out / "rna_hallmark_omnibus.csv", index=False)
     rest_frames = {}
     for reference, universe in (("core_rest", context["core_patient_ids"]), ("candidate_rest", context["candidate_patient_ids"])):
-        _, _, rows = continuous_tests(score_table.to_dict("index"), list(score_table.columns), context["subtypes"], universe, 0, "rna_hallmark", reference)
+        _, _, rows = continuous_tests(score_table.to_dict("index"), list(score_table.columns), context["subtypes"], universe, bootstrap_iterations, "rna_hallmark", reference)
         frame = pd.DataFrame(rows); rest_frames[reference] = frame; frame.to_csv(out / f"rna_hallmark_vs_{reference}.csv", index=False)
     consistency = []
     for row in rest_frames["core_rest"].itertuples():
@@ -485,7 +485,7 @@ def wxs_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
 
 
 def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path) -> None:
-    from agents.subtype_review.tools import known_label_echo, confounder_association, confounder_representation_effect
+    from agents.subtype_review.tools import known_label_echo, confounder_association, confounder_representation_effect, categorical_test
     states = context["patient_states"]
     clusters = [{"set_id": sid, "member_ids": members} for sid, members in context["subtypes"].items()]
     known = known_label_echo(states, str(output_root), clusters, str(config_dir), "partition", [])
@@ -512,8 +512,8 @@ def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_
         labels["subtype_id"] = labels.case_id.astype(str).map({p: sid for sid, m in context["subtypes"].items() for p in m})
         table = pd.crosstab(labels.subtype_id, labels.reference_subtype)
         if table.shape[0] > 1 and table.shape[1] > 1:
-            from scipy.stats import chi2_contingency
-            association_rows.append({"taxonomy": name, "available_n": len(labels), "test": "chi_square", "p_value": float(chi2_contingency(table, correction=False)[1]), "cramers_v": float(__import__("agents.subtype_review.tools", fromlist=["cramers_v"]).cramers_v(table.to_numpy()))})
+            test_result = categorical_test(labels.subtype_id.tolist(), labels.reference_subtype.astype(str).tolist(), 9999, BASE_SEED)
+            association_rows.append({"taxonomy": name, "available_n": len(labels), "test": test_result.get("test"), "p_value": test_result.get("p_value"), "cramers_v": test_result.get("cramers_v")})
         for sid in context["subtype_order"]:
             target, rest = build_subtype_contrast(context, sid, "core_rest")
             local = labels.set_index("case_id")
@@ -537,16 +537,18 @@ def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_
 
 
 def clinical_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path, permutations: int) -> pd.DataFrame:
-    from scipy.stats import chi2_contingency
+    from agents.subtype_review.tools import categorical_test, clinical_labels, cramers_v
     raw = json.loads(clinical_path.read_text(encoding="utf-8")) if clinical_path.is_file() else []
     by_case = {str(row.get("Case_ID")): row for row in raw}
+    normalized = clinical_labels(context["patient_states"])
     rows = []
     for sid, members in context["subtypes"].items():
         for case_id in members:
             clinical = (by_case.get(case_id) or {}).get("Clinical", {})
             demographic = clinical.get("demographic", {}) or {}
-            diagnoses = [r for r in clinical.get("diagnoses", []) if str(r.get("diagnosis_is_primary_disease", "")).lower() == "true"] or clinical.get("diagnoses") or [{}]
-            diagnosis = diagnoses[0]
+            diagnoses = clinical.get("diagnoses") or [{}]
+            primary = [r for r in diagnoses if str(r.get("diagnosis_is_primary_disease", "")).lower() == "true"]
+            diagnosis = (primary or diagnoses)[0]
             age = demographic.get("age_at_index")
             if age is None:
                 try: age = float(diagnosis.get("age_at_diagnosis")) / 365.25
@@ -555,48 +557,47 @@ def clinical_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path
             except (TypeError, ValueError): age = np.nan
             sex = str(demographic.get("gender", "unknown")).strip().lower()
             sex = sex if sex in {"male", "female"} else "unknown"
-            stage = str(diagnosis.get("ajcc_pathologic_stage", "")).strip() or "unknown"
-            grade = str(diagnosis.get("tumor_grade", "")).strip() or "unknown"
-            t_stage = str(diagnosis.get("ajcc_pathologic_t", "")).strip() or "unknown"
-            m_stage = str(diagnosis.get("ajcc_pathologic_m", "")).strip() or "unknown"
-            rows.append({"case_id": case_id, "subtype_id": sid, "age_at_diagnosis_years": age, "sex": sex, "stage": stage, "grade": grade, "t_stage": t_stage, "m_stage": m_stage})
+            labels = normalized.get(case_id, {})
+            rows.append({"case_id": case_id, "subtype_id": sid, "age_at_diagnosis_years": age, "sex": sex, "stage": labels.get("stage") or "unknown", "grade": labels.get("grade") or "unknown", "t_stage": labels.get("t_stage") or "unknown", "m_stage": labels.get("m_stage") or "unknown"})
     frame = pd.DataFrame(rows)
     frame.to_csv(out / "clinical_patient_table.csv", index=False)
     global_rows = []
     for variable in ("age_at_diagnosis_years", "sex", "stage", "grade", "t_stage", "m_stage"):
         if variable == "age_at_diagnosis_years":
-            samples = [g[variable].dropna().tolist() for _, g in frame.groupby("subtype_id")]
+            valid = frame[variable].notna()
+            samples = [frame.loc[(frame.subtype_id == sid) & valid, variable].tolist() for sid in context["subtype_order"]]
             p = float(kruskal(*samples).pvalue) if len(samples) > 1 and all(samples) else None
-            effect = None
-            test = "kruskal_wallis"
+            n, k = sum(map(len, samples)), len(samples)
+            h = float(kruskal(*samples).statistic) if p is not None else None
+            effect = max(0.0, min(1.0, (h - k + 1) / (n - k))) if h is not None and n > k else None
+            test = "kruskal_wallis"; available_n = int(valid.sum())
         else:
-            local = frame[frame[variable] != "unknown"]
-            table = pd.crosstab(local.subtype_id, local[variable])
-            p = float(chi2_contingency(table, correction=False)[1]) if table.shape[0] > 1 and table.shape[1] > 1 else None
-            effect = float(__import__("agents.subtype_review.tools", fromlist=["cramers_v"]).cramers_v(table.to_numpy())) if p is not None else None
-            test = "chi_square"
-        global_rows.append({"variable": variable, "test": test, "available_n": int(frame[variable].notna().sum()), "p_value": p, "effect_size": effect})
+            valid = frame[variable].notna() & (frame[variable] != "unknown")
+            groups = frame.loc[valid, "subtype_id"].tolist(); values = frame.loc[valid, variable].tolist()
+            result = categorical_test(groups, values, permutations, BASE_SEED, force_fisher=False) if len(set(groups)) > 1 and len(set(values)) > 1 else {"test": "not_estimable", "p_value": None, "cramers_v": None}
+            p, effect, test = result.get("p_value"), result.get("cramers_v"), result.get("test")
+            available_n = int(valid.sum())
+        global_rows.append({"variable": variable, "test": test, "available_n": available_n, "missing_n": len(frame) - available_n, "p_value": p, "effect_size": effect})
     global_frame = pd.DataFrame(global_rows); global_frame["q_value"] = bh(global_frame.p_value.tolist()); global_frame.to_csv(out / "clinical_global_association.csv", index=False)
     posthoc = []
-    eligible = global_frame[global_frame.q_value < .05].variable.tolist()
-    for variable in eligible:
+    for variable in global_frame.loc[global_frame.q_value < .05, "variable"]:
         for sid in context["subtype_order"]:
             target, rest = build_subtype_contrast(context, sid, "core_rest")
-            left = frame.set_index("case_id").loc[target, variable]
-            right = frame.set_index("case_id").loc[rest, variable]
+            lookup = frame.set_index("case_id")
             if variable == "age_at_diagnosis_years":
-                left = pd.to_numeric(left, errors="coerce").dropna(); right = pd.to_numeric(right, errors="coerce").dropna(); p = float(mannwhitneyu(left, right).pvalue) if len(left) and len(right) else None; delta = cliffs_delta(left.tolist(), right.tolist())
-                posthoc.append({"variable": variable, "subtype_id": sid, "test": "mann_whitney", "target_n": len(left), "rest_n": len(right), "cliffs_delta": delta, "p_value": p})
+                left = pd.to_numeric(lookup.loc[target, variable], errors="coerce").dropna(); right = pd.to_numeric(lookup.loc[rest, variable], errors="coerce").dropna()
+                p = float(mannwhitneyu(left, right).pvalue) if len(left) and len(right) else None
+                posthoc.append({"variable": variable, "subtype_id": sid, "test": "mann_whitney", "target_n": len(left), "rest_n": len(right), "cliffs_delta": cliffs_delta(left.tolist(), right.tolist()), "p_value": p})
             else:
-                vals = pd.concat([left, right]).astype(str); groups = [sid] * len(left) + ["rest"] * len(right); valid = vals != "unknown"; p = None
-                table = pd.crosstab(pd.Series(np.asarray(groups)[valid]), vals[valid])
-                if table.shape == (2, 2): p = float(fisher_exact(table.to_numpy()).pvalue)
-                posthoc.append({"variable": variable, "subtype_id": sid, "test": "fisher_exact" if table.shape == (2, 2) else "not_estimable", "target_n": int(valid[:len(left)].sum()), "rest_n": int(valid[len(left):].sum()), "cliffs_delta": None, "p_value": p})
+                values = pd.concat([lookup.loc[target, variable], lookup.loc[rest, variable]]).astype(str)
+                groups = [sid] * len(target) + ["rest"] * len(rest)
+                valid = values != "unknown"
+                result = categorical_test(list(np.asarray(groups)[valid]), values[valid].tolist(), permutations, BASE_SEED, force_fisher=False) if len(set(values[valid])) > 1 else {"test": "not_estimable", "p_value": None, "cramers_v": None}
+                posthoc.append({"variable": variable, "subtype_id": sid, "test": result.get("test"), "target_n": int(valid.iloc[:len(target)].sum()), "rest_n": int(valid.iloc[len(target):].sum()), "cramers_v": result.get("cramers_v"), "p_value": result.get("p_value")})
         idx = [i for i, row in enumerate(posthoc) if row["variable"] == variable]
         for i, q in zip(idx, holm([posthoc[j]["p_value"] for j in idx])): posthoc[i]["q_value"] = q
     pd.DataFrame(posthoc).to_csv(out / "clinical_subtype_posthoc.csv", index=False)
     return frame
-
 
 def representatives(context: Mapping[str, Any], output_root: Path, out: Path) -> pd.DataFrame:
     pairs = pd.read_csv(context["patient_recurrence_pair_similarity"], dtype={"patient_id_left": str, "patient_id_right": str})
@@ -620,81 +621,68 @@ def representatives(context: Mapping[str, Any], output_root: Path, out: Path) ->
 def survival_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path, survival_file: Path | None = None) -> tuple[str, pd.DataFrame]:
     from lifelines import KaplanMeierFitter
     from lifelines.statistics import multivariate_logrank_test
-
+    allowed_endpoints = {"OS", "PFI", "DFI", "DFS", "DSS"}
     subtype_by_patient = {patient: sid for sid, members in context["subtypes"].items() for patient in members}
     candidate = context["candidate_patient_ids"]
     if survival_file is not None:
         frame = pd.read_csv(survival_file, dtype={"case_id": str})
         required = {"case_id", "endpoint", "time_days", "event"}
-        if not required.issubset(frame.columns):
-            raise ValueError(f"Survival file must contain {sorted(required)}")
-        frame["case_id"] = frame["case_id"].astype(str)
+        if not required.issubset(frame.columns): raise ValueError(f"Survival file must contain {sorted(required)}")
+        frame["case_id"] = frame["case_id"].astype(str); frame["endpoint"] = frame["endpoint"].astype(str).str.upper()
+        unknown = sorted(set(frame.endpoint) - allowed_endpoints)
+        if unknown: raise ValueError(f"Unsupported survival endpoints: {unknown}")
         frame = frame[frame.case_id.isin(candidate)].copy()
-        frame["time_days"] = pd.to_numeric(frame.time_days, errors="coerce")
-        frame["event"] = pd.to_numeric(frame.event, errors="coerce")
+        frame["time_days"] = pd.to_numeric(frame.time_days, errors="coerce"); frame["event"] = pd.to_numeric(frame.event, errors="coerce")
         frame = frame[frame.time_days.notna() & frame.event.isin([0, 1])]
-        frame["subtype_id"] = frame.case_id.map(subtype_by_patient)
-        frame["is_core"] = frame.case_id.isin(context["core_patient_ids"])
+        frame["subtype_id"] = frame.case_id.map(subtype_by_patient); frame["is_core"] = frame.case_id.isin(context["core_patient_ids"])
     else:
-        if not clinical_path.is_file():
-            return "skipped_missing_source", pd.DataFrame()
-        raw = json.loads(clinical_path.read_text(encoding="utf-8"))
-        by_case = {str(row.get("Case_ID")): row for row in raw}
-        rows = []
+        if not clinical_path.is_file(): return "skipped_missing_source", pd.DataFrame()
+        raw = json.loads(clinical_path.read_text(encoding="utf-8")); by_case = {str(row.get("Case_ID")): row for row in raw}; rows = []
         for case_id in candidate:
-            clinical = (by_case.get(case_id) or {}).get("Clinical", {})
-            demographic = clinical.get("demographic", {}) or {}
-            all_diagnoses = clinical.get("diagnoses") or [{}]
-            diagnoses = [row for row in all_diagnoses if str(row.get("diagnosis_is_primary_disease", "")).lower() == "true"]
-            diagnosis = diagnoses[0] if diagnoses else all_diagnoses[0]
-            event = int(str(demographic.get("vital_status", "")).strip().lower() == "dead")
-            followups = []
-            for row in all_diagnoses:
+            clinical = (by_case.get(case_id) or {}).get("Clinical", {}); demographic = clinical.get("demographic", {}) or {}; diagnoses = clinical.get("diagnoses") or [{}]
+            primary = [row for row in diagnoses if str(row.get("diagnosis_is_primary_disease", "")).lower() == "true"]; diagnosis = (primary or diagnoses)[0]
+            event = int(str(demographic.get("vital_status", "")).strip().lower() == "dead"); followups = []
+            for row in diagnoses:
                 try:
                     if row.get("days_to_last_follow_up") not in (None, ""): followups.append(float(row["days_to_last_follow_up"]))
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError): pass
             time_value = demographic.get("days_to_death") if event else (max(followups) if followups else diagnosis.get("days_to_last_follow_up"))
-            try:
-                time_days = float(time_value)
-            except (TypeError, ValueError):
-                continue
-            if not np.isfinite(time_days) or time_days < 0:
-                continue
-            rows.append({"case_id": case_id, "subtype_id": subtype_by_patient.get(case_id), "is_core": case_id in context["core_patient_ids"], "endpoint": "OS", "time_days": time_days, "event": event})
+            try: time_days = float(time_value)
+            except (TypeError, ValueError): continue
+            if np.isfinite(time_days) and time_days >= 0: rows.append({"case_id": case_id, "subtype_id": subtype_by_patient.get(case_id), "is_core": case_id in context["core_patient_ids"], "endpoint": "OS", "time_days": time_days, "event": event})
         frame = pd.DataFrame(rows)
-    if frame.empty or not set(context["core_patient_ids"]).issubset(set(frame.loc[frame.is_core, "case_id"])):
-        return "skipped_insufficient_core_coverage", frame
-    core = frame[frame.is_core].copy()
-    if core.event.sum() < 5 or core.subtype_id.nunique() < 2:
-        return "skipped_insufficient_events", frame
+    if frame.empty: return "skipped_no_valid_endpoint", frame
     if "OS" in set(frame.endpoint):
         frame["os_time_days"] = np.where(frame.endpoint == "OS", frame.time_days, np.nan)
         frame["os_event"] = np.where(frame.endpoint == "OS", frame.event, np.nan)
     frame.to_csv(out / "survival_patient_table.csv", index=False)
-    summary_rows, km_rows, global_rows = [], [], []
+    summary_rows, km_rows, global_rows = [], [], []; completed_endpoints = []
     for endpoint, endpoint_frame in frame.groupby("endpoint", sort=True):
-        core_endpoint = endpoint_frame[endpoint_frame.is_core]
-        for subtype_id, group in core_endpoint.groupby("subtype_id", sort=True):
-            kmf = KaplanMeierFitter().fit(group.time_days, group.event, label=subtype_id)
-            median = float(kmf.median_survival_time_) if np.isfinite(kmf.median_survival_time_) else None
-            summary_rows.append({"endpoint": endpoint, "reference_population": "core", "subtype_id": subtype_id, "n": len(group), "event_n": int(group.event.sum()), "censored_n": int(len(group) - group.event.sum()), "median_survival_days": median})
-            for time, value in kmf.survival_function_[subtype_id].items():
-                km_rows.append({"endpoint": endpoint, "reference_population": "core", "subtype_id": subtype_id, "timeline_days": float(time), "survival_probability": float(value)})
+        core_endpoint = endpoint_frame[endpoint_frame.is_core & endpoint_frame.subtype_id.notna()].copy()
+        if core_endpoint.empty or core_endpoint.subtype_id.nunique() < 2 or int(core_endpoint.event.sum()) < 1: continue
+        completed_endpoints.append(endpoint)
+        for sid in context["subtype_order"]:
+            group = core_endpoint[core_endpoint.subtype_id == sid]
+            available_n = len(group); missing_n = len(context["subtypes"][sid]) - available_n
+            if not available_n: continue
+            kmf = KaplanMeierFitter().fit(group.time_days, group.event, label=sid); median = float(kmf.median_survival_time_) if np.isfinite(kmf.median_survival_time_) else None
+            summary_rows.append({"endpoint": endpoint, "reference_population": "core", "subtype_id": sid, "n": available_n, "available_n": available_n, "missing_n": missing_n, "event_n": int(group.event.sum()), "censored_n": int(available_n - group.event.sum()), "median_survival_days": median, "low_event_count": int(group.event.sum()) < 5})
+            for time, value in kmf.survival_function_[sid].items(): km_rows.append({"endpoint": endpoint, "reference_population": "core", "subtype_id": sid, "timeline_days": float(time), "survival_probability": float(value)})
         result = multivariate_logrank_test(core_endpoint.time_days, core_endpoint.subtype_id, core_endpoint.event)
-        global_rows.append({"endpoint": endpoint, "reference_population": "core", "n": len(core_endpoint), "event_n": int(core_endpoint.event.sum()), "test": "multivariate_logrank", "test_statistic": float(result.test_statistic), "p_value": float(result.p_value)})
-    pd.DataFrame(summary_rows).to_csv(out / "survival_summary.csv", index=False)
-    pd.DataFrame(global_rows).to_csv(out / "survival_global_tests.csv", index=False)
-    pd.DataFrame(km_rows).to_csv(out / "survival_km_points.csv", index=False)
-    return "complete", pd.DataFrame(summary_rows)
-
+        global_rows.append({"endpoint": endpoint, "reference_population": "core", "n": len(core_endpoint), "event_n": int(core_endpoint.event.sum()), "low_event_count": int(core_endpoint.event.sum()) < 5, "test": "multivariate_logrank", "test_statistic": float(result.test_statistic), "p_value": float(result.p_value)})
+    pd.DataFrame(summary_rows).to_csv(out / "survival_summary.csv", index=False); pd.DataFrame(global_rows).to_csv(out / "survival_global_tests.csv", index=False); pd.DataFrame(km_rows).to_csv(out / "survival_km_points.csv", index=False)
+    if not completed_endpoints: return "skipped_insufficient_events", pd.DataFrame(summary_rows)
+    return ("complete" if len(completed_endpoints) == frame.endpoint.nunique() else "partial"), pd.DataFrame(summary_rows)
 
 def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd.DataFrame, ct: pd.DataFrame, rna: pd.DataFrame, wxs: pd.DataFrame, taxonomy: pd.DataFrame, reps: pd.DataFrame, survival: pd.DataFrame, out: Path) -> None:
     def top_cont(frame, sid):
         if frame.empty: return [], []
         sub = frame[(frame.subtype_id == sid) & (frame.q_value < .05)].copy() if "q_value" in frame else pd.DataFrame()
-        up = sub[sub.cliffs_delta > 0].sort_values(["q_value", "cliffs_delta"], ascending=[True, False]).feature.head(3).tolist()
-        down = sub[sub.cliffs_delta < 0].sort_values(["q_value", "cliffs_delta"], ascending=[True, False]).feature.head(3).tolist()
+        def rows(part, direction):
+            part = part.sort_values(["q_value", "cliffs_delta"], key=lambda s: s.abs() if s.name == "cliffs_delta" else s, ascending=[True, False]).head(3)
+            return [{"feature": r.feature, "direction": direction, "median_subtype": r.median_subtype, "median_rest": r.median_rest, "cliffs_delta": r.cliffs_delta, "ci95": [r.ci_low, r.ci_high], "q_value": r.q_value} for r in part.itertuples()]
+        up = rows(sub[sub.cliffs_delta > 0], "enriched")
+        down = rows(sub[sub.cliffs_delta < 0], "depleted")
         return up, down
     cards = []
     clinical = pd.read_csv(out / "clinical_patient_table.csv") if (out / "clinical_patient_table.csv").is_file() else pd.DataFrame()
@@ -754,7 +742,7 @@ def main() -> None:
     print("[final_subtype_analysis] CT", flush=True)
     ct_rest = ct_analysis(context, output_root, config_dir, out, args.bootstrap_iterations)
     print("[final_subtype_analysis] RNA DESeq2/GSEA", flush=True)
-    rna = rna_analysis(context, output_root, config_dir, out, args.top_marker_genes)
+    rna = rna_analysis(context, output_root, config_dir, out, args.top_marker_genes, args.bootstrap_iterations)
     print("[final_subtype_analysis] WXS", flush=True)
     wxs = wxs_analysis(context, output_root, config_dir, out, args.permutations)
     print("[final_subtype_analysis] taxonomy/confounders", flush=True)
@@ -786,15 +774,17 @@ def main() -> None:
     wxs_yaml = yaml.safe_load(wxs_cfg.read_text(encoding="utf-8"))
     configured_drivers = sorted(str(x).upper() for x in wxs_yaml.get("biological_support", {}).get("driver_genes", []))
     wxs_columns = set(pd.read_csv(output_root / "wxs/wxs_interpretation_features.csv", nrows=0).columns.astype(str).str.upper())
-    manifest = {"analysis_type": "final_stable_subtype_characterization", "analysis_role": "post_discovery_in_sample_characterization", "final_subtype_source": str(context["source_paths"]["subtypes"].resolve()), "candidate_patient_order": str(context["source_paths"]["order"].resolve()), "core_patient_count": len(context["core_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "subtype_count": len(context["subtypes"]), "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "active_modalities": list(MODALITIES), "one_vs_rest_reference": "all_other_candidate_cohort_patients", "survival_source": str(clinical_path.resolve()), "survival_endpoint_policy": "OS from vital_status, days_to_death, and primary-diagnosis follow-up; no DFS/PFS synthesis", "available_driver_genes": sorted(set(configured_drivers) & wxs_columns), "missing_driver_genes": sorted(set(configured_drivers) - wxs_columns), "scripts_dependency": False, "legacy_output_dependency": False, "input_sha256": {str(p): sha256(p) for p in source_files if p.is_file()}}
+    survival_source = Path(args.survival_file) if args.survival_file else clinical_path
+    manifest = {"analysis_type": "final_stable_subtype_characterization", "analysis_role": "post_discovery_in_sample_characterization", "final_subtype_source": str(context["source_paths"]["subtypes"].resolve()), "candidate_patient_order": str(context["source_paths"]["order"].resolve()), "core_patient_count": len(context["core_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "subtype_count": len(context["subtypes"]), "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "active_modalities": list(MODALITIES), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "survival_source": str(survival_source.resolve()), "survival_endpoint_policy": "User-supplied endpoints preserved by name" if args.survival_file else "OS from vital_status, days_to_death, and follow-up; no DFS/PFS synthesis", "available_driver_genes": sorted(set(configured_drivers) & wxs_columns), "missing_driver_genes": sorted(set(configured_drivers) - wxs_columns), "scripts_dependency": False, "legacy_output_dependency": False, "input_sha256": {str(p): sha256(p) for p in source_files if p.is_file()}}
     json_dump(out / "source_manifest.json", manifest)
-    ct_confounding = False
+    ct_confounding = False; significant_technical_factors = []
     confounder_path = out / "technical_confounder_association.json"
     if confounder_path.is_file():
         confounder = json.loads(confounder_path.read_text(encoding="utf-8"))
-        text = json.dumps(confounder).lower()
-        ct_confounding = "q_value" in text and any(float(x) < .05 for x in re.findall(r"q_value[^0-9]*([0-9]*\.?[0-9]+)", text))
-    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": "complete"}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "wsi_semantic_characterization_available": False, "external_validation_available": False}}
+        rows = confounder.get("metrics", {}).get("partition", {}).get("partition", [])
+        significant_technical_factors = [str(row.get("factor")) for row in rows if row.get("q_value") is not None and float(row["q_value"]) < .05]
+        ct_confounding = bool(significant_technical_factors)
+    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": "complete"}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "significant_technical_factors": significant_technical_factors, "wsi_semantic_characterization_available": False, "external_validation_available": False}}
     json_dump(out / "analysis_summary.json", summary)
     print("[final_subtype_analysis]")
     for key, value in (("candidate cohort", summary["candidate_patient_count"]), ("core patients", summary["core_patient_count"]), ("noncore patients", summary["noncore_patient_count"]), ("final subtypes", summary["subtype_count"])): print(f"{key}: {value}")
