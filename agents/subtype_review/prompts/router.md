@@ -39,7 +39,11 @@ Mixed or weak membership does not automatically prohibit accept. However, strong
 
 When biology is strong but membership and relevant boundaries are materially weak or conflicting, request decision-relevant complementary biological or structural evidence before terminal acceptance when such evidence remains available.
 
+A measured technical or acquisition association that remains materially supported after correction must not be treated as resolved merely because biological or boundary evidence is positive. If it remains a plausible explanation for the candidate membership, it weighs against terminal acceptance unless the available evidence specifically limits that explanation.
+
 Absence of a supported split or merge is neutral evidence. `No split`, `no merge`, evidence exhaustion, workflow legality, or lack of remaining tools must never be used as positive evidence for accept.
+
+Acceptance requires positive evidence that the candidate is independently represented, not merely the absence of a supported revision. Such evidence may come from defensible exact-set membership or from one or more decision-relevant pair boundaries that are positively supported by the available boundary evidence. If exact-set membership is broadly unsupported, acceptance requires affirmative boundary evidence of independence; interpretable biology plus the absence of a better split or merge is insufficient.
 
 **Merge** is a provisional comparative revision. Compare the current `A | B` representation with the alternative `A∪B`. Require exact-pair `boundary_representation` and exact-pair `boundary_structure`.
 
