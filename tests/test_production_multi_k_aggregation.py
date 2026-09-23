@@ -179,3 +179,100 @@ def test_aggregation_rejects_mixed_candidate_signatures(tmp_path):
         assert "multiple candidate signatures" in str(exc)
     else:
         raise AssertionError("mixed candidate signatures must be rejected")
+
+
+def core_record(recurrent_set_id, members, occurrence_count, supporting_k_count):
+    return {
+        "recurrent_set_id": recurrent_set_id,
+        "member_ids": list(members), "member_count": len(members),
+        "occurrence_count": occurrence_count, "supporting_k_count": supporting_k_count,
+        "total_accept_set_count": 20, "accept_set_frequency": occurrence_count / 20,
+        "supporting_run_count": occurrence_count, "usable_run_count": 10,
+        "run_support_frequency": occurrence_count / 10,
+        "supporting_ks": list(range(1, supporting_k_count + 1)),
+        "supporting_runs": [], "supporting_observation_ids": [],
+    }
+
+
+def test_overlap_coefficient_and_ranked_core_selection_are_deterministic():
+    from agents.subtype_review.multi_k import overlap_coefficient, select_stable_cores
+
+    assert overlap_coefficient(set(range(10)), set(range(9)) | {20}) == (9, 0.9)
+    assert overlap_coefficient(set(range(10)), set(range(25))) == (10, 1.0)
+    records = [
+        core_record("RS003", range(20, 30), 3, 3),
+        core_record("RS001", range(10), 5, 2),
+        core_record("RS002", list(range(9)) + [30], 4, 4),
+        core_record("RS004", range(40, 50), 1, 1),
+    ]
+    cores, mapping = select_stable_cores(
+        records, min_occurrences=2, min_supporting_ks=2, overlap_threshold=0.8
+    )
+    assert [core["representative_recurrent_set_id"] for core in cores] == ["RS001", "RS003"]
+    assert next(row for row in mapping if row["recurrent_set_id"] == "RS002")["status"] == "redundant_variant"
+    assert next(row for row in mapping if row["recurrent_set_id"] == "RS004")["reason"] == "occurrence_and_k_support_below_minimum"
+
+
+def test_core_selection_does_not_chain_through_variants():
+    from agents.subtype_review.multi_k import select_stable_cores
+
+    records = [
+        core_record("RS001", range(10), 5, 3),
+        core_record("RS002", list(range(8)) + [20, 21], 4, 3),
+        core_record("RS003", list(range(6)) + [30, 31, 32, 33], 3, 3),
+    ]
+    cores, mapping = select_stable_cores(
+        records, min_occurrences=2, min_supporting_ks=2, overlap_threshold=0.8
+    )
+    assert [core["representative_recurrent_set_id"] for core in cores] == ["RS001", "RS003"]
+    assert next(row for row in mapping if row["recurrent_set_id"] == "RS002")["status"] == "redundant_variant"
+
+
+def test_aggregation_writes_core_outputs_and_small_run_audit(tmp_path):
+    from agents.subtype_review.multi_k import run_multi_k_aggregation
+
+    candidate = tmp_path / "candidate_subtype"
+    candidate.mkdir()
+    patients = [f"P{i:02d}" for i in range(12)]
+    (candidate / "affinity_patient_order.json").write_text(json.dumps(patients))
+    write_run(tmp_path, 2, 1, [set(patients)])
+    result = run_multi_k_aggregation(str(tmp_path), {
+        "multi_k": {"initial_ks": [2], "repeats": [1], "min_subtype_size": 10},
+    })
+    output = tmp_path / "subtype_review" / "multi_k"
+    assert result["analysis_type"] == "patient_recurrence_subtype_clustering"
+    assert (output / "stable_core_subtypes.json").is_file()
+    assert (output / "stable_core_summary.csv").is_file()
+    assert (output / "recurrent_set_core_map.csv").is_file()
+    assert (output / "stable_core_pair_overlap.csv").is_file()
+    assert (output / "patient_recurrence_subtypes.json").is_file()
+    assert (output / "patient_recurrence_summary.csv").is_file()
+    assert (output / "patient_recurrence_membership.csv").is_file()
+    assert (output / "patient_recurrence_pair_similarity.csv").is_file()
+    manifest = json.loads((output / "aggregation_manifest.json").read_text())
+    assert all("summary" not in row for row in manifest["run_audit"])
+
+
+def test_patient_recurrence_complete_linkage_blocks_chaining():
+    from agents.subtype_review.multi_k import select_patient_recurrence_subtypes
+
+    patient_occurrences = {
+        "A": set(range(10)),
+        "B": set(range(9)) | {10},
+        "C": set(range(8)) | {10, 11},
+    }
+    observations = []
+    for index in range(12):
+        members = {
+            patient_id for patient_id, occurrence_ids in patient_occurrences.items()
+            if index in occurrence_ids
+        }
+        observations.append({
+            "observation_id": f"S{index}", "initial_k": 2, "repeat": index,
+            "member_ids": members,
+        })
+    subtypes, _ = select_patient_recurrence_subtypes(
+        observations, ["A", "B", "C"], similarity_threshold=0.9,
+        min_subtype_size=2, min_common_occurrences=1, min_supporting_ks=1,
+    )
+    assert [row["member_ids"] for row in subtypes] == [["A", "B"]]

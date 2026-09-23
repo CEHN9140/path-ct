@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import squareform
 
 from agents.subtype_review.run_io import inspect_review_run
 from utils.cache_utils import hash_payload
@@ -54,7 +56,12 @@ def collect_usable_runs(
             inspection = inspect_review_run(run_root)
             detail = {
                 "initial_k": initial_k, "repeat": repeat, "run_root": str(run_root),
-                **inspection,
+                "status": inspection["status"], "reason": inspection["reason"],
+                "input_signature": inspection["input_signature"],
+                "candidate_signature": inspection["candidate_signature"],
+                "sets_path": inspection["sets_path"],
+                "error_type": inspection["error_type"],
+                "error_message": inspection["error_message"],
             }
             audit.append(detail)
             if inspection["status"] == "complete":
@@ -110,7 +117,272 @@ def build_recurrent_sets(observations: list[dict[str, Any]], min_subtype_size: i
     return records
 
 
-def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]], recurrent_sets: list[dict[str, Any]], *, aggregation_manifest: Mapping[str, Any], aggregation_signature: str, run_count: int, min_subtype_size: int, run_audit: list[dict[str, Any]]) -> dict[str, Any]:
+def overlap_coefficient(
+    left_members: list[str] | set[str],
+    right_members: list[str] | set[str],
+) -> tuple[int, float]:
+    left = set(left_members)
+    right = set(right_members)
+    denominator = min(len(left), len(right))
+    if denominator == 0:
+        return 0, 0.0
+    intersection_n = len(left.intersection(right))
+    return intersection_n, intersection_n / denominator
+
+
+def select_stable_cores(
+    recurrent_sets: list[dict[str, Any]],
+    *,
+    min_occurrences: int,
+    min_supporting_ks: int,
+    overlap_threshold: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ranked = sorted(
+        recurrent_sets,
+        key=lambda row: (
+            -int(row["occurrence_count"]),
+            -int(row["supporting_k_count"]),
+            -int(row["member_count"]),
+            str(row["recurrent_set_id"]),
+        ),
+    )
+    selected: list[dict[str, Any]] = []
+    mapping: list[dict[str, Any]] = []
+    for candidate in ranked:
+        occurrence_ok = int(candidate["occurrence_count"]) >= min_occurrences
+        k_support_ok = int(candidate["supporting_k_count"]) >= min_supporting_ks
+        base = {
+            "recurrent_set_id": candidate["recurrent_set_id"],
+            "member_count": candidate["member_count"],
+            "occurrence_count": candidate["occurrence_count"],
+            "supporting_k_count": candidate["supporting_k_count"],
+            "eligible": occurrence_ok and k_support_ok,
+            "status": "insufficient_recurrence",
+            "core_id": None,
+            "representative_recurrent_set_id": None,
+            "shared_member_count": 0,
+            "overlap_coefficient": 0.0,
+            "reason": None,
+        }
+        if not occurrence_ok or not k_support_ok:
+            if not occurrence_ok and not k_support_ok:
+                base["reason"] = "occurrence_and_k_support_below_minimum"
+            elif not occurrence_ok:
+                base["reason"] = "occurrence_count_below_minimum"
+            else:
+                base["reason"] = "supporting_k_count_below_minimum"
+            mapping.append(base)
+            continue
+
+        best_core = None
+        best_overlap = -1.0
+        best_intersection = 0
+        for core in selected:
+            intersection_n, overlap = overlap_coefficient(candidate["member_ids"], core["member_ids"])
+            if overlap > best_overlap:
+                best_core = core
+                best_overlap = overlap
+                best_intersection = intersection_n
+        if best_core is not None and best_overlap >= overlap_threshold:
+            base.update({
+                "status": "redundant_variant",
+                "core_id": best_core["core_id"],
+                "representative_recurrent_set_id": best_core["representative_recurrent_set_id"],
+                "shared_member_count": best_intersection,
+                "overlap_coefficient": best_overlap,
+            })
+            best_core.setdefault("variant_recurrent_set_ids", []).append(candidate["recurrent_set_id"])
+            mapping.append(base)
+            continue
+
+        core = {
+            "core_id": f"CORE{len(selected) + 1:02d}",
+            "representative_recurrent_set_id": candidate["recurrent_set_id"],
+            "member_ids": list(candidate["member_ids"]),
+            "member_count": candidate["member_count"],
+            "occurrence_count": candidate["occurrence_count"],
+            "total_accept_set_count": candidate["total_accept_set_count"],
+            "accept_set_frequency": candidate["accept_set_frequency"],
+            "supporting_run_count": candidate["supporting_run_count"],
+            "usable_run_count": candidate["usable_run_count"],
+            "run_support_frequency": candidate["run_support_frequency"],
+            "supporting_k_count": candidate["supporting_k_count"],
+            "supporting_ks": list(candidate["supporting_ks"]),
+            "supporting_runs": list(candidate["supporting_runs"]),
+            "supporting_observation_ids": list(candidate["supporting_observation_ids"]),
+            "variant_recurrent_set_ids": [],
+            "variant_count": 0,
+        }
+        selected.append(core)
+        base.update({
+            "status": "selected_core",
+            "core_id": core["core_id"],
+            "representative_recurrent_set_id": core["representative_recurrent_set_id"],
+            "shared_member_count": candidate["member_count"],
+            "overlap_coefficient": 1.0,
+        })
+        mapping.append(base)
+    for core in selected:
+        core["variant_count"] = len(core["variant_recurrent_set_ids"])
+    mapping.sort(key=lambda row: str(row["recurrent_set_id"]))
+    return selected, mapping
+
+
+def write_core_outputs(output_dir: Path, selected_cores: list[dict[str, Any]], core_mapping: list[dict[str, Any]]) -> None:
+    write_json(output_dir / "stable_core_subtypes.json", selected_cores)
+    pd.DataFrame([
+        {
+            "core_rank": rank, "core_id": core["core_id"],
+            "representative_recurrent_set_id": core["representative_recurrent_set_id"],
+            "member_count": core["member_count"], "occurrence_count": core["occurrence_count"],
+            "total_accept_set_count": core["total_accept_set_count"],
+            "accept_set_frequency": core["accept_set_frequency"],
+            "supporting_run_count": core["supporting_run_count"], "usable_run_count": core["usable_run_count"],
+            "run_support_frequency": core["run_support_frequency"], "supporting_k_count": core["supporting_k_count"],
+            "supporting_ks": json.dumps(core["supporting_ks"]), "variant_count": core["variant_count"],
+            "member_ids": json.dumps(core["member_ids"], ensure_ascii=False),
+        }
+        for rank, core in enumerate(selected_cores, 1)
+    ], columns=["core_rank", "core_id", "representative_recurrent_set_id", "member_count", "occurrence_count", "total_accept_set_count", "accept_set_frequency", "supporting_run_count", "usable_run_count", "run_support_frequency", "supporting_k_count", "supporting_ks", "variant_count", "member_ids"]).to_csv(output_dir / "stable_core_summary.csv", index=False)
+    pd.DataFrame(core_mapping, columns=["recurrent_set_id", "member_count", "occurrence_count", "supporting_k_count", "eligible", "status", "core_id", "representative_recurrent_set_id", "shared_member_count", "overlap_coefficient", "reason"]).to_csv(output_dir / "recurrent_set_core_map.csv", index=False)
+    pairs = []
+    for index, left in enumerate(selected_cores):
+        for right in selected_cores[index + 1:]:
+            shared = sorted(set(left["member_ids"]).intersection(right["member_ids"]))
+            _, overlap = overlap_coefficient(left["member_ids"], right["member_ids"])
+            pairs.append({
+                "left_core_id": left["core_id"], "right_core_id": right["core_id"],
+                "left_member_count": left["member_count"], "right_member_count": right["member_count"],
+                "shared_member_count": len(shared), "overlap_coefficient": overlap,
+                "shared_member_ids": json.dumps(shared, ensure_ascii=False),
+            })
+    pd.DataFrame(pairs, columns=["left_core_id", "right_core_id", "left_member_count", "right_member_count", "shared_member_count", "overlap_coefficient", "shared_member_ids"]).to_csv(output_dir / "stable_core_pair_overlap.csv", index=False)
+
+
+def patient_recurrence_similarity(
+    observations: list[dict[str, Any]],
+    patient_ids: list[str],
+) -> tuple[dict[str, set[str]], dict[tuple[str, str], float], list[dict[str, Any]]]:
+    occurrence_sets = {patient_id: set() for patient_id in patient_ids}
+    for row in observations:
+        for patient_id in row["member_ids"]:
+            occurrence_sets.setdefault(str(patient_id), set()).add(row["observation_id"])
+    similarities: dict[tuple[str, str], float] = {}
+    pair_rows = []
+    for index, left_id in enumerate(patient_ids):
+        for right_id in patient_ids[index + 1:]:
+            left = occurrence_sets[left_id]
+            right = occurrence_sets[right_id]
+            denominator = min(len(left), len(right))
+            shared = sorted(left.intersection(right))
+            similarity = len(shared) / denominator if denominator else 0.0
+            similarities[(left_id, right_id)] = similarity
+            pair_rows.append({
+                "patient_id_left": left_id,
+                "patient_id_right": right_id,
+                "left_occurrence_count": len(left),
+                "right_occurrence_count": len(right),
+                "shared_accept_set_count": len(shared),
+                "similarity": similarity,
+                "shared_accept_set_ids": json.dumps(shared, ensure_ascii=False),
+            })
+    return occurrence_sets, similarities, pair_rows
+
+
+def select_patient_recurrence_subtypes(
+    observations: list[dict[str, Any]],
+    patient_ids: list[str],
+    *,
+    similarity_threshold: float,
+    min_subtype_size: int,
+    min_common_occurrences: int,
+    min_supporting_ks: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    occurrence_sets, similarities, pair_rows = patient_recurrence_similarity(observations, patient_ids)
+    n_patients = len(patient_ids)
+    if n_patients < 2:
+        labels = [1] * n_patients
+    else:
+        distances = [[0.0] * n_patients for _ in range(n_patients)]
+        for left_index, left_id in enumerate(patient_ids):
+            for right_index in range(left_index + 1, n_patients):
+                right_id = patient_ids[right_index]
+                similarity = similarities[(left_id, right_id)]
+                distances[left_index][right_index] = 1.0 - similarity
+                distances[right_index][left_index] = 1.0 - similarity
+        labels = fcluster(
+            linkage(squareform(distances, checks=True), method="complete"),
+            t=1.0 - similarity_threshold,
+            criterion="distance",
+        ).tolist()
+    patient_by_label: dict[int, list[str]] = {}
+    for patient_id, label in zip(patient_ids, labels):
+        patient_by_label.setdefault(int(label), []).append(patient_id)
+    observation_map = {row["observation_id"]: row for row in observations}
+    candidates = []
+    for members in patient_by_label.values():
+        member_sets = [occurrence_sets[patient_id] for patient_id in members]
+        common_observations = sorted(set.intersection(*member_sets)) if member_sets else []
+        supporting_ks = sorted({int(observation_map[observation_id]["initial_k"]) for observation_id in common_observations})
+        candidates.append({
+            "member_ids": sorted(members),
+            "member_count": len(members),
+            "common_accept_set_count": len(common_observations),
+            "supporting_observation_ids": common_observations,
+            "supporting_k_count": len(supporting_ks),
+            "supporting_ks": supporting_ks,
+            "supporting_runs": sorted({
+                f"K{observation_map[observation_id]['initial_k']}_repeat{observation_map[observation_id]['repeat']}"
+                for observation_id in common_observations
+            }),
+        })
+    candidates.sort(key=lambda row: (-row["common_accept_set_count"], -row["supporting_k_count"], -row["member_count"], tuple(row["member_ids"])))
+    subtypes = []
+    for candidate in candidates:
+        if (
+            candidate["member_count"] < min_subtype_size
+            or candidate["common_accept_set_count"] < min_common_occurrences
+            or candidate["supporting_k_count"] < min_supporting_ks
+        ):
+            continue
+        subtype = {
+            "subtype_id": f"SUBTYPE{len(subtypes) + 1:02d}",
+            **candidate,
+            "occurrence_frequency": candidate["common_accept_set_count"] / len(observations) if observations else 0.0,
+        }
+        subtypes.append(subtype)
+    return subtypes, pair_rows
+
+
+def write_patient_recurrence_outputs(
+    output_dir: Path,
+    subtypes: list[dict[str, Any]],
+    pair_rows: list[dict[str, Any]],
+) -> None:
+    write_json(output_dir / "patient_recurrence_subtypes.json", subtypes)
+    pd.DataFrame([
+        {
+            "subtype_rank": rank,
+            "subtype_id": row["subtype_id"],
+            "member_count": row["member_count"],
+            "common_accept_set_count": row["common_accept_set_count"],
+            "occurrence_frequency": row["occurrence_frequency"],
+            "supporting_k_count": row["supporting_k_count"],
+            "supporting_ks": json.dumps(row["supporting_ks"]),
+            "supporting_observation_ids": json.dumps(row["supporting_observation_ids"]),
+            "supporting_runs": json.dumps(row["supporting_runs"]),
+            "member_ids": json.dumps(row["member_ids"], ensure_ascii=False),
+        }
+        for rank, row in enumerate(subtypes, 1)
+    ], columns=["subtype_rank", "subtype_id", "member_count", "common_accept_set_count", "occurrence_frequency", "supporting_k_count", "supporting_ks", "supporting_observation_ids", "supporting_runs", "member_ids"]).to_csv(output_dir / "patient_recurrence_summary.csv", index=False)
+    pd.DataFrame([
+        {"subtype_id": row["subtype_id"], "patient_id": patient_id}
+        for row in subtypes for patient_id in row["member_ids"]
+    ], columns=["subtype_id", "patient_id"]).to_csv(output_dir / "patient_recurrence_membership.csv", index=False)
+    pd.DataFrame(pair_rows, columns=["patient_id_left", "patient_id_right", "left_occurrence_count", "right_occurrence_count", "shared_accept_set_count", "similarity", "shared_accept_set_ids"]).to_csv(output_dir / "patient_recurrence_pair_similarity.csv", index=False)
+
+
+def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]], recurrent_sets: list[dict[str, Any]], *, aggregation_manifest: Mapping[str, Any], aggregation_signature: str, run_count: int, min_subtype_size: int, run_audit: list[dict[str, Any]], selected_cores: list[dict[str, Any]], core_selection: Mapping[str, Any], patient_subtypes: list[dict[str, Any]], patient_recurrence: Mapping[str, Any]) -> dict[str, Any]:
     pd.DataFrame([
         {"observation_id": row["observation_id"], "initial_k": row["initial_k"], "repeat": row["repeat"], "set_id": row["set_id"], "patient_count": row["patient_count"], "member_ids": json.dumps(sorted(row["member_ids"]), ensure_ascii=False)}
         for row in observations
@@ -133,7 +405,31 @@ def write_recurrent_outputs(output_dir: Path, observations: list[dict[str, Any]]
         )
         for initial_k in sorted({row["initial_k"] for row in run_audit})
     }
-    summary = {"status": "complete", "analysis_type": "closed_recurrent_accept_set_statistics", "aggregation_signature": aggregation_signature, "run_count": run_count, "included_run_count": len(included), "excluded_run_count": len(excluded), "total_accept_set_count": len(observations), "min_subtype_size": min_subtype_size, "recurrent_set_count": len(recurrent_sets), "automatic_subtype_selection": False}
+    summary = {
+        "status": "complete", "analysis_type": "patient_recurrence_subtype_clustering",
+        "aggregation_signature": aggregation_signature, "run_count": run_count,
+        "included_run_count": len(included), "excluded_run_count": len(excluded),
+        "total_accept_set_count": len(observations), "min_subtype_size": min_subtype_size,
+        "recurrent_set_count": len(recurrent_sets),
+        "eligible_core_candidate_count": sum(row["eligible"] for row in core_selection["mapping"]),
+        "selected_core_count": len(selected_cores),
+        "core_selection": {
+            "method": "frequency_ranked_overlap_pruning",
+            "min_occurrences": core_selection["min_occurrences"],
+            "min_supporting_ks": core_selection["min_supporting_ks"],
+            "overlap_metric": "overlap_coefficient",
+            "overlap_threshold": core_selection["overlap_threshold"],
+        },
+        "patient_recurrence": {
+            "method": "complete_linkage_patient_occurrence_clustering",
+            "similarity_metric": "overlap_coefficient",
+            "similarity_threshold": patient_recurrence["similarity_threshold"],
+            "min_subtype_size": patient_recurrence["min_subtype_size"],
+            "min_common_occurrences": patient_recurrence["min_common_occurrences"],
+            "min_supporting_ks": patient_recurrence["min_supporting_ks"],
+            "selected_subtype_count": len(patient_subtypes),
+        },
+    }
     write_json(output_dir / "aggregation_manifest.json", {
         **aggregation_manifest,
         "aggregation_signature": aggregation_signature,
@@ -220,7 +516,35 @@ def run_multi_k_aggregation(
     output_dir.mkdir(parents=True, exist_ok=True)
     observations = collect_accept_observations(run_files, patient_set)
     recurrent_sets = build_recurrent_sets(observations, int(params["min_subtype_size"]), usable_run_count=len(run_files))
-    return write_recurrent_outputs(output_dir, observations, recurrent_sets, aggregation_manifest=aggregation_manifest, aggregation_signature=aggregation_signature, run_count=len(run_files), min_subtype_size=int(params["min_subtype_size"]), run_audit=run_audit)
+    core_params = params.get("core_selection", {})
+    core_selection = {
+        "min_occurrences": int(core_params.get("min_occurrences", 2)),
+        "min_supporting_ks": int(core_params.get("min_supporting_ks", 2)),
+        "overlap_threshold": float(core_params.get("overlap_threshold", 0.8)),
+    }
+    selected_cores, core_mapping = select_stable_cores(recurrent_sets, **core_selection)
+    write_core_outputs(output_dir, selected_cores, core_mapping)
+    core_selection["mapping"] = core_mapping
+    patient_params = params.get("patient_recurrence", {})
+    patient_recurrence = {
+        "similarity_threshold": float(patient_params.get("similarity_threshold", 0.9)),
+        "min_subtype_size": int(patient_params.get("min_subtype_size", params["min_subtype_size"])),
+        "min_common_occurrences": int(patient_params.get("min_common_occurrences", 2)),
+        "min_supporting_ks": int(patient_params.get("min_supporting_ks", 2)),
+    }
+    patient_subtypes, pair_rows = select_patient_recurrence_subtypes(
+        observations, patient_ids, **patient_recurrence
+    )
+    write_patient_recurrence_outputs(output_dir, patient_subtypes, pair_rows)
+    return write_recurrent_outputs(
+        output_dir, observations, recurrent_sets,
+        aggregation_manifest=aggregation_manifest,
+        aggregation_signature=aggregation_signature,
+        run_count=len(run_files), min_subtype_size=int(params["min_subtype_size"]),
+        run_audit=run_audit, selected_cores=selected_cores,
+        core_selection=core_selection, patient_subtypes=patient_subtypes,
+        patient_recurrence=patient_recurrence,
+    )
 
 
 def main() -> None:
