@@ -271,6 +271,47 @@ def test_review_grid_explicit_pairs_do_not_form_cartesian_product(tmp_path, monk
     assert not (run_root / "K7" / "repeat1").exists()
 
 
+def test_force_replaces_corrupt_existing_run(tmp_path, monkeypatch):
+    import agents.subtype_review.runner as runner
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    for name in ("m1_m4.csv", "clearcode.csv", "hallmark.gmt"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    prompt_dir = Path(__file__).resolve().parents[1] / "agents/subtype_review/prompts"
+    (config_dir / "subtype_review.yaml").write_text(
+        f"multi_k:\n  initial_ks: [2]\n  repeats: [1]\n"
+        f"known_label_echo:\n  mrna_m1_m4_path: {tmp_path / 'm1_m4.csv'}\n"
+        f"  clearcode34_path: {tmp_path / 'clearcode.csv'}\n"
+        f"rna:\n  hallmark_gene_sets_path: {tmp_path / 'hallmark.gmt'}\n"
+        f"prompt_dir: {prompt_dir}\n", encoding="utf-8"
+    )
+    run_root = tmp_path / "output" / "subtype_review" / "runs" / "K2" / "repeat1"
+    run_root.mkdir(parents=True)
+    (run_root / "run_metadata.json").write_text('{"status":"run', encoding="utf-8")
+
+    def fake_job(k, repeat, candidate_sets, patient_states, output_root, config_dir,
+                 run_root, input_signature, candidate_signature):
+        path = Path(run_root)
+        summary = {"status": "review_complete", "raw_control_status": "complete"}
+        (path / "final_subtype_sets.json").write_text("[]", encoding="utf-8")
+        (path / "final_review_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (path / "run_metadata.json").write_text(json.dumps({
+            "status": "complete", "input_signature": input_signature,
+        }), encoding="utf-8")
+        return {"initial_k": k, "repeat": repeat, "status": "complete",
+                "summary": summary, "run_root": str(path)}
+
+    monkeypatch.setattr(runner, "run_single_review_job", fake_job)
+    result = runner.run_review_grid(
+        {2: [{"set_id": "K2_C1", "member_ids": ["P1"]}]},
+        {"P1": {}}, str(tmp_path / "output"), str(config_dir),
+        (2,), (1,), "candidate-signature", force=True,
+    )
+    assert result["complete_run_count"] == 1
+    assert json.loads((run_root / "run_metadata.json").read_text())["status"] == "complete"
+
+
 def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeypatch):
     import agents.subtype_review.runner as runner
 

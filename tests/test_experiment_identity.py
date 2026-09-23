@@ -53,3 +53,27 @@ def test_review_input_signature_is_stable_for_same_content_rewrite(tmp_path):
     metadata.write_text(json.dumps({"qc": "success"}), encoding="utf-8")
     second, _ = build_review_input_signature(**kwargs)
     assert first == second
+
+
+def test_review_signature_uses_content_for_configured_input_paths(tmp_path):
+    from agents.subtype_review.llm import review_signature_manifest
+
+    first_root = tmp_path / "one"
+    second_root = tmp_path / "two"
+    first_root.mkdir()
+    second_root.mkdir()
+    for root in (first_root, second_root):
+        (root / "labels.csv").write_text("label\nA\n", encoding="utf-8")
+        (root / "hallmark.gmt").write_text("H\tdesc\tG1\n", encoding="utf-8")
+    prompt_dir = Path(__file__).resolve().parents[1] / "agents/subtype_review/prompts"
+    first = {
+        "known_label_echo": {"mrna_m1_m4_path": str(first_root / "labels.csv")},
+        "rna": {"hallmark_gene_sets_path": str(first_root / "hallmark.gmt")},
+        "prompt_dir": str(prompt_dir),
+    }
+    second = {
+        "known_label_echo": {"mrna_m1_m4_path": str(second_root / "labels.csv")},
+        "rna": {"hallmark_gene_sets_path": str(second_root / "hallmark.gmt")},
+        "prompt_dir": str(prompt_dir),
+    }
+    assert review_signature_manifest(first, tmp_path) == review_signature_manifest(second, tmp_path)

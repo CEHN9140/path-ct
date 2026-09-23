@@ -255,16 +255,21 @@ def run_review_grid(
     run_pairs: tuple[tuple[int, int], ...] | None = None,
     force: bool = False,
     parallel_runs: int | None = None,
+    input_signature: str | None = None,
+    signature_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(output_root) / "subtype_review" / "runs"
     config_path = Path(config_dir) / "subtype_review.yaml"
     review_config = load_yaml_file(config_path)
-    input_signature, signature_manifest = build_review_input_signature(
-        candidate_signature=candidate_signature,
-        patient_states_by_id=patient_states_by_id,
-        output_root=output_root,
-        config_dir=config_dir,
-    )
+    if input_signature is None or signature_manifest is None:
+        computed_signature, computed_manifest = build_review_input_signature(
+            candidate_signature=candidate_signature,
+            patient_states_by_id=patient_states_by_id,
+            output_root=output_root,
+            config_dir=config_dir,
+        )
+        input_signature = input_signature or computed_signature
+        signature_manifest = signature_manifest or computed_manifest
     if run_pairs:
         requested_pairs = tuple(sorted(set((int(k), int(repeat)) for k, repeat in run_pairs)))
     else:
@@ -286,8 +291,22 @@ def run_review_grid(
         summary_path = run_root / "final_review_summary.json"
         sets_path = run_root / "final_subtype_sets.json"
         if run_root.exists():
-            metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
-            summary = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
+            metadata = {}
+            summary = {}
+            if metadata_path.is_file():
+                try:
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    metadata = {}
+            if summary_path.is_file():
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    summary = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if not isinstance(summary, dict):
+                summary = {}
             if (sets_path.is_file() and metadata.get("input_signature") == input_signature
                     and metadata.get("status") == "complete"
                     and summary.get("raw_control_status") == "complete"

@@ -203,6 +203,8 @@ def run_pipeline(
         run_pairs=getattr(args, "run_pairs", None),
         force=args.force,
         parallel_runs=getattr(args, "parallel_runs", None),
+        input_signature=active_input_signature,
+        signature_manifest=signature_manifest,
     )
     print(
         f"[subtype_review] completed={review_grid['complete_run_count']}/"

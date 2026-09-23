@@ -17,6 +17,7 @@ from agents.subtype_review.schemas import (
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace
 from agents.subtype_review.tools import TOOL_REGISTRY, build_selection_tools
+from utils.cache_utils import file_content_identity
 
 
 class LLMOutputLengthError(RuntimeError):
@@ -148,6 +149,27 @@ def review_signature_manifest(config: Mapping[str, Any], config_dir: str | Path)
     for key in ("prompt_dir", "repeat", "output_root", "experiment_root"):
         review_config.pop(key, None)
     review_config.pop("multi_k", None)
+    config_root = Path(config_dir).expanduser().resolve()
+
+    def normalize_path_content(value: Any, key: str | None = None) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(item_key): normalize_path_content(item, str(item_key))
+                for item_key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [normalize_path_content(item, key) for item in value]
+        if isinstance(value, tuple):
+            return [normalize_path_content(item, key) for item in value]
+        if isinstance(value, str) and key and "path" in key.lower():
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = config_root / path
+            if path.is_file():
+                return file_content_identity(path)
+        return value
+
+    review_config = normalize_path_content(review_config)
     review_config["llm"] = {
         key: value
         for key, value in dict(review_config.get("llm", {}) or {}).items()
