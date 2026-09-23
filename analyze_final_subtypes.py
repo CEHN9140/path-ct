@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Mapping
@@ -75,6 +76,8 @@ def load_states(output_root: Path) -> dict[str, dict[str, Any]]:
     states = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
+        if row.get("qc") != "success":
+            continue
         case_id = str(row["case_id"])
         if case_id in states:
             raise ValueError(f"Duplicate patient state: {case_id}")
@@ -174,7 +177,12 @@ def representation_analysis(context: Mapping[str, Any], output_root: Path, out: 
             permdisp_values = {"permdisp_f": float(d["test statistic"]), "permdisp_p_value": float(d["p-value"])}
         except (ValueError, ZeroDivisionError):
             permdisp_values = {"permdisp_f": None, "permdisp_p_value": None}
-        rows.append({"modality": modality, "patient_n": len(core), "subtype_count": len(context["subtypes"]), "permanova_r_squared": None, **permanova_values, **permdisp_values, "analysis_role": "in_sample_discovery_space_diagnostic"})
+        pseudo_f = permanova_values["permanova_pseudo_f"]
+        group_count = len(np.unique(labels))
+        r_squared = (pseudo_f * (group_count - 1) / (pseudo_f * (group_count - 1) + len(labels) - group_count)) if pseudo_f is not None and np.isfinite(pseudo_f) else None
+        rows.append({"modality": modality, "patient_n": len(core), "subtype_count": group_count, "permanova_r_squared": r_squared, **permanova_values, **permdisp_values, "analysis_role": "in_sample_discovery_space_diagnostic"})
+        if permanova_values["permanova_p_value"] is None:
+            continue
         for left, right in combinations(context["subtype_order"], 2):
             selected = [i for i, label in enumerate(labels) if label in (left, right)]
             pair_local = local[np.ix_(selected, selected)].copy()
@@ -190,8 +198,14 @@ def representation_analysis(context: Mapping[str, Any], output_root: Path, out: 
     disp_q = bh([r["permdisp_p_value"] for r in rows])
     for r, q, dq in zip(rows, global_q, disp_q):
         r["permanova_q_value"], r["permdisp_q_value"] = q, dq
-    pq = holm([r["permanova_p_value"] for r in pair_rows])
-    for r, q in zip(pair_rows, pq): r["permanova_q_value"] = q
+    significant_modalities = {
+        r["modality"] for r in rows
+        if r["permanova_q_value"] is not None and r["permanova_q_value"] < .05
+    }
+    pair_rows = [r for r in pair_rows if r["modality"] in significant_modalities]
+    for modality in MODALITIES:
+        current = [r for r in pair_rows if r["modality"] == modality]
+        for r, q in zip(current, holm([x["permanova_p_value"] for x in current])): r["permanova_q_value"] = q
     pd.DataFrame(rows).to_csv(out / "representation_global.csv", index=False)
     pd.DataFrame(pair_rows).to_csv(out / "representation_pairwise.csv", index=False)
 
@@ -203,7 +217,11 @@ def wsi_analysis(context: Mapping[str, Any], output_root: Path, out: Path, boots
         if not path.is_file():
             missing.append(case_id); continue
         patches = pd.read_csv(path)
-        selected = patches[patches["selected_tumor"].astype(bool)] if "selected_tumor" in patches else pd.DataFrame()
+        if "selected_tumor" in patches:
+            selected_flag = patches["selected_tumor"].astype(str).str.strip().str.lower().isin({"true", "1", "yes"})
+            selected = patches[selected_flag]
+        else:
+            selected = pd.DataFrame()
         if selected.empty and "tumor_probability" in patches:
             selected = patches[patches["tumor_probability"] >= .9]
         if selected.empty:
@@ -306,6 +324,7 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
             if len(fields) > 2: gs[fields[0]] = sorted(set(fields[2:]) & set(counts.columns))
         gene_sets[collection] = {k: v for k, v in gs.items() if len(v) >= int(cfg["min_pathway_overlap"])}
     for sidx, (sid, members) in enumerate(context["subtypes"].items()):
+        print(f"[final_subtype_analysis] RNA {sid} ({sidx + 1}/{len(context['subtypes'])})", flush=True)
         target = [x for x in candidate if x in members]; rest = [x for x in candidate if x not in members]
         ids = target + rest
         metadata = pd.DataFrame({"condition": ["target"] * len(target) + ["rest"] * len(rest)}, index=ids)
@@ -319,9 +338,15 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
             row = result.loc[gene] if gene in result.index else pd.Series(dtype=float)
             all_de.append({"subtype_id": sid, "gene": gene, "wald_stat": float(value) if np.isfinite(value) else None, "log2_fold_change": float(row.get("log2FoldChange")) if pd.notna(row.get("log2FoldChange")) else None, "p_value": float(row.get("pvalue")) if pd.notna(row.get("pvalue")) else None, "padj": float(row.get("padj")) if pd.notna(row.get("padj")) else None, "target_n": len(target), "rest_n": len(rest)})
         ranking = pd.DataFrame({"gene": stat.index, "stat": stat.values}).replace([np.inf, -np.inf], np.nan).dropna().sort_values(["stat", "gene"], ascending=[False, True])
+        ranked_genes = set(ranking["gene"].astype(str))
         for collection, sets in gene_sets.items():
+            print(f"[final_subtype_analysis] RNA {sid} / {collection}", flush=True)
             if len(ranking) < 2: continue
-            res = prerank(rnk=ranking, gene_sets=sets, min_size=int(cfg["min_pathway_overlap"]), max_size=500, permutation_num=int(cfg.get("gsea_permutations", 1000)), seed=BASE_SEED+sidx, threads=int(cfg.get("gsea_threads", 1)), outdir=None, verbose=False).res2d
+            min_overlap = int(cfg["min_pathway_overlap"])
+            eligible_sets = {name: sorted(set(genes) & ranked_genes) for name, genes in sets.items()}
+            eligible_sets = {name: genes for name, genes in eligible_sets.items() if len(genes) >= min_overlap}
+            if not eligible_sets: continue
+            res = prerank(rnk=ranking, gene_sets=eligible_sets, min_size=min_overlap, max_size=500, permutation_num=int(cfg.get("gsea_permutations", 1000)), seed=BASE_SEED+sidx, threads=int(cfg.get("gsea_threads", 1)), outdir=None, verbose=False).res2d
             for row in res.to_dict("records"):
                 all_gsea.append({"subtype_id": sid, "collection": collection, "pathway": str(row["Term"]), "ES": float(row.get("ES")), "NES": float(row["NES"]), "nominal_p": float(row.get("NOM p-val")), "fdr_q": float(row.get("FDR q-val")), "fwer_p": float(row.get("FWER p-val")), "lead_genes": str(row.get("Lead_genes", "")), "target_n": len(target), "rest_n": len(rest)})
     de = pd.DataFrame(all_de); de.to_csv(out / "rna_deseq2.csv", index=False)
@@ -336,6 +361,7 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
 
 def wxs_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path, permutations: int) -> pd.DataFrame:
     from tools import post_discovery_characterization as stats
+    from agents.subtype_review.tools import odds_ratio_with_ci
     discovery = pd.read_csv(output_root / "wxs" / "wxs_discovery_features.csv").set_index("case_id").astype(float)
     interpretation = pd.read_csv(output_root / "wxs" / "wxs_interpretation_features.csv").set_index("case_id").astype(float)
     candidate = context["candidate_patient_ids"]
@@ -351,7 +377,7 @@ def wxs_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
     try:
         import yaml
         cfg = yaml.safe_load((config_dir / "wxs.yaml").read_text())
-        driver = set(cfg.get("biological_support", {}).get("driver_genes", []))
+        driver = {str(x).upper() for x in cfg.get("biological_support", {}).get("driver_genes", [])}
     except FileNotFoundError: pass
     rows = []
     for sid, members in groups.items():
@@ -359,7 +385,8 @@ def wxs_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
         for feature in interpretation.columns:
             a = int(interpretation.loc[members, feature].sum()); b = len(members)-a; c = int(interpretation.loc[rest, feature].sum()); d = len(rest)-c
             odds, p = fisher_exact([[a,b],[c,d]])
-            rows.append({"subtype_id": sid, "gene": feature, "subtype_mutated_n": a, "subtype_n": len(members), "subtype_frequency": a/len(members), "rest_mutated_n": c, "rest_n": len(rest), "rest_frequency": c/len(rest), "odds_ratio": float(odds), "p_value": float(p), "driver_panel_member": feature in driver})
+            ci = odds_ratio_with_ci(np.asarray([[a, b], [c, d]], dtype=float))
+            rows.append({"subtype_id": sid, "gene": feature, "subtype_mutated_n": a, "subtype_n": len(members), "subtype_frequency": a/len(members), "rest_mutated_n": c, "rest_n": len(rest), "rest_frequency": c/len(rest), "odds_ratio": float(odds), "ci_low": ci.get("odds_ratio_ci95", [None, None])[0] if ci.get("odds_ratio_ci95") else None, "ci_high": ci.get("odds_ratio_ci95", [None, None])[1] if ci.get("odds_ratio_ci95") else None, "p_value": float(p), "driver_panel_member": str(feature).upper() in driver})
     result = pd.DataFrame(rows)
     result["q_global"] = np.nan; result["q_driver"] = np.nan
     for sid, idx in result.groupby("subtype_id").groups.items():
@@ -379,13 +406,16 @@ def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_
     json_dump(out / "known_label_echo.json", known)
     tax_rows = []
     for reference, payload in known.get("metrics", {}).get("partition", {}).get("molecular_taxonomy", {}).items():
-        table = payload.get("contingency", {})
-        for sid, labels in table.items():
-            total = sum(labels.values())
-            for label, n in labels.items(): tax_rows.append({"subtype_id": sid, "reference": reference, "reference_label": label, "n": n, "fraction": n/total if total else None})
-    pd.DataFrame(tax_rows).to_csv(out / "known_taxonomy_profile.csv", index=False)
+        table = pd.DataFrame(payload.get("contingency", {})).fillna(0)
+        for subtype_id, row in table.iterrows():
+            total = float(row.sum())
+            for label, n in row.items():
+                tax_rows.append({"subtype_id": str(subtype_id), "reference": reference, "reference_label": str(label), "n": int(n), "fraction": float(n / total) if total else None})
+    taxonomy = pd.DataFrame(tax_rows)
+    taxonomy.to_csv(out / "known_taxonomy_profile.csv", index=False)
     conf = confounder_association(states, str(output_root), str(config_dir), clusters, "partition", [])
     json_dump(out / "technical_confounder_association.json", conf)
+    return taxonomy
 
 
 def representatives(context: Mapping[str, Any], output_root: Path, out: Path) -> pd.DataFrame:
@@ -407,7 +437,7 @@ def representatives(context: Mapping[str, Any], output_root: Path, out: Path) ->
     frame = pd.DataFrame(rows); frame.to_csv(out / "representative_patients.csv", index=False); return frame
 
 
-def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd.DataFrame, ct: pd.DataFrame, rna: pd.DataFrame, wxs: pd.DataFrame, reps: pd.DataFrame, out: Path) -> None:
+def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd.DataFrame, ct: pd.DataFrame, rna: pd.DataFrame, wxs: pd.DataFrame, taxonomy: pd.DataFrame, reps: pd.DataFrame, out: Path) -> None:
     def top_cont(frame, sid):
         if frame.empty: return [], []
         sub = frame[(frame.subtype_id == sid) & (frame.q_value < .05)].copy() if "q_value" in frame else pd.DataFrame()
@@ -419,9 +449,13 @@ def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd
         rec = recurrence[recurrence.subtype_id == sid].iloc[0].to_dict()
         wu, wd = top_cont(wsi, sid); cu, cd = top_cont(ct, sid)
         g = rna[(rna.subtype_id == sid) & (rna.fdr_q < .05)] if not rna.empty else pd.DataFrame()
-        pathways = {c: {"up": g[(g.collection == c) & (g.NES > 0)].sort_values(["fdr_q", "NES"]).pathway.head(3).tolist(), "down": g[(g.collection == c) & (g.NES < 0)].sort_values(["fdr_q", "NES"]).pathway.head(3).tolist()} for c in ("HALLMARK", "REACTOME", "KEGG_MEDICUS")}
+        pathways = {c: {"up": g[(g.collection == c) & (g.NES > 0)].sort_values(["fdr_q", "NES"], ascending=[True, False]).pathway.head(3).tolist(), "down": g[(g.collection == c) & (g.NES < 0)].sort_values(["fdr_q", "NES"], ascending=[True, True]).pathway.head(3).tolist()} for c in ("HALLMARK", "REACTOME", "KEGG_MEDICUS")}
         x = wxs[(wxs.subtype_id == sid) & (((wxs.driver_panel_member) & (wxs.q_driver < .05)) | ((~wxs.driver_panel_member) & (wxs.q_global < .05)))] if not wxs.empty else pd.DataFrame()
-        cards.append({"subtype_id": sid, "member_count": int(rec["member_count"]), "common_accept_set_count": int(rec["common_accept_set_count"]), "supporting_run_count": int(rec["supporting_run_count"]), "supporting_k_count": int(rec["supporting_k_count"]), "supporting_ks": rec["supporting_ks"], "mean_pair_recurrence_similarity": rec["mean_pair_recurrence_similarity"], "min_pair_recurrence_similarity": rec["min_pair_recurrence_similarity"], "top_wsi_enriched_features": wu, "top_wsi_depleted_features": wd, "top_ct_enriched_features": cu, "top_ct_depleted_features": cd, "top_hallmark_up": pathways["HALLMARK"]["up"], "top_hallmark_down": pathways["HALLMARK"]["down"], "top_reactome_up": pathways["REACTOME"]["up"], "top_reactome_down": pathways["REACTOME"]["down"], "top_kegg_up": pathways["KEGG_MEDICUS"]["up"], "top_kegg_down": pathways["KEGG_MEDICUS"]["down"], "significant_driver_mutations": x[x.driver_panel_member].gene.head(20).tolist(), "significant_other_mutations": x[~x.driver_panel_member].gene.head(20).tolist(), "representative_patient": reps.loc[reps.subtype_id == sid, "case_id"].iloc[0]})
+        profiles = {}
+        for reference in ("clearcode34", "tcga_m1_m4"):
+            selected = taxonomy[(taxonomy.subtype_id == sid) & (taxonomy.reference == reference)] if not taxonomy.empty else pd.DataFrame()
+            profiles[reference] = {str(row.reference_label): float(row.fraction) for row in selected.itertuples()}
+        cards.append({"subtype_id": sid, "member_count": int(rec["member_count"]), "common_accept_set_count": int(rec["common_accept_set_count"]), "supporting_run_count": int(rec["supporting_run_count"]), "supporting_k_count": int(rec["supporting_k_count"]), "supporting_ks": rec["supporting_ks"], "mean_pair_recurrence_similarity": rec["mean_pair_recurrence_similarity"], "min_pair_recurrence_similarity": rec["min_pair_recurrence_similarity"], "top_wsi_enriched_features": wu, "top_wsi_depleted_features": wd, "top_ct_enriched_features": cu, "top_ct_depleted_features": cd, "top_hallmark_up": pathways["HALLMARK"]["up"], "top_hallmark_down": pathways["HALLMARK"]["down"], "top_reactome_up": pathways["REACTOME"]["up"], "top_reactome_down": pathways["REACTOME"]["down"], "top_kegg_up": pathways["KEGG_MEDICUS"]["up"], "top_kegg_down": pathways["KEGG_MEDICUS"]["down"], "significant_driver_mutations": x[x.driver_panel_member].gene.head(20).tolist(), "significant_other_mutations": x[~x.driver_panel_member].gene.head(20).tolist(), "clearcode34_profile": profiles["clearcode34"], "tcga_mrna_profile": profiles["tcga_m1_m4"], "representative_patient": reps.loc[reps.subtype_id == sid, "case_id"].iloc[0]})
     json_dump(out / "subtype_identity_card.json", cards)
     pd.DataFrame(cards).to_csv(out / "subtype_identity_card.csv", index=False)
 
@@ -437,21 +471,39 @@ def main() -> None:
     args = parser.parse_args()
     output_root, config_dir = Path(args.output_root), Path(args.config_dir)
     out = Path(args.analysis_root) if args.analysis_root else output_root / "final_subtype_analysis"
-    if out.exists() and not args.force: raise FileExistsError(f"Analysis output exists; use --force: {out}")
+    if out.exists():
+        if not args.force: raise FileExistsError(f"Analysis output exists; use --force: {out}")
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     context = load_final_subtype_context(output_root)
     import yaml
     config = yaml.safe_load((config_dir / "subtype_review.yaml").read_text(encoding="utf-8"))
+    print("[final_subtype_analysis] recurrence", flush=True)
     recurrence = recurrence_analysis(context, out)
+    print("[final_subtype_analysis] representation", flush=True)
     representation_analysis(context, output_root, out, config)
+    print("[final_subtype_analysis] WSI", flush=True)
     wsi_rest, wsi_patient = wsi_analysis(context, output_root, out, args.bootstrap_iterations)
+    print("[final_subtype_analysis] CT", flush=True)
     ct_rest = ct_analysis(context, output_root, config_dir, out, args.bootstrap_iterations)
+    print("[final_subtype_analysis] RNA DESeq2/GSEA", flush=True)
     rna = rna_analysis(context, output_root, config_dir, out)
+    print("[final_subtype_analysis] WXS", flush=True)
     wxs = wxs_analysis(context, output_root, config_dir, out, args.permutations)
-    known_and_confounders(context, output_root, config_dir, out)
+    print("[final_subtype_analysis] taxonomy/confounders", flush=True)
+    taxonomy = known_and_confounders(context, output_root, config_dir, out)
+    print("[final_subtype_analysis] representatives and identity cards", flush=True)
     reps = representatives(context, output_root, out)
-    identity_cards(context, recurrence, wsi_rest, ct_rest, rna, wxs, reps, out)
-    source_files = list(context["source_paths"].values()) + [output_root / "rna/case_raw_counts.csv", output_root / "wxs/wxs_discovery_features.csv", output_root / "wxs/wxs_interpretation_features.csv", Path(__file__)]
+    identity_cards(context, recurrence, wsi_rest, ct_rest, rna, wxs, taxonomy, reps, out)
+    subtype_cfg = config_dir / "subtype_review.yaml"
+    wxs_cfg = config_dir / "wxs.yaml"
+    candidate_cfg = config_dir / "candidate_proposer.yaml"
+    source_files = list(context["source_paths"].values()) + [output_root / "rna/case_raw_counts.csv", output_root / "wxs/wxs_discovery_features.csv", output_root / "wxs/wxs_interpretation_features.csv", subtype_cfg, wxs_cfg, candidate_cfg, Path(__file__)]
+    try:
+        subtype_yaml = yaml.safe_load(subtype_cfg.read_text(encoding="utf-8"))
+        source_files.extend(Path(subtype_yaml["rna"][key]) for key in ("hallmark_gene_sets_path", "reactome_gene_sets_path", "kegg_medicus_gene_sets_path"))
+    except (KeyError, TypeError):
+        pass
     manifest = {"analysis_type": "final_stable_subtype_characterization", "analysis_role": "post_discovery_in_sample_characterization", "final_subtype_source": str(context["source_paths"]["subtypes"].resolve()), "candidate_patient_order": str(context["source_paths"]["order"].resolve()), "core_patient_count": len(context["core_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "subtype_count": len(context["subtypes"]), "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "active_modalities": list(MODALITIES), "one_vs_rest_reference": "all_other_candidate_cohort_patients", "scripts_dependency": False, "legacy_output_dependency": False, "input_sha256": {str(p): sha256(p) for p in source_files if p.is_file()}}
     json_dump(out / "source_manifest.json", manifest)
     summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {k: "complete" for k in ("recurrence", "representation", "wsi", "ct", "rna", "wxs", "known_taxonomy", "technical_confounders")}}

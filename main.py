@@ -9,6 +9,10 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any, Mapping
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from agents.candidate_proposer import candidate_proposer
 from agents.evidence_builder import (
     build_evidence_states,
