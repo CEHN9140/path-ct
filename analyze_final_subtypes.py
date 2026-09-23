@@ -426,7 +426,8 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
         concordance["strong_concordant_signal"] = (concordance.fdr_q < .05) & (concordance.q_value < .05) & concordance.direction_concordant
     concordance.to_csv(out / "rna_hallmark_concordance.csv", index=False)
     immune = {"HALLMARK_ALLOGRAFT_REJECTION", "HALLMARK_COMPLEMENT", "HALLMARK_IL2_STAT5_SIGNALING", "HALLMARK_IL6_JAK_STAT3_SIGNALING", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_INTERFERON_ALPHA_RESPONSE", "HALLMARK_INTERFERON_GAMMA_RESPONSE", "HALLMARK_TNFA_SIGNALING_VIA_NFKB"}
-    consistency_frame[consistency_frame.pathway.isin(immune)].to_csv(out / "rna_immune_transcriptional_programs.csv", index=False)
+    immune_columns = ["subtype_id", "pathway", "NES", "fdr_q", "cliffs_delta", "q_value", "consistency_fraction", "direction_concordant", "strong_concordant_signal"]
+    concordance[concordance.pathway.isin(immune)][[c for c in immune_columns if c in concordance.columns]].to_csv(out / "rna_immune_transcriptional_programs.csv", index=False)
     return primary_gsea
 
 def wxs_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path, permutations: int) -> pd.DataFrame:
@@ -531,7 +532,17 @@ def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_
     enrichment.to_csv(out / "known_taxonomy_enrichment.csv", index=False)
     conf = confounder_association(states, str(output_root), str(config_dir), clusters, "partition", [])
     json_dump(out / "technical_confounder_association.json", conf)
-    effect = confounder_representation_effect(states, str(output_root), str(config_dir), clusters, "partition", [])
+    try:
+        effect = confounder_representation_effect(states, str(output_root), str(config_dir), clusters, "partition", [])
+    except ValueError as exc:
+        if "geometry provenance" not in str(exc):
+            raise
+        effect = {
+            "tool_name": "confounder_representation_effect",
+            "status": "skipped_missing_geometry_provenance",
+            "missing_reason": str(exc),
+            "metrics": {},
+        }
     json_dump(out / "technical_confounder_representation_effect.json", effect)
     return taxonomy
 
@@ -631,6 +642,8 @@ def survival_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path
         frame["case_id"] = frame["case_id"].astype(str); frame["endpoint"] = frame["endpoint"].astype(str).str.upper()
         unknown = sorted(set(frame.endpoint) - allowed_endpoints)
         if unknown: raise ValueError(f"Unsupported survival endpoints: {unknown}")
+        if frame.duplicated(["case_id", "endpoint"], keep=False).any():
+            raise ValueError("Survival file contains duplicate case_id/endpoint rows")
         frame = frame[frame.case_id.isin(candidate)].copy()
         frame["time_days"] = pd.to_numeric(frame.time_days, errors="coerce"); frame["event"] = pd.to_numeric(frame.event, errors="coerce")
         frame = frame[frame.time_days.notna() & frame.event.isin([0, 1])]
@@ -641,7 +654,9 @@ def survival_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path
         for case_id in candidate:
             clinical = (by_case.get(case_id) or {}).get("Clinical", {}); demographic = clinical.get("demographic", {}) or {}; diagnoses = clinical.get("diagnoses") or [{}]
             primary = [row for row in diagnoses if str(row.get("diagnosis_is_primary_disease", "")).lower() == "true"]; diagnosis = (primary or diagnoses)[0]
-            event = int(str(demographic.get("vital_status", "")).strip().lower() == "dead"); followups = []
+            status = str(demographic.get("vital_status", "")).strip().lower()
+            if status not in {"dead", "alive"}: continue
+            event = int(status == "dead"); followups = []
             for row in diagnoses:
                 try:
                     if row.get("days_to_last_follow_up") not in (None, ""): followups.append(float(row["days_to_last_follow_up"]))
@@ -673,6 +688,107 @@ def survival_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path
     pd.DataFrame(summary_rows).to_csv(out / "survival_summary.csv", index=False); pd.DataFrame(global_rows).to_csv(out / "survival_global_tests.csv", index=False); pd.DataFrame(km_rows).to_csv(out / "survival_km_points.csv", index=False)
     if not completed_endpoints: return "skipped_insufficient_events", pd.DataFrame(summary_rows)
     return ("complete" if len(completed_endpoints) == frame.endpoint.nunique() else "partial"), pd.DataFrame(summary_rows)
+
+
+def pathreport_mapping(
+    context: Mapping[str, Any],
+    pathreport_root: Path,
+    manifest_path: Path,
+    sample_sheet_path: Path,
+    out: Path,
+) -> dict[str, Any]:
+    """Map final subtype patients to downloaded GDC pathology-report files."""
+    if not pathreport_root.is_dir():
+        raise FileNotFoundError(pathreport_root)
+    if not manifest_path.is_file():
+        raise FileNotFoundError(manifest_path)
+    if not sample_sheet_path.is_file():
+        raise FileNotFoundError(sample_sheet_path)
+
+    manifest = pd.read_csv(manifest_path, sep="\t", dtype=str).fillna("")
+    if not {"id", "filename"}.issubset(manifest.columns):
+        raise ValueError("PathReport manifest must contain id and filename")
+    manifest_files = dict(zip(manifest["id"].astype(str), manifest["filename"].astype(str)))
+    sample_sheet = pd.read_csv(sample_sheet_path, sep="\t", dtype=str).fillna("")
+    required = {"File ID", "File Name", "Data Type", "Case ID"}
+    if not required.issubset(sample_sheet.columns):
+        raise ValueError(f"PathReport sample sheet must contain {sorted(required)}")
+    sample_sheet = sample_sheet[sample_sheet["Data Type"].eq("Pathology Report")].copy()
+    sample_sheet["Case ID"] = sample_sheet["Case ID"].astype(str)
+    invalid_manifest_links = sample_sheet[
+        ~sample_sheet["File ID"].astype(str).map(manifest_files).eq(sample_sheet["File Name"].astype(str))
+    ]
+    if not invalid_manifest_links.empty:
+        raise ValueError("PathReport sample sheet and manifest disagree on file ID/name")
+    files = {path.name: path.resolve() for path in pathreport_root.rglob("*.PDF")}
+    subtype_by_patient = {
+        patient: subtype_id
+        for subtype_id, members in context["subtypes"].items()
+        for patient in members
+    }
+    rows, missing = [], []
+    for case_id, subtype_id in sorted(subtype_by_patient.items(), key=lambda item: (item[1], item[0])):
+        matches = sample_sheet[sample_sheet["Case ID"].eq(case_id)]
+        if matches.empty:
+            missing.append({"case_id": case_id, "reason": "not_in_sample_sheet"})
+            continue
+        found = False
+        for _, record in matches.iterrows():
+            file_name = str(record["File Name"])
+            path = files.get(file_name)
+            found = found or path is not None
+            rows.append({
+                "subtype_id": subtype_id,
+                "case_id": case_id,
+                "file_id": str(record["File ID"]),
+                "file_name": file_name,
+                "path": str(path) if path else "",
+                "path_exists": path is not None,
+                "sample_id": str(record.get("Sample ID", "")),
+                "data_type": str(record["Data Type"]),
+            })
+        if not found:
+            missing.append({
+                "case_id": case_id,
+                "reason": "file_not_found",
+                "file_names": ";".join(matches["File Name"].astype(str)),
+            })
+
+    frame = pd.DataFrame(rows, columns=[
+        "subtype_id", "case_id", "file_id", "file_name", "path",
+        "path_exists", "sample_id", "data_type",
+    ])
+    frame.to_csv(out / "final_subtype_pathreport_paths.csv", index=False)
+    grouped = {
+        subtype_id: frame[frame["subtype_id"].eq(subtype_id)].to_dict("records")
+        for subtype_id in context["subtype_order"]
+    }
+    json_dump(out / "final_subtype_pathreport_paths.json", grouped)
+    duplicate_cases = sorted(
+        sample_sheet.loc[sample_sheet["Case ID"].isin(subtype_by_patient), "Case ID"]
+        .value_counts()
+        .loc[lambda values: values > 1]
+        .index.astype(str)
+        .tolist()
+    )
+    audit = {
+        "source_final_subtypes": str((Path(context["source_paths"]["subtypes"])).resolve()),
+        "manifest": str(manifest_path.resolve()),
+        "sample_sheet": str(sample_sheet_path.resolve()),
+        "pathreport_root": str(pathreport_root.resolve()),
+        "final_subtype_patient_count": len(subtype_by_patient),
+        "mapped_patient_count": int(frame["case_id"].nunique()) if not frame.empty else 0,
+        "pathreport_row_count": len(frame),
+        "missing_cases": missing,
+        "duplicate_sample_sheet_cases": duplicate_cases,
+        "all_mapped_paths_exist": bool(frame["path_exists"].all()) if not frame.empty else False,
+        "subtype_counts": {
+            subtype_id: int(frame.loc[frame["subtype_id"].eq(subtype_id), "case_id"].nunique())
+            for subtype_id in context["subtype_order"]
+        },
+    }
+    json_dump(out / "final_subtype_pathreport_audit.json", audit)
+    return audit
 
 def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd.DataFrame, ct: pd.DataFrame, rna: pd.DataFrame, wxs: pd.DataFrame, taxonomy: pd.DataFrame, reps: pd.DataFrame, survival: pd.DataFrame, out: Path) -> None:
     def top_cont(frame, sid):
@@ -719,6 +835,9 @@ def main() -> None:
     parser.add_argument("--analysis-root", default=None)
     parser.add_argument("--clinical-file", default="data/tcga_kirc_data.json")
     parser.add_argument("--survival-file", default=None, help="Optional CSV with case_id, endpoint, time_days, event.")
+    parser.add_argument("--pathreport-root", default="/data/qijun/data/TCGA/KIRC/PathReport")
+    parser.add_argument("--pathreport-manifest", default="/data/qijun/data/TCGA/KIRC/PathReport/gdc_manifest.txt")
+    parser.add_argument("--pathreport-sample-sheet", default="/data/qijun/data/TCGA/KIRC/PathReport/gdc_sample_sheet.tsv")
     parser.add_argument("--top-marker-genes", type=int, default=10)
     parser.add_argument("--permutations", type=int, default=9999)
     parser.add_argument("--bootstrap-iterations", type=int, default=2000)
@@ -757,6 +876,17 @@ def main() -> None:
         out,
         Path(args.survival_file) if args.survival_file else None,
     )
+    print("[final_subtype_analysis] PathReport mapping", flush=True)
+    pathreport_root = Path(args.pathreport_root)
+    pathreport_manifest = Path(args.pathreport_manifest)
+    pathreport_sample_sheet = Path(args.pathreport_sample_sheet)
+    pathreport_audit = pathreport_mapping(
+        context,
+        pathreport_root,
+        pathreport_manifest,
+        pathreport_sample_sheet,
+        out,
+    )
     print("[final_subtype_analysis] representatives and identity cards", flush=True)
     reps = representatives(context, output_root, out)
     identity_cards(context, recurrence, wsi_rest, ct_rest, rna, wxs, taxonomy, reps, survival_summary, out)
@@ -764,6 +894,7 @@ def main() -> None:
     wxs_cfg = config_dir / "wxs.yaml"
     candidate_cfg = config_dir / "candidate_proposer.yaml"
     source_files = list(context["source_paths"].values()) + [output_root / "rna/case_raw_counts.csv", output_root / "wxs/wxs_discovery_features.csv", output_root / "wxs/wxs_interpretation_features.csv", subtype_cfg, wxs_cfg, candidate_cfg, clinical_path, Path(__file__)]
+    source_files.extend([pathreport_manifest, pathreport_sample_sheet])
     if args.survival_file:
         source_files.append(Path(args.survival_file))
     try:
@@ -784,7 +915,7 @@ def main() -> None:
         rows = confounder.get("metrics", {}).get("partition", {}).get("partition", [])
         significant_technical_factors = [str(row.get("factor")) for row in rows if row.get("q_value") is not None and float(row["q_value"]) < .05]
         ct_confounding = bool(significant_technical_factors)
-    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": "complete"}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "significant_technical_factors": significant_technical_factors, "wsi_semantic_characterization_available": False, "external_validation_available": False}}
+    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "pathreport_mapping": "complete" if not pathreport_audit["missing_cases"] and pathreport_audit["all_mapped_paths_exist"] else "partial", "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": "complete"}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "significant_technical_factors": significant_technical_factors, "pathreport_missing_cases": pathreport_audit["missing_cases"], "wsi_semantic_characterization_available": False, "external_validation_available": False}}
     json_dump(out / "analysis_summary.json", summary)
     print("[final_subtype_analysis]")
     for key, value in (("candidate cohort", summary["candidate_patient_count"]), ("core patients", summary["core_patient_count"]), ("noncore patients", summary["noncore_patient_count"]), ("final subtypes", summary["subtype_count"])): print(f"{key}: {value}")
