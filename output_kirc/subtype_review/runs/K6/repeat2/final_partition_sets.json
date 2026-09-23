@@ -76,47 +76,19 @@
             "tool_results.structural_diagnostics.metrics.pair.K6_C0001|K6_C0004.union_eigengap.eigengaps.3",
             "tool_results.structural_diagnostics.metrics.pair.K6_C0001|K6_C0004.union_eigengap.eigengaps.4"
           ],
-          "rationale": "Router authorized merging K6_C0001 and K6_C0004. Boundary representation is materially conflicting (CT/RNA/WSI near-zero separation; only WXS moderate), and boundary structure is likewise conflicting: the current two-way assignment is represented (ARI 0.889, within 0.429 > between 0.226) but the normalized-cut cost is relatively high (0.720) and the union eigengap is dominated by the single-cluster resolution (candidate_k=1), which is merge-compatible. The union is therefore more consistent with a single unit than with two independently retained sets."
+          "rationale": "Router authorized merging K6_C0001 and K6_C0004 based on weak/conflicting native-geometry boundary representation and single-cluster-dominated union structure. Metric refs are limited to the relevant structural_diagnostics pair metrics for this boundary."
         }
       }
     ]
   },
   {
-    "set_id": "K6_C0002",
+    "set_id": "K6_C0002_M_K6_C0003",
     "member_ids": [
       "TCGA-B0-4821",
-      "TCGA-B0-5117",
-      "TCGA-B8-4619",
-      "TCGA-B8-5546",
-      "TCGA-B8-A54E",
-      "TCGA-B8-A54F",
-      "TCGA-BP-4770",
-      "TCGA-BP-4782",
-      "TCGA-BP-4994",
-      "TCGA-BP-5000",
-      "TCGA-BP-5190",
-      "TCGA-BP-5191",
-      "TCGA-CZ-4865",
-      "TCGA-CZ-5468",
-      "TCGA-CZ-5988"
-    ],
-    "revision_lineage": [],
-    "generator": {
-      "initial_k": 6,
-      "partition_id": "consensus_hierarchical_K6",
-      "geometry": {
-        "type": "resampled_consensus_coassignment",
-        "matrix_relative_path": "consensus_cluster/consensus_matrix_K6.npy",
-        "patient_order_relative_path": "affinity_patient_order.json"
-      }
-    }
-  },
-  {
-    "set_id": "K6_C0003",
-    "member_ids": [
       "TCGA-B0-5081",
       "TCGA-B0-5088",
       "TCGA-B0-5106",
+      "TCGA-B0-5117",
       "TCGA-B0-5696",
       "TCGA-B0-5697",
       "TCGA-B0-5698",
@@ -125,18 +97,30 @@
       "TCGA-B8-4148",
       "TCGA-B8-4151",
       "TCGA-B8-4153",
+      "TCGA-B8-4619",
       "TCGA-B8-4622",
       "TCGA-B8-5158",
       "TCGA-B8-5164",
+      "TCGA-B8-5546",
       "TCGA-B8-5550",
       "TCGA-B8-5553",
       "TCGA-B8-A54D",
+      "TCGA-B8-A54E",
+      "TCGA-B8-A54F",
       "TCGA-B8-A54G",
+      "TCGA-BP-4770",
+      "TCGA-BP-4782",
+      "TCGA-BP-4994",
+      "TCGA-BP-5000",
+      "TCGA-BP-5190",
+      "TCGA-BP-5191",
       "TCGA-CZ-4863",
+      "TCGA-CZ-4865",
       "TCGA-CZ-5451",
-      "TCGA-CZ-5462"
+      "TCGA-CZ-5462",
+      "TCGA-CZ-5468",
+      "TCGA-CZ-5988"
     ],
-    "revision_lineage": [],
     "generator": {
       "initial_k": 6,
       "partition_id": "consensus_hierarchical_K6",
@@ -145,7 +129,39 @@
         "matrix_relative_path": "consensus_cluster/consensus_matrix_K6.npy",
         "patient_order_relative_path": "affinity_patient_order.json"
       }
-    }
+    },
+    "revision_lineage": [
+      {
+        "action": "merge",
+        "parent_set_ids": [
+          "K6_C0002",
+          "K6_C0003"
+        ],
+        "plan": {
+          "action": "merge",
+          "target_ids": [
+            "K6_C0002",
+            "K6_C0003"
+          ],
+          "metric_refs": [
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.current_boundary_normalized_cut",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.independent_two_way_spectral_ari",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.left_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.mean_between_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.mean_within_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.member_n",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.right_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.candidate_eigengap",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.candidate_k",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.eigengaps.1",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.eigengaps.2",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.eigengaps.3",
+            "tool_results.structural_diagnostics.metrics.pair.K6_C0002|K6_C0003.union_eigengap.eigengaps.4"
+          ],
+          "rationale": "Router authorized merging K6_C0002 and K6_C0003 based on the weakest and most merge-compatible reviewed boundary: weak native-view separation across all four modalities, highest normalized-cut cost (0.690) and highest between-side affinity (0.217) among reviewed pairs, and a single-cluster-dominated union (candidate_k=1, leading gap 0.600). Metric refs are limited to the relevant structural_diagnostics pair metrics for this boundary."
+        }
+      }
+    ]
   },
   {
     "set_id": "K6_C0005",

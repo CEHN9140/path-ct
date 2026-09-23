@@ -42,19 +42,33 @@ def inspect_agent_run(run_root: Path, active_input_signature: str) -> tuple[bool
     sets_path = run_root / "final_subtype_sets.json"
     if not metadata_path.is_file():
         return False, {"status": "excluded", "reason": "missing_run_metadata"}
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, {"status": "excluded", "reason": "invalid_run_metadata_json"}
+    if not isinstance(metadata, dict):
+        return False, {"status": "excluded", "reason": "invalid_run_metadata_json"}
     if metadata.get("input_signature") != active_input_signature:
         return False, {"status": "excluded", "reason": "input_signature_mismatch", "input_signature": metadata.get("input_signature")}
     if metadata.get("status") != "complete":
         return False, {"status": "excluded", "reason": f"run_status_{metadata.get('status', 'unknown')}"}
     if not summary_path.is_file():
         return False, {"status": "excluded", "reason": "missing_final_review_summary"}
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, {"status": "excluded", "reason": "invalid_final_review_summary_json"}
+    if not isinstance(summary, dict):
+        return False, {"status": "excluded", "reason": "invalid_final_review_summary_json"}
     if summary.get("raw_control_status") != "complete" or summary.get("status") != "review_complete":
         return False, {"status": "excluded", "reason": "review_not_complete"}
     if not sets_path.is_file():
         return False, {"status": "excluded", "reason": "missing_final_subtype_sets"}
-    if not isinstance(json.loads(sets_path.read_text(encoding="utf-8")), list):
+    try:
+        sets = json.loads(sets_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, {"status": "excluded", "reason": "invalid_final_subtype_sets_json"}
+    if not isinstance(sets, list):
         return False, {"status": "excluded", "reason": "invalid_final_subtype_sets"}
     return True, {"status": "included", "input_signature": metadata["input_signature"], "sets_path": str(sets_path)}
 
@@ -174,14 +188,39 @@ def run_multi_k_aggregation(
     run_files, run_audit = collect_usable_runs(output_root, config, input_signature)
     if not run_files:
         raise ValueError("No usable completed Agent runs were found for the active input signature.")
-    initial_ks = sorted({row["initial_k"] for row in run_audit if row["status"] == "included"})
-    repeats = sorted({row["repeat"] for row in run_audit if row["status"] == "included"})
-    aggregation_params = {**params, "initial_ks": initial_ks, "repeats": repeats}
+    configured_initial_ks = sorted(set(map(int, params["initial_ks"])))
+    configured_repeats = sorted(set(map(int, params["repeats"])))
+    included_runs = [
+        {"initial_k": initial_k, "repeat": repeat}
+        for initial_k, repeat, _ in run_files
+    ]
+    included_initial_ks = sorted({row["initial_k"] for row in included_runs})
+    included_repeats = sorted({row["repeat"] for row in included_runs})
+    aggregation_params = {
+        **params,
+        "initial_ks": configured_initial_ks,
+        "repeats": configured_repeats,
+    }
     run_manifest = []
     for initial_k, repeat, sets_path in run_files:
         metadata = json.loads((sets_path.parent / "run_metadata.json").read_text(encoding="utf-8"))
         run_manifest.append({"initial_k": initial_k, "repeat": repeat, "agent_input_signature": metadata["input_signature"], "final_subtype_sets_path": str(sets_path.resolve()), "final_subtype_sets_sha256": hashlib.sha256(sets_path.read_bytes()).hexdigest()})
-    aggregation_manifest = {"aggregation_version": 2, "agent_input_signature": input_signature, "initial_ks": list(initial_ks), "repeats": list(repeats), "parameters": aggregation_params, "patient_order": {"path": str(patient_order_path.resolve()), "sha256": hashlib.sha256(patient_order_path.read_bytes()).hexdigest()}, "agent_runs": run_manifest, "aggregation_implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    aggregation_manifest = {
+        "aggregation_version": 2,
+        "agent_input_signature": input_signature,
+        "configured_initial_ks": configured_initial_ks,
+        "configured_repeats": configured_repeats,
+        "included_initial_ks": included_initial_ks,
+        "included_repeats": included_repeats,
+        "included_runs": included_runs,
+        "parameters": aggregation_params,
+        "patient_order": {
+            "path": str(patient_order_path.resolve()),
+            "sha256": hashlib.sha256(patient_order_path.read_bytes()).hexdigest(),
+        },
+        "agent_runs": run_manifest,
+        "aggregation_implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
     aggregation_signature = hash_payload(aggregation_manifest)
     output_dir = root / "subtype_review" / "multi_k"
     if output_dir.exists():

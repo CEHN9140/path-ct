@@ -28,7 +28,7 @@
             "K3_C0001"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0001 exhibit a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful unit?"
+          "question": "Does K3_C0001 have a coherent, interpretable transcriptomic or mutation phenotype that distinguishes it as a biologically meaningful unit?"
         },
         {
           "dimension": "biological_support",
@@ -37,7 +37,7 @@
             "K3_C0002"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0002 exhibit a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful unit?"
+          "question": "Does K3_C0002 have a coherent, interpretable transcriptomic or mutation phenotype that distinguishes it as a biologically meaningful unit?"
         },
         {
           "dimension": "biological_support",
@@ -46,7 +46,7 @@
             "K3_C0003"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0003 exhibit a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful unit?"
+          "question": "Does K3_C0003 have a coherent, interpretable transcriptomic or mutation phenotype that distinguishes it as a biologically meaningful unit?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -56,7 +56,7 @@
             "K3_C0002"
           ],
           "focus": "boundary_representation",
-          "question": "Does the K3_C0001–K3_C0002 boundary show consistent membership representation across modalities, supporting preservation of this boundary?"
+          "question": "Is the K3_C0001–K3_C0002 boundary represented consistently across modalities, or is it weak/merge-compatible given their nearest-pair affinity?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -66,7 +66,7 @@
             "K3_C0003"
           ],
           "focus": "boundary_representation",
-          "question": "Does the K3_C0002–K3_C0003 boundary show consistent membership representation across modalities, supporting preservation of this boundary?"
+          "question": "Is the K3_C0002–K3_C0003 boundary represented consistently across modalities, or is it weak/merge-compatible?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -76,7 +76,7 @@
             "K3_C0003"
           ],
           "focus": "boundary_representation",
-          "question": "Does the K3_C0001–K3_C0003 boundary show consistent membership representation across modalities, supporting preservation of this boundary?"
+          "question": "Is the K3_C0001–K3_C0003 boundary represented consistently across modalities, or is it weak/merge-compatible?"
         }
       ]
     }
@@ -91,31 +91,31 @@
           "dimension": "cross_modal_consistency",
           "scope": "pair",
           "target_ids": [
-            "K3_C0001",
-            "K3_C0002"
-          ],
-          "focus": "boundary_structure",
-          "question": "Does the exact K3_C0001–K3_C0002 boundary show internal structure consistent with two distinct units rather than a single merge-compatible unit, given the weak cross-modal boundary representation?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "pair",
-          "target_ids": [
-            "K3_C0001",
-            "K3_C0003"
-          ],
-          "focus": "boundary_structure",
-          "question": "Does the exact K3_C0001–K3_C0003 boundary show internal structure consistent with two distinct units rather than a single merge-compatible unit, given the partially conflicting weak boundary representation?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "pair",
-          "target_ids": [
             "K3_C0002",
             "K3_C0003"
           ],
           "focus": "boundary_structure",
-          "question": "Does the exact K3_C0002–K3_C0003 boundary show internal structure consistent with two distinct units rather than a single merge-compatible unit, given the weak low-magnitude boundary representation?"
+          "question": "Does the exact K3_C0002|K3_C0003 boundary show structural separation (e.g., eigengap/normalized-cut) consistent with two independent units, or is the union more consistent with a single unit given the near-zero silhouettes across all four native views?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0001",
+            "K3_C0003"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the exact K3_C0001|K3_C0003 boundary show structural separation consistent with two independent units, or is the union more consistent with a single unit given the weak/conflicting CT and WXS separation?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0001",
+            "K3_C0002"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the exact K3_C0001|K3_C0002 boundary show structural separation consistent with two independent units, or is the union more consistent with a single unit given the modest and WXS-attenuated geometric support?"
         }
       ]
     }
@@ -128,12 +128,19 @@
       "evidence_requests": [
         {
           "dimension": "confounder_exclusion",
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "partition_confounder_association",
+          "question": "Do batch, acquisition, or technical factors associate with the current partition geometry strongly enough to plausibly explain the candidate memberships?"
+        },
+        {
+          "dimension": "confounder_exclusion",
           "scope": "set",
           "target_ids": [
             "K3_C0001"
           ],
           "focus": "candidate_specific_confounder_association",
-          "question": "Could a candidate-specific technical or acquisition factor explain the immune-high membership of K3_C0001, and is that factor reflected in patient geometry?"
+          "question": "Is K3_C0001 membership plausibly explained by a candidate-specific technical or acquisition factor reflected in patient geometry?"
         },
         {
           "dimension": "confounder_exclusion",
@@ -142,7 +149,7 @@
             "K3_C0002"
           ],
           "focus": "candidate_specific_confounder_association",
-          "question": "Could a candidate-specific technical or acquisition factor explain the metabolic-high membership of K3_C0002, and is that factor reflected in patient geometry?"
+          "question": "Is K3_C0002 membership plausibly explained by a candidate-specific technical or acquisition factor reflected in patient geometry?"
         },
         {
           "dimension": "confounder_exclusion",
@@ -151,7 +158,14 @@
             "K3_C0003"
           ],
           "focus": "candidate_specific_confounder_association",
-          "question": "Could a candidate-specific technical or acquisition factor explain the immune-low membership of K3_C0003, and is that factor reflected in patient geometry?"
+          "question": "Is K3_C0003 membership plausibly explained by a candidate-specific technical or acquisition factor reflected in patient geometry?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "patient_geometry_concordance",
+          "question": "Do native patient geometries across modalities concordantly represent the current three-set partition, or do they indicate merge-compatible or conflicting structure?"
         }
       ]
     }
@@ -167,14 +181,7 @@
           "scope": "partition",
           "target_ids": [],
           "focus": "partition_factor_geometry_association",
-          "question": "Do the significant technical/acquisition factors (tissue_source_site, ct_scanner_model, ct_z_spacing, ct_slice_thickness, ct_phase, ct_manufacturer, ct_reconstruction_kernel) that associate with candidate membership also structure the patient geometry, such that the current candidate boundaries could be explained by acquisition factors rather than biology?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "partition",
-          "target_ids": [],
-          "focus": "patient_geometry_concordance",
-          "question": "Does the patient-level geometry concord with the current three-set partition, and does it support the K3_C0001-K3_C0003 boundary as the most coherently separated unit while leaving the K3_C0001-K3_C0002 and K3_C0002-K3_C0003 boundaries merge-compatible?"
+          "question": "Do the partition-wide technical/acquisition factors (tissue source site, scanner model, slice thickness, z-spacing) that are significantly associated with the current partition also explain the patient geometry, i.e., is the candidate structure reflected in these technical factors rather than biology?"
         }
       ]
     }
@@ -186,11 +193,31 @@
       "actions": [],
       "evidence_requests": [
         {
-          "dimension": "confounder_exclusion",
-          "scope": "partition",
-          "target_ids": [],
-          "focus": "partition_confounder_association",
-          "question": "Do the measured technical/acquisition/site factors that associate with partition geometry persist as candidate-specific membership explanations after covariate adjustment, or are they limited such that they cannot account for the K3_C0001/K3_C0002/K3_C0003 boundaries?"
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0001"
+          ],
+          "focus": "membership_representation",
+          "question": "Does K3_C0001's exact-set membership remain independently represented in native patient geometry after accounting for the partition-wide and candidate-specific technical/site associations (site, scanner model, slice thickness, z-spacing), or is its geometry explained by those acquisition factors?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0002"
+          ],
+          "focus": "membership_representation",
+          "question": "Does K3_C0002's exact-set membership remain independently represented in native patient geometry given its broad technical/site associations (site, manufacturer, scanner model, kernel, phase, slice thickness, z-spacing, study year), or is its geometry explained by those acquisition factors?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0003"
+          ],
+          "focus": "membership_representation",
+          "question": "Does K3_C0003's exact-set membership remain independently represented in native patient geometry after accounting for its technical/site associations (site, CT phase, manufacturer, slice thickness, z-spacing), or is its geometry explained by those acquisition factors?"
         }
       ]
     }
@@ -199,134 +226,158 @@
     "round": 7,
     "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
     "router_plan": {
-      "actions": [],
-      "evidence_requests": [
+      "actions": [
         {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
+          "action": "merge",
           "target_ids": [
-            "K3_C0001"
-          ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0001 show a feasible internal subdivision (k>=2) in the consensus geometry, or is it structurally a single unit?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0002"
-          ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0002 show a feasible internal subdivision (k>=2) in the consensus geometry, or is it structurally a single unit?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
+            "K3_C0002",
             "K3_C0003"
           ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0003 show a feasible internal subdivision (k>=2) in the consensus geometry, or is it structurally a single unit?"
+          "n_children": null,
+          "evidence_report_refs": [
+            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:c8b5e3ff3c",
+            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:set:c3d03e2c9e",
+            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:set:d8adc0a39b",
+            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:c8b5e3ff3c"
+          ],
+          "reason": "The K3_C0002|K3_C0003 boundary is the weakest and most merge-compatible of the three pairs. Pair boundary_representation shows near-zero mean silhouettes in all four native views (0.041-0.060), with WSI within-label distance (0.247) slightly exceeding between-label distance (0.245) and 56.8% negative silhouettes, and RNA (33.8%) and WXS (41.9%) also substantially negative. Pair boundary_structure shows only moderate ARI (0.698), intermediate-to-high normalized-cut cost (0.592) reflecting appreciable cross-boundary connectivity, and a union spectral structure dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.488), which is merge-compatible and not evidence for preserving the boundary. Set-level membership representation is also weak and conflicting for K3_C0002 (only CT weakly positive at 0.052; RNA -0.062, WSI -0.119, WXS -0.076, with K3_C0003 the nearest competitor in all four views), while K3_C0003 is the more coherent set (all four views positive, WSI 0.303). The union is therefore more consistent with a single unit than with two independently represented sets. This is a provisional comparative revision; the merged set must re-establish its own identity and independence on return."
         }
+      ],
+      "evidence_requests": []
+    },
+    "revision_plan": {
+      "split_plans": [],
+      "merge_plans": [
+        {
+          "action": "merge",
+          "target_ids": [
+            "K3_C0002",
+            "K3_C0003"
+          ],
+          "metric_refs": [
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.current_boundary_normalized_cut",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.independent_two_way_spectral_ari",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.left_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.mean_between_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.mean_within_affinity",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.member_n",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.right_volume",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.candidate_eigengap",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.candidate_k",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.1",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.2",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.3",
+            "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.4"
+          ],
+          "rationale": "Router authorized a merge of K3_C0002 and K3_C0003. Pair-scope structural diagnostics show intermediate-to-high normalized-cut cost (0.592), moderate two-way spectral ARI (0.698), and a union spectral structure dominated by the single-cluster resolution (candidate_k=1, leading eigengap 0.488), which is merge-compatible. Pair-scope affinity-geometry concordance shows near-zero mean silhouettes across all four native views (0.041-0.060) with substantial negative fractions (WSI 56.8%, WXS 41.9%, RNA 33.8%). Set-scope membership representation is weak and conflicting for K3_C0002 (only CT weakly positive at 0.052; RNA -0.062, WSI -0.119, WXS -0.076, with K3_C0003 the nearest competitor in all four views), while K3_C0003 is more coherent (all four views positive, WSI 0.303). The union is therefore more consistent with a single unit than with two independently represented sets. This is a provisional comparative revision; the merged set must re-establish its own identity and independence on return."
+        }
+      ],
+      "rationale": "Router action is merge of K3_C0002 and K3_C0003. Plan preserves the exact target pair and uses only relevant available metric refs from the pair-scope structural diagnostics. No split is planned."
+    },
+    "revision_result": {
+      "old_partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
+      "new_partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5085\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5115\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5703\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4989\",\"TCGA-BP-4994\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5000\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002_M_K3_C0003\"}]",
+      "operation": "merge",
+      "target_ids": [
+        "K3_C0002",
+        "K3_C0003"
+      ],
+      "new_set_ids": [
+        "K3_C0002_M_K3_C0003"
+      ],
+      "metric_refs": [
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.current_boundary_normalized_cut",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.independent_two_way_spectral_ari",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.left_volume",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.mean_between_affinity",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.mean_within_affinity",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.member_n",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.right_volume",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.candidate_eigengap",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.candidate_k",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.1",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.2",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.3",
+        "tool_results.structural_diagnostics.metrics.pair.K3_C0002|K3_C0003.union_eigengap.eigengaps.4"
       ]
     }
   },
   {
     "round": 8,
-    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5085\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5115\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5703\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4989\",\"TCGA-BP-4994\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5000\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002_M_K3_C0003\"}]",
     "router_plan": {
       "actions": [],
       "evidence_requests": [
         {
           "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0001"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0001's exact-set membership remain independently represented across native modalities after accounting for the significant tissue_source_site and CT acquisition associations, or is its membership largely explained by those technical factors?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0002"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0002's exact-set membership remain independently represented across native modalities given the broad significant technical/acquisition associations (site, scanner model, manufacturer, kernel, phase, z-spacing, slice thickness), or is its membership largely explained by those factors?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0003"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0003's exact-set membership remain independently represented across native modalities after accounting for the significant tissue_source_site, CT phase, manufacturer, slice thickness, and z-spacing associations, or is its membership largely explained by those technical factors?"
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "partition_structural_screen",
+          "question": "Screen the current partition for unsupported internal splits and weak pair boundaries."
         }
       ]
     }
   },
   {
     "round": 9,
-    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5085\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5115\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5703\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4989\",\"TCGA-BP-4994\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5000\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002_M_K3_C0003\"}]",
     "router_plan": {
       "actions": [],
       "evidence_requests": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0001",
+            "K3_C0002_M_K3_C0003"
+          ],
+          "focus": "boundary_representation",
+          "question": "Does the exact-pair boundary between K3_C0001 and K3_C0002_M_K3_C0003 show consistent membership representation across native modalities, or is the boundary weak/merge-compatible?"
+        },
         {
           "dimension": "biological_support",
           "scope": "set",
           "target_ids": [
             "K3_C0001"
           ],
-          "focus": "mutation_phenotype",
-          "question": "Does K3_C0001 carry a distinct WXS mutation/CNV phenotype that supports its biological identity independently of the RNA immune-high profile?"
+          "focus": "transcriptomic_phenotype",
+          "question": "Does K3_C0001 have a substantive, interpretable biological identity (transcriptomic phenotype) supporting it as an independent discovery-stage unit?"
         },
         {
           "dimension": "biological_support",
           "scope": "set",
           "target_ids": [
-            "K3_C0002"
+            "K3_C0002_M_K3_C0003"
           ],
-          "focus": "mutation_phenotype",
-          "question": "Does K3_C0002 carry a distinct WXS mutation/CNV phenotype that supports its biological identity independently of the RNA metabolic-high profile?"
+          "focus": "transcriptomic_phenotype",
+          "question": "Does the merged set K3_C0002_M_K3_C0003 have a substantive, interpretable biological identity (transcriptomic phenotype) supporting it as an independent discovery-stage unit?"
         },
         {
-          "dimension": "biological_support",
+          "dimension": "cross_modal_consistency",
           "scope": "set",
           "target_ids": [
-            "K3_C0003"
+            "K3_C0001"
           ],
-          "focus": "mutation_phenotype",
-          "question": "Does K3_C0003 carry a distinct WXS mutation/CNV phenotype that supports its biological identity independently of the RNA immune-low profile?"
+          "focus": "membership_representation",
+          "question": "Is K3_C0001's exact-set membership representation coherent across native modalities, or broadly unsupported/conflicting?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0002_M_K3_C0003"
+          ],
+          "focus": "membership_representation",
+          "question": "Is the merged set K3_C0002_M_K3_C0003's exact-set membership representation coherent across native modalities, or broadly unsupported/conflicting?"
         }
       ]
     }
   },
   {
     "round": 10,
-    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5085\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5115\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5703\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4989\",\"TCGA-BP-4994\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5000\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5190\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002_M_K3_C0003\"}]",
     "router_plan": {
       "actions": [
-        {
-          "action": "accept",
-          "target_ids": [
-            "K3_C0003"
-          ],
-          "n_children": null,
-          "evidence_report_refs": [
-            "ER:c222463107da:biological_support:rna_pathway_enrichment:set:c3d03e2c9e",
-            "ER:c222463107da:biological_support:wxs_mutation_enrichment:set:c3d03e2c9e",
-            "ER:c222463107da:confounder_exclusion:confounder_association:set:c3d03e2c9e",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:5891086e94",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:c8b5e3ff3c",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:set:c3d03e2c9e",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:5891086e94",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:c8b5e3ff3c",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:c3d03e2c9e"
-          ],
-          "reason": "K3_C0003 has a coherent, interpretable biological identity: RNA shows broad immune/inflammatory down-regulation with TGF-beta/Wnt up-regulation (ER:c3d03e2c9e), and WXS shows a directionally interpretable PBRM1/VHL-enriched, BAP1-depleted pattern (ER:c3d03e2c9e). Membership representation is coherently positive across all four native views (CT 0.038, RNA 0.093, WSI 0.303, WXS 0.114) with low negative fractions (ER:affinity_geometry_concordance:set:c3d03e2c9e). Its boundaries are the best supported of the partition: the K3_C0001-K3_C0003 boundary has the strongest graph separation (two-way spectral agreement 0.930, lowest normalized-cut 0.532, highest within-side affinity 0.622, lowest between-side affinity 0.217) with RNA/WSI carrying modest positive separation (ER:structural_diagnostics:pair:5891086e94; ER:affinity_geometry_concordance:pair:5891086e94), and the K3_C0002-K3_C0003 boundary shows small but consistent positive silhouettes across all four views (ER:affinity_geometry_concordance:pair:c8b5e3ff3c) with moderate two-way representation (agreement 0.698, within 0.557 > between 0.234) (ER:structural_diagnostics:pair:c8b5e3ff3c). Internal subdivision is not supported (leading eigengap 0.957 at k=1; feasible splits weakly represented) (ER:structural_diagnostics:set:c3d03e2c9e). Although tissue_source_site, ct_phase, ct_manufacturer, ct_slice_thickness, and ct_z_spacing show significant association with membership (ER:confounder_association:set:c3d03e2c9e), these are associations rather than demonstrated artifacts, and the coherent cross-modal membership plus the strongest boundary separation support independent retention."
-        },
         {
           "action": "accept",
           "target_ids": [
@@ -334,36 +385,24 @@
           ],
           "n_children": null,
           "evidence_report_refs": [
-            "ER:c222463107da:biological_support:rna_pathway_enrichment:set:1d912c7fc0",
-            "ER:c222463107da:biological_support:wxs_mutation_enrichment:set:1d912c7fc0",
-            "ER:c222463107da:confounder_exclusion:confounder_association:set:1d912c7fc0",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:5891086e94",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:ee6f87ccd2",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:set:1d912c7fc0",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:5891086e94",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:ee6f87ccd2",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:1d912c7fc0"
+            "ER:622c10e91ba9:biological_support:rna_pathway_enrichment:set:1d912c7fc0",
+            "ER:622c10e91ba9:cross_modal_consistency:affinity_geometry_concordance:pair:927c6f3b6c",
+            "ER:622c10e91ba9:cross_modal_consistency:affinity_geometry_concordance:set:1d912c7fc0"
           ],
-          "reason": "K3_C0001 has a strong, interpretable biological identity: RNA shows a coherent immune/inflammatory and interferon-high, proliferation-up, metabolism-down phenotype with multiple pathways at FDR q=0.001 (ER:rna_pathway_enrichment:set:1d912c7fc0), and WXS shows significant BAP1 enrichment (OR 7.875, q_driver=0.0181) (ER:wxs_mutation_enrichment:set:1d912c7fc0). Its boundary with K3_C0003 is the most coherently represented of the partition (two-way spectral agreement 0.930, lowest normalized-cut 0.532, highest within-side affinity 0.622, lowest between-side affinity 0.217) with RNA/WSI carrying modest positive separation (ER:structural_diagnostics:pair:5891086e94; ER:affinity_geometry_concordance:pair:5891086e94). The boundary with K3_C0002 is weaker but directionally consistent across all four native views (CT 0.121, WSI 0.085, RNA 0.057, WXS 0.017) (ER:affinity_geometry_concordance:pair:ee6f87ccd2), and although its union eigengap is single-cluster dominated (merge-compatible) the current two-way assignment is moderately represented (agreement 0.702, within 0.528 > between 0.249) (ER:structural_diagnostics:pair:ee6f87ccd2). Internal subdivision is not supported (leading eigengap 0.872 at k=1; feasible splits weakly represented) (ER:structural_diagnostics:set:1d912c7fc0). Membership representation is weak and largely non-positive (only RNA 0.101 positive; CT -0.045, WSI -0.089, WXS -0.057) (ER:affinity_geometry_concordance:set:1d912c7fc0), and tissue_source_site, ct_scanner_model, ct_z_spacing, and ct_slice_thickness show significant association with membership (ER:confounder_association:set:1d912c7fc0). However, the strong, coherent multimodal biology combined with the well-supported boundary against K3_C0003 and the absence of a supported merge or split alternative support independent retention."
+          "reason": "K3_C0001 has a substantive, interpretable biological identity: coordinated up-regulation of immune/inflammatory and interferon programs (allograft rejection NES 2.61; IFN-gamma 2.28; IFN-alpha 2.17; IL6/JAK/STAT3 2.13; inflammatory response 1.83) with proliferation up-regulation (E2F 1.80; G2M 1.69) and down-regulation of UV-response-down, protein secretion, fatty-acid metabolism, androgen response, and bile-acid metabolism, internally consistent with overlapping leading-edge genes and FDR q=0.001. Membership representation is weak but not broadly unsupported: RNA (0.137) and WXS (0.057) show small positive separation, CT is near-null (0.023), and WSI is only slightly negative (-0.022), so no modality strongly contradicts membership. The relevant neighboring boundary to K3_C0002_M_K3_C0003 is weakly but consistently represented in CT (0.087), RNA (0.079), and WSI (0.130), with only WXS null (-0.007); the partition-level structural screen shows within-set affinity (0.568) exceeding nearest between-set affinity (0.237), and the union spectral structure is dominated by the single-cluster resolution, so no supported split or merge alternative remains. No corrected technical or acquisition association has been shown to explain membership. The candidate therefore remains an independent discovery-stage unit."
         },
         {
-          "action": "drop",
+          "action": "accept",
           "target_ids": [
-            "K3_C0002"
+            "K3_C0002_M_K3_C0003"
           ],
           "n_children": null,
           "evidence_report_refs": [
-            "ER:c222463107da:biological_support:rna_pathway_enrichment:set:d8adc0a39b",
-            "ER:c222463107da:biological_support:wxs_mutation_enrichment:set:d8adc0a39b",
-            "ER:c222463107da:confounder_exclusion:confounder_association:set:d8adc0a39b",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:c8b5e3ff3c",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:pair:ee6f87ccd2",
-            "ER:c222463107da:cross_modal_consistency:affinity_geometry_concordance:set:d8adc0a39b",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:c8b5e3ff3c",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:ee6f87ccd2",
-            "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:d8adc0a39b"
+            "ER:622c10e91ba9:biological_support:rna_pathway_enrichment:set:13c585f535",
+            "ER:622c10e91ba9:cross_modal_consistency:affinity_geometry_concordance:pair:927c6f3b6c",
+            "ER:622c10e91ba9:cross_modal_consistency:affinity_geometry_concordance:set:13c585f535"
           ],
-          "reason": "K3_C0002 has an interpretable biological identity (RNA metabolic-high/immune-low with protein secretion NES 2.91 and oxidative phosphorylation 2.87 at FDR q=0.001, ER:rna_pathway_enrichment:set:d8adc0a39b; WXS PBRM1 and VHL depletion, ER:wxs_mutation_enrichment:set:d8adc0a39b), but its membership is broadly unsupported and its boundaries are weak or merge-compatible. Native-view membership representation is predominantly non-positive (only CT 0.052 positive; RNA -0.062, WSI -0.119, WXS -0.076 with negative fractions 0.70-0.89) (ER:affinity_geometry_concordance:set:d8adc0a39b). Both relevant boundaries are weak or conflicting: the K3_C0001-K3_C0002 boundary has the highest normalized-cut cost (0.657) with a single-cluster-dominated union eigengap (candidate_k=1) that is merge-compatible (ER:structural_diagnostics:pair:ee6f87ccd2), and the K3_C0002-K3_C0003 boundary likewise has a single-cluster-dominated union (candidate_k=1) with WSI showing no separation (negative fraction 0.568) (ER:structural_diagnostics:pair:c8b5e3ff3c; ER:affinity_geometry_concordance:pair:c8b5e3ff3c). Internal subdivision is not supported (leading eigengap 0.705 at k=1; the feasible 2-way split's native-view signal is concentrated in WXS with CT/RNA/WSI at chance) (ER:structural_diagnostics:set:d8adc0a39b). A broad set of measured technical/acquisition factors shows significant association with membership (tissue_source_site V 0.586, ct_scanner_model V 0.513, ct_manufacturer V 0.481, ct_reconstruction_kernel V 0.448, ct_phase V 0.341, ct_z_spacing epsilon-squared 0.263, ct_slice_thickness 0.232) (ER:confounder_association:set:d8adc0a39b), and no persistence-after-adjustment evidence limits these plausible alternative explanations. With broadly unsupported membership, weak/merge-compatible boundaries, no supported structural revision, and no remaining evidence that could change the conclusion, K3_C0002 lacks sufficient defensible discovery value."
+          "reason": "K3_C0002_M_K3_C0003 has a substantive, interpretable biological identity that is the coherent mirror image of K3_C0001: down-regulation of immune/inflammatory and interferon programs (allograft rejection NES -2.61; IFN-gamma -2.28; IFN-alpha -2.17; IL6/JAK/STAT3 -2.09; inflammatory response -1.83) and proliferation (E2F -1.80; MYC V2 -1.78; G2M -1.68), with up-regulation of UV-response-down, protein secretion, fatty-acid metabolism, androgen response, and bile-acid metabolism, internally consistent with overlapping leading-edge genes and FDR q=0.001. Membership representation is weak but not broadly unsupported: WSI (0.190) and CT (0.112) show small positive separation and RNA is weakly positive (0.056), with only WXS slightly negative (-0.032). The relevant neighboring boundary to K3_C0001 is weakly but consistently represented in CT, RNA, and WSI, with only WXS null; the partition-level structural screen shows within-set affinity (0.403) exceeding nearest between-set affinity (0.237), and the union spectral structure is dominated by the single-cluster resolution, so no supported split or merge alternative remains. No corrected technical or acquisition association has been shown to explain membership. The candidate therefore remains an independent discovery-stage unit."
         }
       ],
       "evidence_requests": []

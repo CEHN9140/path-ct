@@ -90,8 +90,11 @@ def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
     manifest = json.loads(
         (tmp_path / "subtype_review" / "multi_k" / "aggregation_manifest.json").read_text()
     )
-    assert manifest["initial_ks"] == [4]
-    assert manifest["repeats"] == [2]
+    assert manifest["configured_initial_ks"] == [2, 4, 8]
+    assert manifest["configured_repeats"] == [1, 2, 3]
+    assert manifest["included_initial_ks"] == [4]
+    assert manifest["included_repeats"] == [2]
+    assert manifest["included_runs"] == [{"initial_k": 4, "repeat": 2}]
     assert manifest["run_audit"]
     assert len(manifest["run_audit"]) == 9
     assert sum(row["status"] == "included" for row in manifest["run_audit"]) == 1
@@ -99,3 +102,14 @@ def test_aggregation_excludes_unusable_runs_and_records_audit(tmp_path):
     assert manifest["included_run_count"] == 1
     assert manifest["excluded_run_count"] == 8
     assert manifest["usable_runs_by_k"] == {"2": 0, "4": 1, "8": 0}
+
+
+def test_inspect_agent_run_excludes_corrupt_json(tmp_path):
+    from agents.subtype_review.multi_k import inspect_agent_run
+
+    run = tmp_path / "K2" / "repeat1"
+    run.mkdir(parents=True)
+    (run / "run_metadata.json").write_text("{broken", encoding="utf-8")
+    usable, detail = inspect_agent_run(run, "sig")
+    assert not usable
+    assert detail["reason"] == "invalid_run_metadata_json"
