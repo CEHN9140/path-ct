@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import multiprocessing
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -8,11 +7,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agents.subtype_review.graph import build_review_graph, initial_review_state, save_review_outputs
+from agents.subtype_review.run_io import inspect_review_run
+from agents.subtype_review.schemas import RevisionPlan, RouterPlan
 from agents.subtype_review.llm import (
     LLMUsageTracker,
-    build_default_reviser,
-    build_default_router,
     build_default_verifier,
+    build_structured_model,
     review_signature_manifest,
 )
 from agents.subtype_review.runtime_trace import append_runtime_trace, partition_snapshot
@@ -45,13 +45,13 @@ def run_subtype_review(
             usage_tracker=usage_tracker,
             runtime_trace_path=runtime_trace_path,
         ),
-        "router_model": build_default_router(
-            review_config, config_dir,
+        "router_model": build_structured_model(
+            review_config, config_dir, prompt_name="router", schema=RouterPlan, role="router",
             usage_tracker=usage_tracker,
             runtime_trace_path=runtime_trace_path,
         ),
-        "reviser_model": build_default_reviser(
-            review_config, config_dir,
+        "reviser_model": build_structured_model(
+            review_config, config_dir, prompt_name="reviser", schema=RevisionPlan, role="reviser",
             usage_tracker=usage_tracker,
             runtime_trace_path=runtime_trace_path,
         ),
@@ -126,7 +126,7 @@ def run_single_review_job(
         return failure
 
 
-def build_review_input_manifest(
+def build_review_signature(
     *,
     candidate_signature: str,
     patient_states_by_id: Mapping[str, Mapping[str, Any]],
@@ -151,7 +151,7 @@ def build_review_input_manifest(
     if wxs_config.is_file():
         evidence_paths.add(str(wxs_config))
     technical_metadata = sorted(str(path) for path in (Path(output_root) / "ct_qc").rglob("*.json"))
-    return {
+    manifest = {
         "signature_version": 2,
         "candidate_signature": candidate_signature,
         "review_signature": review_signature_manifest(review_config, config_dir),
@@ -174,10 +174,6 @@ def build_review_input_manifest(
             )
         },
     }
-
-
-def build_review_input_signature(**kwargs: Any) -> tuple[str, dict[str, Any]]:
-    manifest = build_review_input_manifest(**kwargs)
     return hash_payload(manifest), manifest
 
 
@@ -185,97 +181,74 @@ def summarize_review_grid(
     *, output_root: str, config: Mapping[str, Any], active_input_signature: str,
 ) -> dict[str, Any]:
     root = Path(output_root) / "subtype_review" / "runs"
-    complete_runs, failed_runs, incomplete_runs, missing_runs, stale_runs, invalid_runs = [], [], [], [], [], []
+    buckets = {name: [] for name in ("complete", "failed", "incomplete", "missing", "stale", "invalid")}
     configured_ks = sorted(set(map(int, config["multi_k"]["initial_ks"])))
     configured_repeats = sorted(set(map(int, config["multi_k"]["repeats"])))
     for initial_k in configured_ks:
         for repeat in configured_repeats:
             run_root = root / f"K{initial_k}" / f"repeat{repeat}"
-            metadata_path = run_root / "run_metadata.json"
-            summary_path = run_root / "final_review_summary.json"
-            sets_path = run_root / "final_subtype_sets.json"
-            record = {"initial_k": initial_k, "repeat": repeat, "run_root": str(run_root)}
-            if not metadata_path.is_file():
-                missing_runs.append({**record, "reason": "missing_run_metadata"}); continue
-            try:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                invalid_runs.append({**record, "reason": "invalid_run_metadata_json"}); continue
-            if not isinstance(metadata, dict):
-                invalid_runs.append({**record, "reason": "invalid_run_metadata_json"}); continue
-            if metadata.get("input_signature") != active_input_signature:
-                stale_runs.append({**record, "input_signature": metadata.get("input_signature")}); continue
-            if metadata.get("status") == "failed":
-                failed_runs.append({**record, "error_type": metadata.get("error_type"), "error_message": metadata.get("error_message")}); continue
-            if not summary_path.is_file() or not sets_path.is_file():
-                incomplete_runs.append({**record, "reason": "missing_run_output"}); continue
-            try:
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                sets = json.loads(sets_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                invalid_runs.append({**record, "reason": "invalid_run_output_json"}); continue
-            if (metadata.get("status") == "complete" and isinstance(summary, dict)
-                    and summary.get("raw_control_status") == "complete"
-                    and summary.get("status") == "review_complete"
-                    and isinstance(sets, list)):
-                complete_runs.append({"initial_k": initial_k, "repeat": repeat})
+            inspection = inspect_review_run(
+                run_root, expected_input_signature=active_input_signature
+            )
+            record = {
+                "initial_k": initial_k, "repeat": repeat,
+                "run_root": str(run_root),
+            }
+            status = inspection["status"]
+            if status == "complete":
+                buckets[status].append(record)
             else:
-                incomplete_runs.append({**record, "reason": "review_not_complete"})
+                buckets[status].append({
+                    **record,
+                    "reason": inspection.get("reason"),
+                    **({"input_signature": inspection.get("input_signature")}
+                       if status == "stale" else {}),
+                    **({"error_type": inspection.get("error_type"),
+                        "error_message": inspection.get("error_message")}
+                       if status == "failed" else {}),
+                })
     return {
         "input_signature": active_input_signature,
         "configured_run_count": len(configured_ks) * len(configured_repeats),
-        "complete_run_count": len(complete_runs),
-        "failed_run_count": len(failed_runs),
-        "incomplete_run_count": len(incomplete_runs),
-        "missing_run_count": len(missing_runs),
-        "stale_run_count": len(stale_runs),
-        "invalid_run_count": len(invalid_runs),
-        "complete_runs": complete_runs,
-        "failed_runs": failed_runs,
-        "incomplete_runs": incomplete_runs,
-        "missing_runs": missing_runs,
-        "stale_runs": stale_runs,
-        "invalid_runs": invalid_runs,
+        "complete_run_count": len(buckets["complete"]),
+        "failed_run_count": len(buckets["failed"]),
+        "incomplete_run_count": len(buckets["incomplete"]),
+        "missing_run_count": len(buckets["missing"]),
+        "stale_run_count": len(buckets["stale"]),
+        "invalid_run_count": len(buckets["invalid"]),
+        "complete_runs": buckets["complete"],
+        "failed_runs": buckets["failed"],
+        "incomplete_runs": buckets["incomplete"],
+        "missing_runs": buckets["missing"],
+        "stale_runs": buckets["stale"],
+        "invalid_runs": buckets["invalid"],
         "usable_runs_by_k": {
-            str(k): sum(row["initial_k"] == k for row in complete_runs)
+            str(k): sum(row["initial_k"] == k for row in buckets["complete"])
             for k in configured_ks
         },
     }
-
 
 def run_review_grid(
     candidate_partitions: Mapping[int, list[dict[str, Any]]],
     patient_states_by_id: Mapping[str, Mapping[str, Any]],
     output_root: str,
     config_dir: str,
-    initial_ks: tuple[int, ...],
-    repeats: tuple[int, ...],
+    requested_pairs: tuple[tuple[int, int], ...],
     candidate_signature: str,
     *,
-    run_pairs: tuple[tuple[int, int], ...] | None = None,
     force: bool = False,
     parallel_runs: int | None = None,
-    input_signature: str | None = None,
-    signature_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(output_root) / "subtype_review" / "runs"
     config_path = Path(config_dir) / "subtype_review.yaml"
     review_config = load_yaml_file(config_path)
-    if input_signature is None or signature_manifest is None:
-        computed_signature, computed_manifest = build_review_input_signature(
-            candidate_signature=candidate_signature,
-            patient_states_by_id=patient_states_by_id,
-            output_root=output_root,
-            config_dir=config_dir,
-        )
-        input_signature = input_signature or computed_signature
-        signature_manifest = signature_manifest or computed_manifest
-    if run_pairs:
-        requested_pairs = tuple(sorted(set((int(k), int(repeat)) for k, repeat in run_pairs)))
-    else:
-        ks = tuple(sorted(set(int(k) for k in initial_ks)))
-        repeat_ids = tuple(sorted(set(int(repeat) for repeat in repeats)))
-        requested_pairs = tuple((k, repeat) for k in ks for repeat in repeat_ids)
+    input_signature, signature_manifest = build_review_signature(
+        candidate_signature=candidate_signature,
+        patient_states_by_id=patient_states_by_id,
+        output_root=output_root,
+        config_dir=config_dir,
+    )
+    requested_pairs = tuple(sorted(set((int(k), int(repeat)) for k, repeat in requested_pairs)))
     if not requested_pairs or any(k not in candidate_partitions for k, _ in requested_pairs):
         raise ValueError("Every requested initial K must have a candidate partition")
     if any(repeat < 1 for _, repeat in requested_pairs):
@@ -287,34 +260,14 @@ def run_review_grid(
     jobs = []
     for k, repeat in requested_pairs:
         run_root = root / f"K{k}" / f"repeat{repeat}"
-        metadata_path = run_root / "run_metadata.json"
-        summary_path = run_root / "final_review_summary.json"
-        sets_path = run_root / "final_subtype_sets.json"
         if run_root.exists():
-            metadata = {}
-            summary = {}
-            if metadata_path.is_file():
-                try:
-                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    metadata = {}
-            if summary_path.is_file():
-                try:
-                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    summary = {}
-            if not isinstance(metadata, dict):
-                metadata = {}
-            if not isinstance(summary, dict):
-                summary = {}
-            if (sets_path.is_file() and metadata.get("input_signature") == input_signature
-                    and metadata.get("status") == "complete"
-                    and summary.get("raw_control_status") == "complete"
-                    and summary.get("status") == "review_complete"):
-                run_summaries.append(summary)
+            inspection = inspect_review_run(
+                run_root, expected_input_signature=input_signature
+            )
+            if inspection["status"] == "complete":
+                run_summaries.append(inspection["summary"])
                 continue
-            if not force and not (metadata.get("input_signature") == input_signature
-                                  and metadata.get("status") == "failed"):
+            if not force and inspection["status"] != "failed":
                 raise FileExistsError(
                     f"Incomplete or stale Agent run exists: {run_root}; pass --force to replace it"
                 )

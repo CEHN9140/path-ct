@@ -18,7 +18,7 @@ def test_file_content_identity_ignores_mtime_and_detects_content(tmp_path):
 
 
 def test_review_input_signature_is_stable_for_same_content_rewrite(tmp_path):
-    from agents.subtype_review.runner import build_review_input_signature
+    from agents.subtype_review.runner import build_review_signature
 
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
@@ -49,9 +49,9 @@ def test_review_input_signature_is_stable_for_same_content_rewrite(tmp_path):
         "output_root": str(output_root),
         "config_dir": str(config_dir),
     }
-    first, _ = build_review_input_signature(**kwargs)
+    first, _ = build_review_signature(**kwargs)
     metadata.write_text(json.dumps({"qc": "success"}), encoding="utf-8")
-    second, _ = build_review_input_signature(**kwargs)
+    second, _ = build_review_signature(**kwargs)
     assert first == second
 
 

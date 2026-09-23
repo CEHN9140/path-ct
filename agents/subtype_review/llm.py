@@ -24,14 +24,6 @@ class LLMOutputLengthError(RuntimeError):
     pass
 
 
-def structured_role(schema: type) -> str:
-    return {
-        RouterPlan: "router",
-        RevisionPlan: "reviser",
-        EvidenceReportBatch: "verifier_audit",
-    }.get(schema, "structured")
-
-
 class LLMUsageTracker:
     def __init__(self, output_path: str | Path | None = None):
         self.api_calls = 0
@@ -213,9 +205,11 @@ class JsonStructuredModel:
         system_prompt: str,
         usage_tracker: LLMUsageTracker | None = None,
         runtime_trace_path: str | Path | None = None,
+        role: str = "structured",
     ):
         self.config = dict(llm_config)
         self.schema = schema
+        self.role = role
         self.runtime_trace_path = Path(runtime_trace_path) if runtime_trace_path is not None else None
         allowed_fields = ", ".join(sorted(self.schema.model_fields))
         self.prompt = (
@@ -249,8 +243,6 @@ class JsonStructuredModel:
         ]
         messages = list(base_messages)
         max_retries = int(self.config.get("structured_output_retries", 1))
-        role = structured_role(self.schema)
-
         for attempt in range(max_retries + 1):
             request = {
                 "model": str(self.config["model_name"]),
@@ -263,7 +255,7 @@ class JsonStructuredModel:
             if extra_body:
                 request["extra_body"] = extra_body
             if self.usage_tracker:
-                request_role = role if attempt == 0 else f"{role}_schema_repair"
+                request_role = self.role if attempt == 0 else f"{self.role}_schema_repair"
                 self.usage_tracker.before_request(
                     role=request_role,
                     model=str(self.config["model_name"]),
@@ -277,7 +269,7 @@ class JsonStructuredModel:
                     raise LLMOutputLengthError("LLM output reached max_new_tokens before completing JSON")
                 append_runtime_trace(
                     self.runtime_trace_path,
-                    node=role,
+                    node=self.role,
                     event="structured_output_truncated",
                     round_id=payload.get("round"),
                     payload={"schema": self.schema.__name__, "attempt": attempt + 1},
@@ -305,7 +297,7 @@ class JsonStructuredModel:
                 )
                 append_runtime_trace(
                     self.runtime_trace_path,
-                    node=role,
+                    node=self.role,
                     event="structured_output_invalid",
                     round_id=payload.get("round"),
                     payload={
@@ -347,7 +339,7 @@ class JsonStructuredModel:
             if attempt > 0:
                 append_runtime_trace(
                     self.runtime_trace_path,
-                    node=role,
+                    node=self.role,
                     event="structured_output_repaired",
                     round_id=payload.get("round"),
                     payload={"schema": self.schema.__name__, "attempt": attempt + 1},
@@ -511,7 +503,8 @@ def build_default_verifier(
     return VerifierChatModel(
         ChatOpenAI(**model_kwargs),
         JsonStructuredModel(
-            cfg, EvidenceReportBatch, prompt, usage_tracker,
+            cfg, EvidenceReportBatch, prompt,
+            role="verifier_audit", usage_tracker=usage_tracker,
             runtime_trace_path=runtime_trace_path,
         ),
         prompt, tools, usage_tracker, runtime_trace_path,
@@ -519,32 +512,20 @@ def build_default_verifier(
     )
 
 
-def build_default_router(
+def build_structured_model(
     config: dict[str, Any],
     config_dir: str | Path,
     *,
+    prompt_name: str,
+    schema: type,
+    role: str,
     usage_tracker: LLMUsageTracker | None = None,
     runtime_trace_path: str | Path | None = None,
 ) -> Any:
     cfg = dict(config["llm"])
-    prompt = (prompt_dir(config, config_dir) / "router.md").read_text(encoding="utf-8")
+    prompt = (prompt_dir(config, config_dir) / f"{prompt_name}.md").read_text(encoding="utf-8")
     return JsonStructuredModel(
-        cfg, RouterPlan, prompt, usage_tracker,
-        runtime_trace_path=runtime_trace_path,
-    )
-
-
-def build_default_reviser(
-    config: dict[str, Any],
-    config_dir: str | Path,
-    *,
-    usage_tracker: LLMUsageTracker | None = None,
-    runtime_trace_path: str | Path | None = None,
-) -> Any:
-    cfg = dict(config["llm"])
-    prompt = (prompt_dir(config, config_dir) / "reviser.md").read_text(encoding="utf-8")
-    return JsonStructuredModel(
-        cfg, RevisionPlan, prompt, usage_tracker,
+        cfg, schema, prompt, role=role, usage_tracker=usage_tracker,
         runtime_trace_path=runtime_trace_path,
     )
 

@@ -87,16 +87,13 @@ def test_main_uses_configured_process_workers_for_successful_cases(tmp_path, mon
             "runs": [],
             "run_root": "runs",
             "input_signature": "input-signature",
+            "signature_manifest": {},
+            "requested_pairs": [{"initial_k": 2, "repeat": 1}],
             "requested_run_count": 1,
             "complete_run_count": 0,
             "failed_runs": [],
             "incomplete_runs": [],
         },
-    )
-    monkeypatch.setattr(
-        main,
-        "build_review_input_signature",
-        lambda **_kwargs: ("input-signature", {}),
     )
     monkeypatch.setattr(main, "write_json", lambda *_args: None)
 
@@ -106,7 +103,9 @@ def test_main_uses_configured_process_workers_for_successful_cases(tmp_path, mon
             config_dir=str(config_dir),
             initial_ks=(2,),
             repeats=(1,),
+            run_pairs=None,
             force=False,
+            parallel_runs=None,
         ),
         [
             {"Case_ID": "A", "qc": "success"},

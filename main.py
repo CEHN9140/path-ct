@@ -18,7 +18,6 @@ from agents.evidence_builder import (
 from agents.inventory import inventory_case
 from agents.quality_control import ct_qc, wsi_qc
 from agents.subtype_review.runner import (
-    build_review_input_signature,
     run_review_grid,
     summarize_review_grid,
 )
@@ -174,37 +173,21 @@ def run_pipeline(
     review_config = load_yaml_file(Path(args.config_dir) / "subtype_review.yaml")
     configured_ks = sorted(set(map(int, review_config["multi_k"]["initial_ks"])))
     configured_repeats = sorted(set(map(int, review_config["multi_k"]["repeats"])))
-    active_input_signature, signature_manifest = build_review_input_signature(
-        candidate_signature=candidate_output["candidate_signature"],
-        patient_states_by_id=patient_states_by_id,
-        output_root=str(args.output_root),
-        config_dir=str(args.config_dir),
-    )
-    active_experiment = {
-        "signature_version": 2,
-        "input_signature": active_input_signature,
-        "candidate_signature": candidate_output["candidate_signature"],
-        "configured_initial_ks": configured_ks,
-        "configured_repeats": configured_repeats,
-        "signature_manifest": signature_manifest,
-    }
-    write_json(
-        Path(args.output_root) / "subtype_review" / "active_review_experiment.json",
-        active_experiment,
-    )
+    if args.run_pairs:
+        requested_pairs = tuple(sorted(set(args.run_pairs)))
+    else:
+        requested_pairs = tuple(
+            (k, repeat) for k in args.initial_ks for repeat in args.repeats
+        )
     review_grid = run_review_grid(
         candidate_output["candidate_partitions"],
         patient_states_by_id,
         str(args.output_root),
         str(args.config_dir),
-        tuple(args.initial_ks),
-        tuple(args.repeats),
+        requested_pairs,
         candidate_output["candidate_signature"],
-        run_pairs=getattr(args, "run_pairs", None),
         force=args.force,
-        parallel_runs=getattr(args, "parallel_runs", None),
-        input_signature=active_input_signature,
-        signature_manifest=signature_manifest,
+        parallel_runs=args.parallel_runs,
     )
     print(
         f"[subtype_review] completed={review_grid['complete_run_count']}/"
@@ -213,19 +196,25 @@ def run_pipeline(
         f"incomplete={len(review_grid['incomplete_runs'])}",
         flush=True,
     )
+    write_json(
+        Path(args.output_root) / "subtype_review" / "active_review_experiment.json",
+        {
+            "signature_version": 2,
+            "input_signature": review_grid["input_signature"],
+            "candidate_signature": candidate_output["candidate_signature"],
+            "configured_initial_ks": configured_ks,
+            "configured_repeats": configured_repeats,
+            "signature_manifest": review_grid["signature_manifest"],
+        },
+    )
     grid_summary = summarize_review_grid(
         output_root=args.output_root,
         config=review_config,
         active_input_signature=review_grid["input_signature"],
     )
-    requested_pairs = review_grid.get(
-        "requested_pairs",
-        [{"initial_k": k, "repeat": repeat}
-         for k in args.initial_ks for repeat in args.repeats],
-    )
     grid_summary["last_invocation"] = {
-        "requested_runs": requested_pairs,
-        "parallel_runs": getattr(args, "parallel_runs", None),
+        "requested_runs": review_grid["requested_pairs"],
+        "parallel_runs": args.parallel_runs,
     }
     grid_summary["agent_run_count"] = grid_summary["complete_run_count"]
     grid_summary["agent_runs_root"] = review_grid["run_root"]

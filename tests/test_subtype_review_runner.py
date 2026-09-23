@@ -28,8 +28,7 @@ def test_runner_only_reads_workflow_budget(monkeypatch):
         return build
 
     monkeypatch.setattr(runner, "build_default_verifier", builder("verifier"))
-    monkeypatch.setattr(runner, "build_default_reviser", builder("reviser"))
-    monkeypatch.setattr(runner, "build_default_router", builder("router"))
+    monkeypatch.setattr(runner, "build_structured_model", builder("structured"))
 
     class Graph:
         def invoke(self, state, context):
@@ -44,7 +43,7 @@ def test_runner_only_reads_workflow_budget(monkeypatch):
         "/data/output/run",
     )
     assert state["control"]["max_rounds"] == 10
-    assert {name for name, _ in calls} == {"verifier", "router", "reviser"}
+    assert [name for name, _ in calls] == ["verifier", "structured", "structured"]
     assert len({id(tracker) for _, tracker in calls}) == 1
 
 

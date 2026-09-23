@@ -14,8 +14,7 @@ from agents.subtype_review.llm import (
     VerifierChatModel,
     api_extra_body,
     build_default_verifier,
-    build_default_reviser,
-    build_default_router,
+    build_structured_model,
 )
 from agents.subtype_review.schemas import EvidenceReportBatch, RevisionPlan, RouterPlan
 from utils.llm_utils import load_yaml_file
@@ -355,8 +354,14 @@ def test_default_agent_prompts_use_new_contracts(monkeypatch):
         lambda *args, **kwargs: prompts.append((args[1], args[2])) or args[2],
     )
     config = {"llm": {"model_name": "test"}, "prompt_dir": "agents/subtype_review/prompts"}
-    build_default_router(config, "/data/qijun/path-ct/configs")
-    build_default_reviser(config, "/data/qijun/path-ct/configs")
+    build_structured_model(
+        config, "/data/qijun/path-ct/configs",
+        prompt_name="router", schema=RouterPlan, role="router",
+    )
+    build_structured_model(
+        config, "/data/qijun/path-ct/configs",
+        prompt_name="reviser", schema=RevisionPlan, role="reviser",
+    )
     assert prompts[0][0] is RouterPlan
     assert prompts[1][0] is RevisionPlan
     assert "Router" in prompts[0][1]

@@ -139,8 +139,7 @@ prompt_dir: {Path(__file__).resolve().parents[1] / 'agents/subtype_review/prompt
         {"P1": {}, "P2": {}},
         str(tmp_path / "output"),
         str(config_dir),
-        (2,),
-        (1,),
+        ((2, 1),),
         "candidate-signature",
     )
 
@@ -184,7 +183,7 @@ def test_review_grid_parallel_and_serial_have_same_run_set(tmp_path, monkeypatch
     monkeypatch.setattr(runner, "run_single_review_job", fake_job)
     partitions = {k: [{"set_id": f"K{k}_C1", "member_ids": ["P1"]}] for k in (2, 4, 8)}
     common = (partitions, {"P1": {}}, str(tmp_path / "output"), str(config_dir),
-              (2, 4, 8), (1,), "candidate-signature")
+              ((2, 1), (4, 1), (8, 1)), "candidate-signature")
     serial = runner.run_review_grid(*common, parallel_runs=1)
 
     class Future:
@@ -201,7 +200,7 @@ def test_review_grid_parallel_and_serial_have_same_run_set(tmp_path, monkeypatch
     monkeypatch.setattr(runner, "as_completed", lambda futures: futures)
     parallel = runner.run_review_grid(
         partitions, {"P1": {}}, str(tmp_path / "parallel_output"), str(config_dir),
-        (2, 4, 8), (1,), "candidate-signature", parallel_runs=3,
+        ((2, 1), (4, 1), (8, 1)), "candidate-signature", parallel_runs=3,
     )
     serial_runs = {
         path.relative_to(Path(serial["run_root"])).as_posix()
@@ -257,8 +256,7 @@ def test_review_grid_explicit_pairs_do_not_form_cartesian_product(tmp_path, monk
     partitions = {k: [{"set_id": f"K{k}_C1", "member_ids": ["P1"]}] for k in (2, 4, 7)}
     result = runner.run_review_grid(
         partitions, {"P1": {}}, str(tmp_path / "output"), str(config_dir),
-        (2, 4, 7), (1, 2, 3), "candidate-signature",
-        run_pairs=((4, 2), (7, 3)),
+        ((4, 2), (7, 3)), "candidate-signature",
     )
     assert result["requested_pairs"] == [
         {"initial_k": 4, "repeat": 2}, {"initial_k": 7, "repeat": 3}
@@ -306,7 +304,7 @@ def test_force_replaces_corrupt_existing_run(tmp_path, monkeypatch):
     result = runner.run_review_grid(
         {2: [{"set_id": "K2_C1", "member_ids": ["P1"]}]},
         {"P1": {}}, str(tmp_path / "output"), str(config_dir),
-        (2,), (1,), "candidate-signature", force=True,
+        ((2, 1),), "candidate-signature", force=True,
     )
     assert result["complete_run_count"] == 1
     assert json.loads((run_root / "run_metadata.json").read_text())["status"] == "complete"
@@ -343,7 +341,7 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
     output_root = str(tmp_path / "output")
     result = runner.run_review_grid(
         partitions, {"P1": {}}, output_root, str(config_dir),
-        (2, 3), (1, 2), "candidate-signature",
+        ((2, 1), (2, 2), (3, 1), (3, 2)), "candidate-signature",
     )
     assert result["requested_run_count"] == 4
     assert result["complete_run_count"] == 4
@@ -352,7 +350,7 @@ def test_full_review_grid_requires_every_accepted_set_artifact(tmp_path, monkeyp
     (Path(result["run_root"]) / "K3" / "repeat2" / "final_subtype_sets.json").unlink()
     partial = runner.run_review_grid(
         partitions, {"P1": {}}, output_root, str(config_dir),
-        (2,), (1,), "candidate-signature",
+        ((2, 1),), "candidate-signature",
     )
     assert partial["requested_run_count"] == 1
     assert partial["complete_run_count"] == 1
@@ -394,7 +392,7 @@ def test_changing_only_configured_grid_reuses_existing_agent_run(tmp_path, monke
     monkeypatch.setattr(runner, "save_review_outputs", save_summary)
     args = (
         {2: [{"set_id": "K2_C1", "member_ids": ["P1"]}]},
-        {"P1": {}}, str(tmp_path / "output"), str(config_dir), (2,), (1,), "candidate-signature",
+        {"P1": {}}, str(tmp_path / "output"), str(config_dir), ((2, 1),), "candidate-signature",
     )
     runner.run_review_grid(*args)
     write_config("[1, 2]")

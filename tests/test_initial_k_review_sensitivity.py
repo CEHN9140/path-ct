@@ -8,9 +8,10 @@ import pytest
 from agents.subtype_review.graph import initial_review_state
 from agents.subtype_review.llm import (
     LLMUsageTracker,
-    build_default_router,
+    build_structured_model,
 )
 from agents.subtype_review.tools import TOOL_REGISTRY
+from agents.subtype_review.schemas import RouterPlan
 from scripts_2026_8_31.experiment_initial_k_review_sensitivity import (
     labels_to_candidate_sets,
     load_patient_states,
@@ -115,7 +116,10 @@ def test_router_default_does_not_force_self_review(tmp_path):
         },
         "prompt_dir": "agents/subtype_review/prompts",
     }
-    default = build_default_router(config, "/data/qijun/path-ct/configs")
+    default = build_structured_model(
+        config, "/data/qijun/path-ct/configs",
+        prompt_name="router", schema=RouterPlan, role="router",
+    )
     assert not hasattr(default, "draft_model")
 
 
