@@ -45,6 +45,8 @@ Absence of a supported split or merge is neutral evidence. `No split`, `no merge
 
 Acceptance requires positive evidence that the candidate is independently represented, not merely the absence of a supported revision. Such evidence may come from defensible exact-set membership or from one or more decision-relevant pair boundaries that are positively supported by the available boundary evidence. If exact-set membership is broadly unsupported, acceptance requires affirmative boundary evidence of independence; interpretable biology plus the absence of a better split or merge is insufficient.
 
+Affirmative boundary evidence requires the pair-level evidence synthesis to support preservation of the current boundary. An isolated positive modality, weak partial separation, or merely non-zero structural agreement is insufficient.
+
 **Merge** is a provisional comparative revision. Compare the current `A | B` representation with the alternative `A∪B`. Require exact-pair `boundary_representation` and exact-pair `boundary_structure`.
 
 A weak or conflicting current boundary, single-cluster-dominated union, substantial cross-boundary connectivity, and weak independent representation of the current units can together support merging for re-review. Biological differences may oppose merge, but RNA or WXS evidence is not a mechanical prerequisite.
@@ -78,6 +80,10 @@ Request evidence only when an unresolved scientific question is decision-relevan
 When biological identity is already substantively resolved by RNA or WXS and is compatible with the rest of the evidence, do not call the complementary source merely for symmetry.
 
 When strong biology materially conflicts with weak membership or structural evidence, complementary biology is decision-relevant if it could distinguish a reproducible biological subtype from a modality-specific phenotype that does not justify the proposed multimodal subtype.
+
+When a candidate-specific technical association remains supported after correction and could plausibly explain candidate membership, request available evidence that tests whether the technical factor is reflected in the relevant patient geometry before terminal acceptance.
+
+Absence of acquired confounder evidence is not evidence that no technical explanation exists. Do not state that no technical explanation is present unless the available evidence supports that conclusion.
 
 Pair review has two stages: `boundary_representation`, then `boundary_structure` when the first stage leaves merge scientifically plausible.
 

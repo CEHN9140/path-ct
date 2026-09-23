@@ -28,7 +28,7 @@
             "K3_C0001"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0001 show a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful subtype?"
+          "question": "Does K3_C0001 have a substantively interpretable transcriptomic or mutation phenotype that distinguishes it as a coherent biological subtype?"
         },
         {
           "dimension": "biological_support",
@@ -37,7 +37,7 @@
             "K3_C0002"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0002 show a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful subtype?"
+          "question": "Does K3_C0002 have a substantively interpretable transcriptomic or mutation phenotype that distinguishes it as a coherent biological subtype?"
         },
         {
           "dimension": "biological_support",
@@ -46,7 +46,7 @@
             "K3_C0003"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K3_C0003 show a coherent, interpretable transcriptomic phenotype that distinguishes it as a biologically meaningful subtype?"
+          "question": "Does K3_C0003 have a substantively interpretable transcriptomic or mutation phenotype that distinguishes it as a coherent biological subtype?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -56,7 +56,27 @@
             "K3_C0002"
           ],
           "focus": "boundary_representation",
-          "question": "Is the boundary between K3_C0001 and K3_C0002 positively represented in patient geometries, supporting their independence rather than a merge?"
+          "question": "Is the boundary between K3_C0001 and K3_C0002 positively represented in patient geometries, or does it show substantial cross-boundary connectivity consistent with a merge?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0002",
+            "K3_C0003"
+          ],
+          "focus": "boundary_representation",
+          "question": "Is the boundary between K3_C0002 and K3_C0003 positively represented in patient geometries, or does it show substantial cross-boundary connectivity consistent with a merge?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0001",
+            "K3_C0003"
+          ],
+          "focus": "boundary_representation",
+          "question": "Is the boundary between K3_C0001 and K3_C0003 positively represented in patient geometries, or does it show substantial cross-boundary connectivity consistent with a merge?"
         }
       ]
     }
@@ -75,7 +95,27 @@
             "K3_C0002"
           ],
           "focus": "boundary_structure",
-          "question": "Does the K3_C0001–K3_C0002 boundary remain structurally supported (distinct clusters with low cross-boundary connectivity) or is the union better explained as a single cluster, given the weak and conflicting native-geometry representation?"
+          "question": "Does the exact-pair boundary structure for K3_C0001 vs K3_C0002 support preserving two units, given that boundary_representation was weak across all four native geometries?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0001",
+            "K3_C0003"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the exact-pair boundary structure for K3_C0001 vs K3_C0003 support preserving two units, given the mixed boundary_representation with only modest RNA/WSI separation?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "pair",
+          "target_ids": [
+            "K3_C0002",
+            "K3_C0003"
+          ],
+          "focus": "boundary_structure",
+          "question": "Does the exact-pair boundary structure for K3_C0002 vs K3_C0003 support preserving two units, given weak-to-minimal boundary_representation across all four native geometries?"
         }
       ]
     }
@@ -88,23 +128,37 @@
       "evidence_requests": [
         {
           "dimension": "cross_modal_consistency",
-          "scope": "pair",
+          "scope": "set",
           "target_ids": [
-            "K3_C0002",
-            "K3_C0003"
+            "K3_C0001"
           ],
-          "focus": "boundary_representation",
-          "question": "Is the K3_C0002–K3_C0003 boundary represented consistently across the native patient geometries, or is it weak/conflicting as seen for the K3_C0001–K3_C0002 boundary?"
+          "focus": "internal_subdivision",
+          "question": "Does K3_C0001 show feasible internal multi-cluster structure in native patient geometries that would support a meaningful subdivision rather than a single coherent unit?"
         },
         {
           "dimension": "cross_modal_consistency",
-          "scope": "pair",
+          "scope": "set",
           "target_ids": [
-            "K3_C0001",
+            "K3_C0002"
+          ],
+          "focus": "internal_subdivision",
+          "question": "Does K3_C0002 show feasible internal multi-cluster structure in native patient geometries that would support a meaningful subdivision rather than a single coherent unit?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
             "K3_C0003"
           ],
-          "focus": "boundary_representation",
-          "question": "Is the K3_C0001–K3_C0003 boundary represented consistently across the native patient geometries, or is it weak/conflicting?"
+          "focus": "internal_subdivision",
+          "question": "Does K3_C0003 show feasible internal multi-cluster structure in native patient geometries that would support a meaningful subdivision rather than a single coherent unit?"
+        },
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "partition_confounder_association",
+          "question": "Is there a measured technical or acquisition factor associated with the partition that could plausibly explain the candidate memberships?"
         }
       ]
     }
@@ -117,23 +171,57 @@
       "evidence_requests": [
         {
           "dimension": "cross_modal_consistency",
-          "scope": "pair",
+          "scope": "set",
           "target_ids": [
-            "K3_C0001",
-            "K3_C0003"
+            "K3_C0001"
           ],
-          "focus": "boundary_structure",
-          "question": "Does the union structure of K3_C0001 and K3_C0003 show a single-cluster-dominated eigengap (merge-compatible) or feasible multi-cluster structure, given their weak and conflicting boundary representation?"
+          "focus": "membership_representation",
+          "question": "Does K3_C0001's exact-set membership show positive within-versus-between geometric representation in the native patient geometries, supporting its independent retention?"
         },
         {
           "dimension": "cross_modal_consistency",
-          "scope": "pair",
+          "scope": "set",
           "target_ids": [
-            "K3_C0002",
+            "K3_C0002"
+          ],
+          "focus": "membership_representation",
+          "question": "Does K3_C0002's exact-set membership show positive within-versus-between geometric representation in the native patient geometries, supporting its independent retention?"
+        },
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "set",
+          "target_ids": [
             "K3_C0003"
           ],
-          "focus": "boundary_structure",
-          "question": "Does the union structure of K3_C0002 and K3_C0003 show a single-cluster-dominated eigengap (merge-compatible) or feasible multi-cluster structure, given their weak and conflicting boundary representation?"
+          "focus": "membership_representation",
+          "question": "Does K3_C0003's exact-set membership show positive within-versus-between geometric representation in the native patient geometries, supporting its independent retention?"
+        },
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0001"
+          ],
+          "focus": "candidate_specific_confounder_association",
+          "question": "Is the partition-wide technical/acquisition association (site, CT manufacturer, scanner, kernel, phase, slice thickness, z-spacing) reflected as a candidate-specific association for K3_C0001 that could plausibly explain its membership?"
+        },
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0002"
+          ],
+          "focus": "candidate_specific_confounder_association",
+          "question": "Is the partition-wide technical/acquisition association reflected as a candidate-specific association for K3_C0002 that could plausibly explain its membership?"
+        },
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set",
+          "target_ids": [
+            "K3_C0003"
+          ],
+          "focus": "candidate_specific_confounder_association",
+          "question": "Is the partition-wide technical/acquisition association reflected as a candidate-specific association for K3_C0003 that could plausibly explain its membership?"
         }
       ]
     }
@@ -145,31 +233,18 @@
       "actions": [],
       "evidence_requests": [
         {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0001"
-          ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0001 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent unit?"
+          "dimension": "confounder_exclusion",
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "partition_factor_geometry_association",
+          "question": "Do the partition-wide technical/acquisition/site factors (tissue source site, scanner model, manufacturer, reconstruction kernel, CT phase, slice thickness, z-spacing) that are significantly associated with the partition remain reflected in the patient geometry, i.e., is the partition structure explained by these measured technical factors rather than by biology?"
         },
         {
           "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0002"
-          ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0002 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent unit?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0003"
-          ],
-          "focus": "internal_subdivision",
-          "question": "Does K3_C0003 show a feasible internal subdivision (k>=2) in native patient geometries, or is it a single coherent unit?"
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "patient_geometry_concordance",
+          "question": "Do the native patient geometries (CT, WSI, RNA, WXS) show concordant partition-level structure that corroborates the current three-set partition, given that no native patient-geometry results were available in this round?"
         }
       ]
     }
@@ -181,116 +256,37 @@
       "actions": [],
       "evidence_requests": [
         {
-          "dimension": "confounder_exclusion",
-          "scope": "partition",
-          "target_ids": [],
-          "focus": "partition_confounder_association",
-          "question": "Do measured technical or acquisition factors (batch, tissue source site, or platform) associate with the partition, potentially explaining the candidate boundaries?"
-        },
-        {
-          "dimension": "confounder_exclusion",
+          "dimension": "biological_support",
           "scope": "set",
           "target_ids": [
             "K3_C0001"
           ],
-          "focus": "candidate_specific_confounder_association",
-          "question": "Is K3_C0001's membership materially explained by a measured technical or acquisition factor rather than a biological subtype?"
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence provide an independent, interpretable biological identity for K3_C0001 that is compatible with its immune/inflammatory transcriptomic phenotype, or does it reveal a modality-specific signal that does not corroborate the candidate?"
         },
         {
-          "dimension": "confounder_exclusion",
+          "dimension": "biological_support",
           "scope": "set",
           "target_ids": [
             "K3_C0002"
           ],
-          "focus": "candidate_specific_confounder_association",
-          "question": "Is K3_C0002's membership materially explained by a measured technical or acquisition factor rather than a biological subtype?"
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence provide an independent, interpretable biological identity for K3_C0002 that is compatible with its metabolic/oxidative transcriptomic phenotype, or does it reveal a modality-specific signal that does not corroborate the candidate?"
         },
         {
-          "dimension": "confounder_exclusion",
+          "dimension": "biological_support",
           "scope": "set",
           "target_ids": [
             "K3_C0003"
           ],
-          "focus": "candidate_specific_confounder_association",
-          "question": "Is K3_C0003's membership materially explained by a measured technical or acquisition factor rather than a biological subtype?"
+          "focus": "mutation_phenotype",
+          "question": "Does WXS mutation-phenotype evidence provide an independent, interpretable biological identity for K3_C0003 that is compatible with its immune-suppressed transcriptomic phenotype, or does it reveal a modality-specific signal that does not corroborate the candidate?"
         }
       ]
     }
   },
   {
     "round": 8,
-    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
-    "router_plan": {
-      "actions": [],
-      "evidence_requests": [
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0001"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0001 show coherent, positively supported exact-set membership representation across native patient geometries, given that its pair boundaries are weak and its candidate-specific confounder associations remain materially supported?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0002"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0002 show coherent, positively supported exact-set membership representation across native patient geometries, given that its pair boundaries are weak and its candidate-specific confounder associations remain materially supported?"
-        },
-        {
-          "dimension": "cross_modal_consistency",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0003"
-          ],
-          "focus": "membership_representation",
-          "question": "Does K3_C0003 show coherent, positively supported exact-set membership representation across native patient geometries, given that its pair boundaries are weak and its candidate-specific confounder associations remain materially supported?"
-        }
-      ]
-    }
-  },
-  {
-    "round": 9,
-    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
-    "router_plan": {
-      "actions": [],
-      "evidence_requests": [
-        {
-          "dimension": "biological_support",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0001"
-          ],
-          "focus": "mutation_phenotype",
-          "question": "Does WXS mutation phenotype provide an independent, interpretable biological identity for K3_C0001 that is compatible with its immune/inflammatory transcriptomic phenotype, or does it suggest the RNA signal is a modality-specific phenotype?"
-        },
-        {
-          "dimension": "biological_support",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0002"
-          ],
-          "focus": "mutation_phenotype",
-          "question": "Does WXS mutation phenotype provide an independent, interpretable biological identity for K3_C0002 that is compatible with its metabolic/oxidative transcriptomic phenotype, or does it suggest the RNA signal is a modality-specific phenotype?"
-        },
-        {
-          "dimension": "biological_support",
-          "scope": "set",
-          "target_ids": [
-            "K3_C0003"
-          ],
-          "focus": "mutation_phenotype",
-          "question": "Does WXS mutation phenotype provide an independent, interpretable biological identity for K3_C0003 that is compatible with its reduced-immune/TGF-beta-Wnt transcriptomic phenotype, or does it suggest the RNA signal is a modality-specific phenotype?"
-        }
-      ]
-    }
-  },
-  {
-    "round": 10,
     "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-5081\",\"TCGA-B0-5702\",\"TCGA-B0-5709\",\"TCGA-B8-5551\",\"TCGA-BP-4164\",\"TCGA-BP-4167\",\"TCGA-BP-4960\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4988\",\"TCGA-BP-4992\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-5985\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K3_C0001\"},{\"member_ids\":[\"TCGA-B0-4821\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5706\",\"TCGA-B0-5712\",\"TCGA-B8-4148\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-4622\",\"TCGA-B8-5158\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5164\",\"TCGA-B8-5165\",\"TCGA-B8-5546\",\"TCGA-B8-5549\",\"TCGA-B8-5550\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4977\",\"TCGA-BP-4986\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5174\",\"TCGA-BP-5190\",\"TCGA-BP-5196\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5451\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5984\",\"TCGA-CZ-5988\"],\"set_id\":\"K3_C0002\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-BP-4965\",\"TCGA-BP-4976\",\"TCGA-BP-4982\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CZ-4859\"],\"set_id\":\"K3_C0003\"}]",
     "router_plan": {
       "actions": [
@@ -311,7 +307,7 @@
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:ee6f87ccd2",
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:1d912c7fc0"
           ],
-          "reason": "K3_C0001 has a substantively interpretable biological identity: a coherent immune/interferon-enriched transcriptomic phenotype (allograft rejection NES 2.61, IFN-gamma 2.28, IFN-alpha 2.17, IL6/JAK/STAT3 2.13, FDR q=0.001) with a BAP1-enriched mutation profile (OR 7.875, q_driver=0.0181). Its independence is positively supported by the K3_C0001–K3_C0003 boundary, which shows a strong within-versus-between affinity contrast (0.622 vs 0.217), high agreement with an independent two-way spectral partition (ARI 0.930), and a two-cluster-leaning union eigengap (candidate_k=2), coherent structural evidence for preserving the boundary. The K3_C0001–K3_C0002 boundary is weaker and conflicting (WXS near-zero separation; union candidate_k=1, cut 0.657), but the K3_C0001–K3_C0003 boundary provides the affirmative independence evidence required. Internal-subdivision screening shows no strong finer-granularity signal (leading eigengap 0.872 at k=1; feasible splits show weak native-view separation and high cut). Candidate-specific confounder associations (tissue_source_site V 0.588; ct_scanner_model, ct_slice_thickness, ct_z_spacing significant) remain a plausible alternative explanation, but they are association-only, not persistence-after-adjustment, and do not outweigh the coherent biological identity plus the positively supported K3_C0001–K3_C0003 boundary."
+          "reason": "K3_C0001 has a substantively interpretable biological identity from two complementary sources: RNA enrichment of immune/interferon programs (allograft rejection NES 2.61, IFN-gamma 2.28, IFN-alpha 2.17, FDR q=0.001) and WXS BAP1 mutation enrichment (OR 7.875, q_driver=0.0181). Its boundary with K3_C0003 is affirmatively supported: structural diagnostics show high spectral ARI 0.930, within-side affinity 0.622 vs between-side 0.217, moderate normalized-cut 0.532, and a union two-cluster resolution (candidate_k=2) aligned with the current two-way structure, with modest RNA (0.173) and WSI (0.150) separation. Internal subdivision is not supported (leading eigengap 0.872, screen_candidate_k=1). The candidate-specific confounder association (site V 0.588, scanner model 0.346) is a partition-wide technical concern that does not, on the available evidence, specifically limit this candidate's membership representation, which is anchored by the supported K3_C0001–K3_C0003 boundary."
         },
         {
           "action": "accept",
@@ -330,7 +326,7 @@
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:ee6f87ccd2",
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:d8adc0a39b"
           ],
-          "reason": "K3_C0002 has a substantively interpretable biological identity: a coherent metabolic/oxidative transcriptomic phenotype (protein secretion NES 2.91, oxidative phosphorylation 2.87, fatty-acid metabolism 2.33, adipogenesis 2.11, mTORC1 2.01, FDR q=0.001) with a coherent mutation profile showing depletion of PBRM1 (OR 0.219, q_driver=0.0143) and VHL (OR 0.271, q_driver=0.0199). Its independence is positively supported by the K3_C0001–K3_C0003 boundary evidence, which establishes that K3_C0001 and K3_C0003 are distinct units and thereby leaves K3_C0002 as a separate third unit; the K3_C0001–K3_C0003 pair shows strong affinity contrast (0.622 vs 0.217), ARI 0.930, and a two-cluster-leaning union eigengap. The K3_C0002–K3_C0003 boundary is weak and conflicting (WSI majority-negative with negative median; union candidate_k=1, cut 0.592) and the K3_C0001–K3_C0002 boundary is also weak (WXS near-zero; union candidate_k=1), so K3_C0002's own boundaries are not strongly supportive; however, its exact-set membership is not broadly unsupported, and the partition-level structural diagnostics show within-set affinities (0.51–0.68) consistently higher than nearest between-set affinities (0.22–0.25). Internal-subdivision screening shows no strong finer-granularity signal (leading eigengap 0.705 at k=1; the two-child split has the strongest consensus separation but weak native-view representation). Candidate-specific confounder associations are broad (tissue_source_site, ct_manufacturer, ct_scanner_model, ct_reconstruction_kernel, ct_slice_thickness, ct_z_spacing all significant), which is a material concern, but these are association-only without persistence-after-adjustment and do not outweigh the coherent biological identity combined with the positively supported separation of the neighboring units."
+          "reason": "K3_C0002 has a coherent, directionally distinct biological identity from two complementary sources: RNA metabolic/oxidative programs (protein secretion NES 2.91, OXPHOS 2.87, fatty-acid metabolism 2.33, FDR q=0.001) with immune down-regulation, and WXS depletion of PBRM1 (OR 0.219, q_driver=0.0143) and VHL (OR 0.271, q_driver=0.0199). Its boundaries with both neighbors are weak: K3_C0001–K3_C0002 shows weak native separation (CT 0.121, WSI 0.085, RNA 0.057, WXS 0.017) and a single-cluster-dominated union (candidate_k=1) with high normalized-cut 0.657; K3_C0002–K3_C0003 shows weak-to-minimal separation (CT 0.060, WXS 0.044, WSI 0.043, RNA 0.041) and a single-cluster-dominated union (candidate_k=1). However, the candidate-specific confounder association is the broadest of the three sets (site V 0.586, scanner model 0.513, manufacturer 0.481, kernel 0.448, CT phase 0.341, z-spacing 0.263, slice thickness 0.232), and the available evidence does not establish that this technical/acquisition explanation is reflected in the relevant patient geometry or is limited. Because a plausible technical explanation for this candidate's membership remains materially supported and unresolved, terminal acceptance is not warranted on the current evidence."
         },
         {
           "action": "accept",
@@ -349,7 +345,7 @@
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:pair:c8b5e3ff3c",
             "ER:c222463107da:cross_modal_consistency:structural_diagnostics:set:c3d03e2c9e"
           ],
-          "reason": "K3_C0003 has a substantively interpretable biological identity: a coherent transcriptomic phenotype with down-direction immune/metabolic programs (allograft rejection NES -2.10, IL6/JAK/STAT3 -2.04, IFN-alpha -1.98, IFN-gamma -1.91, oxidative phosphorylation -1.88, FDR q=0.001) and up-direction TGF-beta (1.86) and Wnt/beta-catenin (1.71), with a directionally coherent PBRM1/VHL-enriched, BAP1-depleted mutation profile (nominal, q_driver 0.085–0.227). Its independence is positively supported by the K3_C0001–K3_C0003 boundary, which shows a strong within-versus-between affinity contrast (0.622 vs 0.217), high agreement with an independent two-way spectral partition (ARI 0.930), and a two-cluster-leaning union eigengap (candidate_k=2). Its membership representation is the most coherent among the three sets, with all four native geometries showing positive mean silhouettes (WSI 0.303, WXS 0.114, RNA 0.093, CT 0.038). The K3_C0002–K3_C0003 boundary is weak and conflicting (WSI majority-negative; union candidate_k=1, cut 0.592), but the K3_C0001–K3_C0003 boundary supplies the affirmative independence evidence. Internal-subdivision screening shows no strong finer-granularity signal (leading eigengap 0.957 at k=1; feasible splits show modest consensus separation and weak-to-negative native-view representation). Candidate-specific confounder associations (tissue_source_site V 0.456; ct_phase, ct_manufacturer, ct_slice_thickness, ct_z_spacing significant) remain a plausible alternative explanation, but they are association-only without persistence-after-adjustment and do not outweigh the coherent biological identity, the coherent membership representation, and the positively supported K3_C0001–K3_C0003 boundary."
+          "reason": "K3_C0003 has a coherent transcriptomic identity (immune/interferon down-regulation: allograft rejection NES -2.10, IL6/JAK/STAT3 -2.04, IFN-alpha -1.98, IFN-gamma -1.91; up-regulation of TGF-beta 1.86 and Wnt/beta-catenin 1.71), directionally opposite to K3_C0001. Its membership representation is coherent and positive across all four native modalities (WSI 0.303, WXS 0.114, RNA 0.093, CT 0.038; negative fractions 7.1–28.6%), and its boundary with K3_C0001 is affirmatively supported (spectral ARI 0.930, within 0.622 vs between 0.217, normalized-cut 0.532, union candidate_k=2 aligned with the current two-way structure). Internal subdivision is not supported (leading eigengap 0.957, screen_candidate_k=1). WXS driver associations are only nominal (all q_driver ≥ 0.085), but the RNA phenotype and the supported K3_C0001–K3_C0003 boundary provide the positive independence evidence. The candidate-specific confounder association (site V 0.456, CT phase 0.313) is a partition-wide technical concern that does not, on the available evidence, specifically limit this candidate's membership representation."
         }
       ],
       "evidence_requests": []
