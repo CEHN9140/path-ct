@@ -40,8 +40,20 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def json_safe(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (float, np.floating)):
+        return float(value) if np.isfinite(value) else None
+    if isinstance(value, np.integer):
+        return int(value)
+    return value
+
+
 def json_dump(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    path.write_text(json.dumps(json_safe(value), ensure_ascii=False, indent=2, default=str, allow_nan=False), encoding="utf-8")
 
 
 def bh(values: list[float | None]) -> list[float | None]:
@@ -360,6 +372,7 @@ def rna_analysis(context: Mapping[str, Any], output_root: Path, config_dir: Path
             dds.deseq2()
             ds = DeseqStats(dds, contrast=["condition", "target", "rest"], cooks_filter=False, independent_filter=False, n_cpus=int(cfg.get("n_cpus", 1)), quiet=True)
             ds.run_wald_test()
+            ds.summary()
             stat = pd.Series(np.asarray(ds.statistics, dtype=float).reshape(-1), index=counts.columns.astype(str))
             result = getattr(ds, "results_df", pd.DataFrame(index=counts.columns))
             for gene, value in stat.items():
@@ -544,7 +557,70 @@ def known_and_confounders(context: Mapping[str, Any], output_root: Path, config_
             "metrics": {},
         }
     json_dump(out / "technical_confounder_representation_effect.json", effect)
+    ct_technical_representation_effect(context, output_root, config_dir, out)
     return taxonomy
+
+
+def ct_technical_representation_effect(
+    context: Mapping[str, Any], output_root: Path, config_dir: Path, out: Path
+) -> dict[str, Any]:
+    """Test acquisition factors directly against the native CT distance geometry."""
+    from agents.subtype_review.tools import distance_kernel, modality_distance_matrices, technical_values
+    from skbio import DistanceMatrix
+    from skbio.stats.distance import permanova, permdisp
+    import yaml
+
+    patient_ids, matrices = modality_distance_matrices(str(output_root))
+    factors = technical_values(context["patient_states"], str(output_root))
+    settings = yaml.safe_load((config_dir / "subtype_review.yaml").read_text())["confounder"]
+    permutations, seed = int(settings["permutations"]), int(settings["random_seed"])
+    results, families = {}, {"permanova": [], "permdisp": [], "distance_regression": []}
+    for factor in ("ct_phase", "ct_manufacturer", "ct_scanner_model", "ct_reconstruction_kernel"):
+        available = [p for p in patient_ids if factors.get(p, {}).get(factor) not in (None, "")]
+        labels = [str(factors[p][factor]) for p in available]
+        levels, counts = np.unique(labels, return_counts=True)
+        result = {"modality": "ct", "variable_type": "categorical", "n": len(available), "levels": len(levels), "level_counts": dict(zip(levels.astype(str), counts.astype(int))), "permanova": {"test": "not_estimable", "pseudo_f": None, "r_squared": None, "permutation_p": None, "q_value": None}, "permdisp": {"test": "not_estimable", "f_statistic": None, "permutation_p": None, "q_value": None}}
+        if len(levels) >= 2 and len(available) > len(levels):
+            positions = [patient_ids.index(p) for p in available]
+            dm = DistanceMatrix(matrices["ct"][np.ix_(positions, positions)], ids=available)
+            metadata = pd.DataFrame({"group": labels}, index=available)
+            p_result = permanova(dm, grouping=metadata, column="group", permutations=permutations, seed=seed)
+            pseudo_f, p_value = float(p_result["test statistic"]), float(p_result["p-value"])
+            ratio = pseudo_f * (len(levels) - 1) / (len(available) - len(levels))
+            result["permanova"] = {"test": "permanova", "pseudo_f": pseudo_f, "r_squared": float(ratio / (1 + ratio)), "permutation_p": p_value, "q_value": None}
+            families["permanova"].append((factor, p_value))
+            if np.min(counts) >= 2:
+                try:
+                    d_result = permdisp(dm, grouping=metadata, column="group", test="median", permutations=permutations, seed=seed)
+                    d_f, d_p = float(d_result["test statistic"]), float(d_result["p-value"])
+                    result["permdisp"] = {"test": "median", "f_statistic": d_f, "permutation_p": d_p, "q_value": None}
+                    families["permdisp"].append((factor, d_p))
+                except (ValueError, np.linalg.LinAlgError) as exc:
+                    result["permdisp"]["reason"] = str(exc)
+        results[factor] = result
+    for factor in ("ct_slice_thickness", "ct_pixel_spacing", "ct_z_spacing", "study_year"):
+        available = [p for p in patient_ids if factors.get(p, {}).get(factor) is not None and np.isfinite(factors[p][factor])]
+        values = np.asarray([float(factors[p][factor]) for p in available])
+        result = {"modality": "ct", "variable_type": "continuous", "n": len(values), "distance_regression": {"test": "not_estimable", "pseudo_f": None, "r_squared": None, "permutation_p": None, "q_value": None}}
+        if len(values) >= 3 and len(np.unique(values)) >= 2:
+            positions = [patient_ids.index(p) for p in available]; kernel = distance_kernel(matrices["ct"][np.ix_(positions, positions)])
+            centered = values - values.mean(); total = float(np.trace(kernel)); predictor_ss = float(centered @ centered)
+            if total > 0 and predictor_ss > 0:
+                model_ss = float(centered @ kernel @ centered / predictor_ss); residual_ss = total - model_ss
+                if residual_ss > 0:
+                    observed = model_ss / (residual_ss / (len(values) - 2)); rng = np.random.default_rng(seed); exceed = 0
+                    for _ in range(permutations):
+                        shuffled = rng.permutation(centered); permuted = float(shuffled @ kernel @ shuffled / (shuffled @ shuffled)); residual = total - permuted; permuted_f = np.inf if residual <= 0 else permuted / (residual / (len(values) - 2)); exceed += permuted_f >= observed
+                    p_value = (exceed + 1) / (permutations + 1)
+                    result["distance_regression"] = {"test": "permutation_distance_regression", "pseudo_f": float(observed), "r_squared": float(model_ss / total), "permutation_p": p_value, "q_value": None}; families["distance_regression"].append((factor, p_value))
+        results[factor] = result
+    for family, rows in families.items():
+        if rows:
+            for (factor, _), q_value in zip(rows, multipletests([p for _, p in rows], method="fdr_bh")[1]):
+                results[factor][family]["q_value"] = float(q_value)
+    payload = {"tool_name": "ct_technical_representation_effect", "status": "complete", "modality": "ct", "metrics": {"partition": results}}
+    json_dump(out / "technical_confounder_ct_representation_effect.json", payload)
+    return payload
 
 
 def clinical_analysis(context: Mapping[str, Any], clinical_path: Path, out: Path, permutations: int) -> pd.DataFrame:
@@ -806,9 +882,16 @@ def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd
         rec = recurrence[recurrence.subtype_id == sid].iloc[0].to_dict()
         cu, cd = top_cont(ct, sid)
         concordance = pd.read_csv(out / "rna_hallmark_concordance.csv") if (out / "rna_hallmark_concordance.csv").is_file() else pd.DataFrame()
-        hall = concordance[(concordance.subtype_id == sid) & concordance.strong_concordant_signal] if not concordance.empty and {"subtype_id", "strong_concordant_signal", "NES", "fdr_q", "cliffs_delta", "q_value", "consistency_fraction"}.issubset(concordance.columns) else pd.DataFrame()
-        hallmark_up = [{"pathway": r.pathway, "gsea_nes": r.NES, "gsea_fdr": r.fdr_q, "ssgsea_cliffs_delta": r.cliffs_delta, "ssgsea_q": r.q_value, "consistency_fraction": r.consistency_fraction} for r in hall[hall.NES > 0].itertuples()] if not hall.empty else []
-        hallmark_down = [{"pathway": r.pathway, "gsea_nes": r.NES, "gsea_fdr": r.fdr_q, "ssgsea_cliffs_delta": r.cliffs_delta, "ssgsea_q": r.q_value, "consistency_fraction": r.consistency_fraction} for r in hall[hall.NES < 0].itertuples()] if not hall.empty else []
+        required_hallmark_columns = {"subtype_id", "strong_concordant_signal", "NES", "fdr_q", "cliffs_delta", "q_value", "consistency_fraction", "direction_concordant"}
+        available_hallmarks = concordance[concordance.subtype_id == sid] if not concordance.empty and required_hallmark_columns.issubset(concordance.columns) else pd.DataFrame()
+        hall = available_hallmarks[available_hallmarks.strong_concordant_signal] if not available_hallmarks.empty else pd.DataFrame()
+        def hallmark_records(frame):
+            return [{"pathway": r.pathway, "gsea_nes": r.NES, "gsea_fdr": r.fdr_q, "ssgsea_cliffs_delta": r.cliffs_delta, "ssgsea_q": r.q_value, "consistency_fraction": r.consistency_fraction, "direction_concordant": r.direction_concordant} for r in frame.itertuples()]
+        hallmark_group = available_hallmarks[available_hallmarks.fdr_q < .05] if not available_hallmarks.empty else pd.DataFrame()
+        hallmark_group_up = hallmark_records(hallmark_group[hallmark_group.NES > 0]) if not hallmark_group.empty else []
+        hallmark_group_down = hallmark_records(hallmark_group[hallmark_group.NES < 0]) if not hallmark_group.empty else []
+        hallmark_up = hallmark_records(hall[hall.NES > 0]) if not hall.empty else []
+        hallmark_down = hallmark_records(hall[hall.NES < 0]) if not hall.empty else []
         markers = pd.read_csv(out / "rna_marker_genes.csv") if (out / "rna_marker_genes.csv").is_file() else pd.DataFrame()
         marker_up = markers[(markers.subtype_id == sid) & (markers.direction == "up")].to_dict("records") if not markers.empty else []
         marker_down = markers[(markers.subtype_id == sid) & (markers.direction == "down")].to_dict("records") if not markers.empty else []
@@ -823,7 +906,7 @@ def identity_cards(context: Mapping[str, Any], recurrence: pd.DataFrame, wsi: pd
         survival_profile = {str(row.endpoint): {"n": int(row.n), "event_n": int(row.event_n), "median_survival_days": row.median_survival_days} for row in survival_rows.itertuples()}
         local_clinical = clinical[clinical.subtype_id == sid] if not clinical.empty else pd.DataFrame()
         clinical_profile = {"age_median_years": float(local_clinical.age_at_diagnosis_years.median()) if not local_clinical.empty else None, "sex_counts": local_clinical.sex.value_counts().to_dict() if not local_clinical.empty else {}, "stage_counts": local_clinical.stage.value_counts().to_dict() if not local_clinical.empty else {}, "grade_counts": local_clinical.grade.value_counts().to_dict() if not local_clinical.empty else {}, "t_stage_counts": local_clinical.t_stage.value_counts().to_dict() if not local_clinical.empty else {}, "m_stage_counts": local_clinical.m_stage.value_counts().to_dict() if not local_clinical.empty else {}}
-        cards.append({"subtype_id": sid, "member_count": int(rec["member_count"]), "stability": {"common_accept_set_count": int(rec["common_accept_set_count"]), "supporting_run_count": int(rec["supporting_run_count"]), "supporting_k_count": int(rec["supporting_k_count"]), "supporting_ks": rec["supporting_ks"], "mean_pair_recurrence_similarity": rec["mean_pair_recurrence_similarity"], "min_pair_recurrence_similarity": rec["min_pair_recurrence_similarity"]}, "clinical": clinical_profile, "survival": survival_profile, "rna": {"hallmark_concordant_up": hallmark_up, "hallmark_concordant_down": hallmark_down, "marker_genes_up": marker_up, "marker_genes_down": marker_down}, "wxs": {"enriched_drivers": enriched, "depleted_drivers": depleted}, "known_taxonomy": {"clearcode34": profiles["clearcode34"], "tcga_mrna_profile": profiles["tcga_m1_m4"]}, "ct_quantitative": {"enriched": cu, "depleted": cd}, "wsi_semantic_phenotype": None, "wsi_semantic_status": "not_available", "warnings": [], "representative_patient": reps.loc[reps.subtype_id == sid, "case_id"].iloc[0]})
+        cards.append({"subtype_id": sid, "member_count": int(rec["member_count"]), "stability": {"common_accept_set_count": int(rec["common_accept_set_count"]), "supporting_run_count": int(rec["supporting_run_count"]), "supporting_k_count": int(rec["supporting_k_count"]), "supporting_ks": rec["supporting_ks"], "mean_pair_recurrence_similarity": rec["mean_pair_recurrence_similarity"], "min_pair_recurrence_similarity": rec["min_pair_recurrence_similarity"]}, "clinical": clinical_profile, "survival": survival_profile, "rna": {"hallmark_group_level_significant_up": hallmark_group_up, "hallmark_group_level_significant_down": hallmark_group_down, "hallmark_patient_supported_up": hallmark_up, "hallmark_patient_supported_down": hallmark_down, "marker_genes_up": marker_up, "marker_genes_down": marker_down}, "wxs": {"enriched_drivers": enriched, "depleted_drivers": depleted}, "known_taxonomy": {"clearcode34": profiles["clearcode34"], "tcga_mrna_profile": profiles["tcga_m1_m4"]}, "ct_quantitative": {"enriched": cu, "depleted": cd}, "wsi_semantic_phenotype": None, "wsi_semantic_status": "not_available", "warnings": [], "representative_patient": reps.loc[reps.subtype_id == sid, "case_id"].iloc[0]})
     json_dump(out / "subtype_identity_card.json", cards)
     pd.DataFrame(cards).to_csv(out / "subtype_identity_card.csv", index=False)
 
@@ -915,7 +998,9 @@ def main() -> None:
         rows = confounder.get("metrics", {}).get("partition", {}).get("partition", [])
         significant_technical_factors = [str(row.get("factor")) for row in rows if row.get("q_value") is not None and float(row["q_value"]) < .05]
         ct_confounding = bool(significant_technical_factors)
-    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "pathreport_mapping": "complete" if not pathreport_audit["missing_cases"] and pathreport_audit["all_mapped_paths_exist"] else "partial", "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": "complete"}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "significant_technical_factors": significant_technical_factors, "pathreport_missing_cases": pathreport_audit["missing_cases"], "wsi_semantic_characterization_available": False, "external_validation_available": False}}
+    ct_effect_path = out / "technical_confounder_ct_representation_effect.json"
+    technical_status = "complete" if ct_effect_path.is_file() and json.loads(ct_effect_path.read_text(encoding="utf-8")).get("status") == "complete" else "partial"
+    summary = {"status": "complete", "subtype_count": len(context["subtypes"]), "core_patient_count": len(context["core_patient_ids"]), "candidate_patient_count": len(context["candidate_patient_ids"]), "noncore_patient_count": len(context["noncore_patient_ids"]), "primary_comparison": "subtype_vs_other_stable_core_patients", "secondary_comparison": "subtype_vs_all_other_candidate_patients", "subtype_sizes": {k: len(v) for k, v in context["subtypes"].items()}, "analyses": {"stability": "complete", "representation": "complete", "clinical": "complete", "survival": survival_status, "pathreport_mapping": "complete" if not pathreport_audit["missing_cases"] and pathreport_audit["all_mapped_paths_exist"] else "partial", "rna_deseq2_gsea": "complete", "rna_patient_level_ssgsea": "complete", "rna_marker_genes": "complete", "wxs": "complete", "known_taxonomy": "complete", "technical_confounders": technical_status}, "warnings": {"ct_technical_confounding_detected": ct_confounding, "significant_technical_factors": significant_technical_factors, "pathreport_missing_cases": pathreport_audit["missing_cases"], "wsi_semantic_characterization_available": False, "external_validation_available": False}}
     json_dump(out / "analysis_summary.json", summary)
     print("[final_subtype_analysis]")
     for key, value in (("candidate cohort", summary["candidate_patient_count"]), ("core patients", summary["core_patient_count"]), ("noncore patients", summary["noncore_patient_count"]), ("final subtypes", summary["subtype_count"])): print(f"{key}: {value}")
