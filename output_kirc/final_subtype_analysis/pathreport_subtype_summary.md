@@ -3,6 +3,8 @@
 ## Scope
 
 - Source: `data/TCGA_Reports.csv`, matched by the complete `case ID + report UUID` key.
+- Case-level normalized fields and their verbatim source sentences are recorded in `pathreport_case_core_fields.csv`; the same sentences are presented by subtype in `pathreport_case_original_evidence.md`.
+- Verbatim evidence preserves the source capitalization, punctuation, wording, and OCR errors. ` || ` separates two adjacent source sentences when one sentence alone does not contain the complete field.
 - Included: 76 of 79 final-subtype patients.
 - Excluded by request: `TCGA-B0-5706`, `TCGA-B0-5709`, and `TCGA-B0-5712` because they were absent from the CSV corpus.
 - This is a descriptive review of the available reports. Counts use explicit report statements; an unmentioned feature is not treated as negative.
