@@ -22,6 +22,15 @@
 
 `pT1*` and `pT3*` combine the corresponding unspecified and lettered subcategories exactly as stated in the reports.
 
+## Cross-check against `data/tcga_kirc_data.json`
+
+The case-level comparison is saved in `pathreport_clinical_grade_stage_concordance.csv`. Fuhrman grade was compared with `tumor_grade`, while report pT/T was compared with `ajcc_pathologic_t`. Overall AJCC stage was retained in the table but was not treated as equivalent to the T category.
+
+- Grade was comparable for all 76 cases. The grade number agreed in 74 cases; the remaining two reports used mixed wording (`2-3` or predominant grade 2 with focal grade 3) and the JSON recorded `G3`, which is compatible with the report rather than a direct contradiction.
+- A report T category was available for 65 cases. Thirty-nine matched the JSON T category exactly, and 25 were compatible parent/substage pairs such as report `pT1` versus JSON `T1a` or `T1b`.
+- One case was discordant: `TCGA-BP-4995` states `pT3b` in the pathology-report text, whereas the JSON records `T1b` and `Stage I`. Both values are retained; neither source is silently overwritten.
+- Eleven reports did not provide a locatable T-category sentence. Their JSON stage values are shown only as external clinical metadata and were not inserted into the pathology-report fields.
+
 ## Subtype interpretations
 
 ### SUBTYPE01: intermediate-grade, mostly localized clear-cell RCC
