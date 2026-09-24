@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,9 @@ from sklearn.metrics import silhouette_score
 
 ROOT = Path(__file__).resolve().parents[1]
 PAC_INTERVAL = (0.1, 0.9)
+ACTIVE_MODALITIES = ("ct", "wsi", "rna", "wxs")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def sha256(path: Path) -> str:
@@ -180,10 +184,193 @@ def build_final_subtypes(selected_k: int, partition: dict, patient_ids: list[str
     return final_subtypes, membership
 
 
+def load_analysis_context(data_root: Path, result_dir: Path) -> dict:
+    import analyze_final_subtypes as final_analysis
+
+    subtype_path = result_dir / "final_subtypes.json"
+    membership_path = result_dir / "membership.csv"
+    summary_path = result_dir / "summary.json"
+    for path in (subtype_path, membership_path, summary_path):
+        if not path.is_file():
+            raise FileNotFoundError(path)
+    records = json.loads(subtype_path.read_text(encoding="utf-8"))
+    membership = pd.read_csv(membership_path, dtype=str)
+    if not {"subtype_id", "patient_id"}.issubset(membership.columns):
+        raise ValueError("w/o-Agent membership.csv must contain subtype_id and patient_id")
+    subtypes = {str(row["subtype_id"]): [str(value) for value in row["member_ids"]] for row in records}
+    expected = {(sid, patient) for sid, members in subtypes.items() for patient in members}
+    actual = {(str(row.subtype_id), str(row.patient_id)) for row in membership.itertuples()}
+    if expected != actual:
+        raise ValueError("w/o-Agent membership.csv disagrees with final_subtypes.json")
+    candidate_path = data_root / "candidate_subtype" / "affinity_patient_order.json"
+    candidate_ids = [str(value) for value in json.loads(candidate_path.read_text(encoding="utf-8"))]
+    core_ids = [patient for members in subtypes.values() for patient in members]
+    if len(core_ids) != len(set(core_ids)) or not set(core_ids).issubset(candidate_ids):
+        raise ValueError("w/o-Agent subtype membership does not form a valid candidate partition")
+    states = final_analysis.load_states(data_root)
+    missing = sorted(set(candidate_ids) - set(states))
+    if missing:
+        raise ValueError(f"Candidate cohort lacks patient states: {missing[:10]}")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    return {
+        "subtypes": subtypes,
+        "subtype_order": list(subtypes),
+        "core_patient_ids": core_ids,
+        "candidate_patient_ids": candidate_ids,
+        "noncore_patient_ids": sorted(set(candidate_ids) - set(core_ids)),
+        "subtype_metadata": {
+            sid: {"member_count": len(members), "common_accept_set_count": 0,
+                  "supporting_k_count": 0, "supporting_ks": [], "supporting_runs": []}
+            for sid, members in subtypes.items()
+        },
+        "patient_states": states,
+        "subtype_source_type": "wo_agent_consensus_partition",
+        "subtype_selection": summary,
+        "source_paths": {
+            "subtypes": subtype_path,
+            "membership": membership_path,
+            "summary": summary_path,
+            "order": candidate_path,
+        },
+    }
+
+
+def write_analysis_recurrence_summary(context: dict, output_dir: Path) -> pd.DataFrame:
+    rows = [{
+        "subtype_id": subtype_id,
+        "member_count": len(members),
+        "stability_source": "consensus_partition",
+        "selected_k": context["subtype_selection"]["selected_k"],
+        "common_accept_set_count": None,
+        "occurrence_frequency": None,
+        "supporting_k_count": None,
+        "supporting_ks": "[]",
+        "supporting_run_count": None,
+        "min_pair_recurrence_similarity": None,
+        "mean_pair_recurrence_similarity": None,
+        "median_pair_recurrence_similarity": None,
+    } for subtype_id, members in context["subtypes"].items()]
+    frame = pd.DataFrame(rows)
+    frame.to_csv(output_dir / "subtype_stability_summary.csv", index=False)
+    return frame
+
+
+def write_analysis_representatives(context: dict, data_root: Path, output_dir: Path) -> pd.DataFrame:
+    from agents.subtype_review.tools import modality_distance_matrices
+
+    ids, distances = modality_distance_matrices(str(data_root))
+    position = {patient_id: index for index, patient_id in enumerate(ids)}
+    rows = []
+    for subtype_id, members in context["subtypes"].items():
+        scores = {
+            patient: float(np.mean([
+                distances[modality][position[patient], position[other]]
+                for modality in ACTIVE_MODALITIES for other in members if other != patient
+            ])) if len(members) > 1 else 0.0
+            for patient in members
+        }
+        patient = min(scores, key=lambda value: (scores[value], value))
+        modality_scores = {
+            modality: float(np.mean([
+                distances[modality][position[patient], position[other]]
+                for other in members if other != patient
+            ])) if len(members) > 1 else 0.0
+            for modality in ACTIVE_MODALITIES
+        }
+        rows.append({
+            "subtype_id": subtype_id,
+            "case_id": patient,
+            "member_count": len(members),
+            "recurrence_centrality": None,
+            **{f"{modality}_mean_distance": value for modality, value in modality_scores.items()},
+            "multimodal_mean_distance": float(np.mean(list(modality_scores.values()))),
+            "selection_rule": "minimum native multimodal mean distance; lexical case_id",
+        })
+    frame = pd.DataFrame(rows)
+    frame.to_csv(output_dir / "representative_patients.csv", index=False)
+    return frame
+
+
+def run_final_subtype_analysis(
+    data_root: Path,
+    result_dir: Path,
+    config_dir: Path,
+    analysis_root: Path,
+    clinical_file: Path,
+    survival_file: Path | None,
+    pathreport_root: Path,
+    pathreport_manifest: Path,
+    pathreport_sample_sheet: Path,
+    top_marker_genes: int,
+    permutations: int,
+    bootstrap_iterations: int,
+) -> dict:
+    import yaml
+    import analyze_final_subtypes as final_analysis
+
+    context = load_analysis_context(data_root, result_dir)
+    config = yaml.safe_load((config_dir / "subtype_review.yaml").read_text(encoding="utf-8"))
+    analysis_root.mkdir(parents=True, exist_ok=True)
+    recurrence = write_analysis_recurrence_summary(context, analysis_root)
+    final_analysis.representation_analysis(context, data_root, analysis_root, config)
+    wsi_rest, _ = final_analysis.wsi_analysis(context, data_root, analysis_root, bootstrap_iterations)
+    ct_rest = final_analysis.ct_analysis(context, data_root, config_dir, analysis_root, bootstrap_iterations)
+    rna = final_analysis.rna_analysis(context, data_root, config_dir, analysis_root, top_marker_genes, bootstrap_iterations)
+    wxs = final_analysis.wxs_analysis(context, data_root, config_dir, analysis_root, permutations)
+    taxonomy = final_analysis.known_and_confounders(context, data_root, config_dir, analysis_root)
+    clinical = final_analysis.clinical_analysis(context, clinical_file, analysis_root, permutations)
+    survival_status, survival_summary = final_analysis.survival_analysis(
+        context, clinical_file, analysis_root, survival_file
+    )
+    pathreport_audit = final_analysis.pathreport_mapping(
+        context, pathreport_root, pathreport_manifest, pathreport_sample_sheet, analysis_root
+    )
+    representatives = write_analysis_representatives(context, data_root, analysis_root)
+    final_analysis.identity_cards(
+        context, recurrence, wsi_rest, ct_rest, rna, wxs, taxonomy,
+        representatives, survival_summary, analysis_root,
+    )
+    summary = {
+        "status": "complete",
+        "analysis_type": "wo_agent_final_subtype_characterization",
+        "subtype_source": str((result_dir / "final_subtypes.json").resolve()),
+        "selected_k": context["subtype_selection"]["selected_k"],
+        "subtype_count": len(context["subtypes"]),
+        "candidate_patient_count": len(context["candidate_patient_ids"]),
+        "core_patient_count": len(context["core_patient_ids"]),
+        "subtype_sizes": {sid: len(members) for sid, members in context["subtypes"].items()},
+        "analyses": {
+            "representation": "complete", "clinical": "complete", "survival": survival_status,
+            "pathreport_mapping": "complete" if not pathreport_audit["missing_cases"] and pathreport_audit["all_mapped_paths_exist"] else "partial",
+            "rna": "complete", "wxs": "complete", "known_taxonomy": "complete",
+        },
+        "warnings": {
+            "agent_recurrence_evidence_available": False,
+            "stable_subtype_definition": "CDF-area elbow on frozen consensus partitions",
+            "wsi_semantic_characterization_available": False,
+        },
+    }
+    (analysis_root / "analysis_summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", type=Path, default=ROOT / "output_kirc")
     parser.add_argument("--result-dir", type=Path, default=ROOT / "ablation/results/02_wo_agent")
+    parser.add_argument("--config-dir", type=Path, default=ROOT / "configs")
+    parser.add_argument("--analyze", action="store_true")
+    parser.add_argument("--analysis-root", type=Path, default=None)
+    parser.add_argument("--clinical-file", type=Path, default=ROOT / "data/tcga_kirc_data.json")
+    parser.add_argument("--survival-file", type=Path, default=None)
+    parser.add_argument("--pathreport-root", type=Path, default=Path("/data/qijun/data/TCGA/KIRC/PathReport"))
+    parser.add_argument("--pathreport-manifest", type=Path, default=Path("/data/qijun/data/TCGA/KIRC/PathReport/gdc_manifest.txt"))
+    parser.add_argument("--pathreport-sample-sheet", type=Path, default=Path("/data/qijun/data/TCGA/KIRC/PathReport/gdc_sample_sheet.tsv"))
+    parser.add_argument("--top-marker-genes", type=int, default=10)
+    parser.add_argument("--permutations", type=int, default=9999)
+    parser.add_argument("--bootstrap-iterations", type=int, default=2000)
     args = parser.parse_args()
 
     patient_ids, manifest, fused_distance, partitions = load_and_validate_inputs(args.output_root)
@@ -237,6 +424,14 @@ def main() -> None:
         "result_dir": str(args.result_dir.resolve()),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"selected_k": selected_k, "patient_count": len(patient_ids), "subtype_count": len(final_subtypes)}, ensure_ascii=False))
+    if args.analyze:
+        analysis_root = args.analysis_root or args.result_dir / "final_subtype_analysis"
+        print(json.dumps(run_final_subtype_analysis(
+            args.output_root, args.result_dir, args.config_dir, analysis_root,
+            args.clinical_file, args.survival_file, args.pathreport_root,
+            args.pathreport_manifest, args.pathreport_sample_sheet,
+            args.top_marker_genes, args.permutations, args.bootstrap_iterations,
+        ), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
