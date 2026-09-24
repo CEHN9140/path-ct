@@ -117,13 +117,15 @@ class LLMUsageTracker:
 
 
 def api_extra_body(config: Mapping[str, Any]) -> dict[str, Any]:
-    base_url = str(config.get("base_url", "")).lower()
-    model_name = str(config.get("model_name", "")).lower()
-    if "dashscope.aliyuncs.com" in base_url and model_name.startswith("qwen3.8-"):
-        return {"enable_thinking": False}
-    if "deepseek" in base_url or model_name.startswith("deepseek-"):
-        return {"thinking": {"type": "disabled"}}
-    return {}
+    extra_body = config.get("extra_body", {})
+    if not isinstance(extra_body, Mapping):
+        raise ValueError("llm.extra_body must be a mapping when provided")
+    body = dict(extra_body)
+    if "enable_thinking" in config:
+        body["enable_thinking"] = bool(config["enable_thinking"])
+    if "reasoning_effort" in config:
+        body["reasoning_effort"] = str(config["reasoning_effort"])
+    return body
 
 
 def prompt_dir(config: Mapping[str, Any], config_dir: str | Path) -> Path:

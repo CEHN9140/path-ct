@@ -110,6 +110,22 @@ def select_k(metrics: list[dict]) -> int:
     return min(row["k"] for row in silhouette_ties)
 
 
+def selection_diagnostics(metrics: list[dict], selected_k: int) -> dict:
+    ordered = sorted(metrics, key=lambda row: row["k"])
+    pac_values = [row["pac"] for row in ordered]
+    return {
+        "candidate_k_min": ordered[0]["k"],
+        "candidate_k_max": ordered[-1]["k"],
+        "selected_at_search_boundary": selected_k in {ordered[0]["k"], ordered[-1]["k"]},
+        "pac_monotonic_nonincreasing": all(left >= right for left, right in zip(pac_values, pac_values[1:])),
+        "interpretation": (
+            "minimum_PAC_reached_search_boundary; extend_or_reconsider_candidate_K_range"
+            if selected_k == ordered[-1]["k"] and all(left >= right for left, right in zip(pac_values, pac_values[1:]))
+            else "no_monotonic_boundary_warning"
+        ),
+    }
+
+
 def build_final_subtypes(selected_k: int, partition: dict, patient_ids: list[str]) -> tuple[list[dict], list[dict]]:
     labels = partition["labels"]
     final_subtypes = []
@@ -139,6 +155,7 @@ def main() -> None:
     patient_ids, manifest, fused_distance, partitions = load_and_validate_inputs(args.output_root)
     metrics = [compute_k_metrics(k, partitions[k], fused_distance) for k in sorted(partitions)]
     selected_k = select_k(metrics)
+    diagnostics = selection_diagnostics(metrics, selected_k)
     for row in metrics:
         row["selected"] = row["k"] == selected_k
     final_subtypes, membership = build_final_subtypes(selected_k, partitions[selected_k], patient_ids)
@@ -162,6 +179,7 @@ def main() -> None:
         "selected_k": selected_k,
         "tie_break_rule": "higher_fused_silhouette_then_smaller_k",
         "candidate_ks": sorted(partitions),
+        "selection_diagnostics": diagnostics,
         "input_manifest": str(consensus_root / "resampling_manifest.json"),
         "input_sha256": {str(path.relative_to(args.output_root)): sha256(path) for path in input_paths},
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -175,6 +193,7 @@ def main() -> None:
         "selected_k_pac": selected_metrics["pac"],
         "selected_k_silhouette": selected_metrics["silhouette_fused"],
         "selected_k_consensus_gap": selected_metrics["consensus_gap"],
+        "selection_diagnostics": diagnostics,
         "result_dir": str(args.result_dir.resolve()),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"selected_k": selected_k, "patient_count": len(patient_ids), "subtype_count": len(final_subtypes)}, ensure_ascii=False))

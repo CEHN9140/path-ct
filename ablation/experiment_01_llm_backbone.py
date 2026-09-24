@@ -9,7 +9,7 @@ import json
 import multiprocessing
 import shutil
 import sys
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,6 +30,8 @@ MODEL_CONFIGS = {
         "model_name": "gpt-5.6-sol",
         "base_url": "https://api.chatanywhere.org/v1",
         "api_key_env": "CHATANYWHERE_API_KEY",
+        "extra_body": {},
+        "reasoning_effort": "none",
         # Previous unified ChatAnywhere settings retained for reference:
         # "base_url": "https://api.chatanywhere.org/v1",
         # "api_key_env": "CHATANYWHERE_API_KEY",
@@ -38,6 +40,7 @@ MODEL_CONFIGS = {
         "model_name": "deepseek-v4-pro",
         "base_url": "https://api.deepseek.com",
         "api_key_env": "DEEPSEEK_API_KEY",
+        "extra_body": {"thinking": {"type": "disabled"}},
         # Previous unified ChatAnywhere settings retained for reference:
         # "base_url": "https://api.chatanywhere.org/v1",
         # "api_key_env": "CHATANYWHERE_API_KEY",
@@ -46,7 +49,8 @@ MODEL_CONFIGS = {
         "model_name": "qwen3.8-max",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api_key_env": "DASHSCOPE_API_KEY",
-        "enable_thinking": True,
+        "extra_body": {},
+        "enable_thinking": False,
         # Previous unified ChatAnywhere settings retained for reference:
         # "base_url": "https://api.chatanywhere.org/v1",
         # "api_key_env": "CHATANYWHERE_API_KEY",
@@ -259,31 +263,25 @@ def run(
     model_keys: tuple[str, ...],
     initial_ks: tuple[int, ...],
     repeats: tuple[int, ...],
-    parallel_runs: int = 10,
+    parallel_runs: int = 4,
     force: bool = False,
 ) -> dict:
     if parallel_runs < 1:
         raise ValueError("parallel_runs must be >= 1")
     output_root.mkdir(parents=True, exist_ok=True)
-    with ThreadPoolExecutor(
-        max_workers=len(model_keys), thread_name_prefix="llm-ablation"
-    ) as executor:
-        futures = {
-            key: executor.submit(
-                run_model,
-                key,
-                data_root,
-                patient_states_root,
-                config_dir,
-                output_root,
-                initial_ks,
-                repeats,
-                parallel_runs,
-                force,
-            )
-            for key in model_keys
-        }
-        results = {key: futures[key].result() for key in model_keys}
+    results = {}
+    for key in model_keys:
+        results[key] = run_model(
+            key,
+            data_root,
+            patient_states_root,
+            config_dir,
+            output_root,
+            initial_ks,
+            repeats,
+            parallel_runs,
+            force,
+        )
     summary = {
         "experiment": "llm_backbone_ablation",
         "models": results,
@@ -292,6 +290,7 @@ def run(
         "initial_ks": list(initial_ks),
         "repeats": list(repeats),
         "parallel_runs": parallel_runs,
+        "model_parallelism": 1,
     }
     write_json(output_root / "llm_backbone_ablation_summary.json", summary)
     return summary
@@ -312,7 +311,7 @@ def main() -> None:
     parser.add_argument(
         "--repeat", dest="repeats", type=int, choices=(1, 2, 3), action="append"
     )
-    parser.add_argument("--parallel-runs", type=int, default=10)
+    parser.add_argument("--parallel-runs", type=int, default=4)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     main_output_root = ROOT / "output_kirc"
