@@ -1,12 +1,13 @@
 {
   "analysis": "wo_agent_consensus_clustering",
-  "selection_method": "minimum_PAC",
+  "selection_method": "cdf_area_elbow",
+  "cdf_area_definition": "trapezoidal_area_under_empirical_off_diagonal_consensus_CDF",
   "pac_interval": [
     0.1,
     0.9
   ],
-  "selected_k": 8,
-  "tie_break_rule": "higher_fused_silhouette_then_smaller_k",
+  "selected_k": 4,
+  "tie_break_rule": "smaller_k_among_maximum_elbow_score",
   "candidate_ks": [
     2,
     3,
@@ -17,11 +18,13 @@
     8
   ],
   "selection_diagnostics": {
+    "selection_method": "cdf_area_elbow",
     "candidate_k_min": 2,
     "candidate_k_max": 8,
-    "selected_at_search_boundary": true,
+    "selected_at_search_boundary": false,
+    "selected_elbow_score": 0.3253442723605307,
     "pac_monotonic_nonincreasing": true,
-    "interpretation": "minimum_PAC_reached_search_boundary; extend_or_reconsider_candidate_K_range"
+    "interpretation": "cdf_area_elbow_selected_within_candidate_range"
   },
   "input_manifest": "/data/qijun/path-ct/output_kirc/candidate_subtype/consensus_cluster/resampling_manifest.json",
   "input_sha256": {

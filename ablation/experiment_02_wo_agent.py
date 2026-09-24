@@ -60,6 +60,8 @@ def load_and_validate_inputs(output_root: Path) -> tuple[list[str], dict, np.nda
             raise ValueError(f"K={k} consensus matrix contains non-finite values.")
         if not np.allclose(consensus, consensus.T) or not np.allclose(np.diag(consensus), 1):
             raise ValueError(f"K={k} consensus matrix must be symmetric with diagonal one.")
+        if np.any(consensus < 0) or np.any(consensus > 1):
+            raise ValueError(f"K={k} consensus values must lie in [0, 1].")
 
         payload = json.loads(labels_path.read_text(encoding="utf-8"))
         labels_by_id = {str(key): int(value) for key, value in payload["labels"].items()}
@@ -70,6 +72,15 @@ def load_and_validate_inputs(output_root: Path) -> tuple[list[str], dict, np.nda
             raise ValueError(f"K={k} labels contain {len(np.unique(labels))} clusters.")
         partitions[k] = {"consensus": consensus, "labels": labels, "labels_by_id": labels_by_id}
     return patient_ids, manifest, fused_distance, partitions
+
+
+def cdf_area(consensus: np.ndarray) -> float:
+    upper = consensus[np.triu_indices_from(consensus, k=1)]
+    if upper.size == 0:
+        raise ValueError("Consensus matrix has no off-diagonal values.")
+    grid = np.unique(np.concatenate(([0.0], upper, [1.0])))
+    empirical_cdf = np.searchsorted(np.sort(upper), grid, side="right") / upper.size
+    return float(np.trapezoid(empirical_cdf, grid))
 
 
 def compute_k_metrics(k: int, partition: dict, fused_distance: np.ndarray) -> dict:
@@ -85,10 +96,14 @@ def compute_k_metrics(k: int, partition: dict, fused_distance: np.ndarray) -> di
     within_mean = float(pair_values[within].mean())
     between_mean = float(pair_values[~within].mean())
     sizes = np.unique(labels, return_counts=True)[1]
+    consensus_distance = 1.0 - consensus
+    np.fill_diagonal(consensus_distance, 0.0)
     return {
         "k": k,
         "pac": pac,
         "silhouette_fused": float(silhouette_score(fused_distance, labels, metric="precomputed")),
+        "cdf_area": cdf_area(consensus),
+        "silhouette_consensus": float(silhouette_score(consensus_distance, labels, metric="precomputed")),
         "mean_within_consensus": within_mean,
         "mean_between_consensus": between_mean,
         "consensus_gap": within_mean - between_mean,
@@ -99,29 +114,48 @@ def compute_k_metrics(k: int, partition: dict, fused_distance: np.ndarray) -> di
     }
 
 
+def add_cdf_elbow_diagnostics(metrics: list[dict]) -> None:
+    ordered = sorted(metrics, key=lambda row: row["k"])
+    areas = np.asarray([row["cdf_area"] for row in ordered], dtype=float)
+    deltas = [None]
+    for previous, current in zip(areas, areas[1:]):
+        deltas.append(float((current - previous) / previous) if previous else None)
+    x = np.asarray([row["k"] for row in ordered], dtype=float)
+    x = (x - x.min()) / (x.max() - x.min())
+    area_range = areas.max() - areas.min()
+    y = (areas - areas.min()) / area_range if area_range else np.zeros_like(areas)
+    elbow_scores = y - x
+    for row, delta, score in zip(ordered, deltas, elbow_scores):
+        row["delta_cdf_area"] = delta
+        row["elbow_score"] = float(score)
+
+
 def select_k(metrics: list[dict]) -> int:
-    minimum_pac = min(row["pac"] for row in metrics)
-    pac_ties = [row for row in metrics if np.isclose(row["pac"], minimum_pac, rtol=1e-12, atol=1e-12)]
-    maximum_silhouette = max(row["silhouette_fused"] for row in pac_ties)
-    silhouette_ties = [
-        row for row in pac_ties
-        if np.isclose(row["silhouette_fused"], maximum_silhouette, rtol=1e-12, atol=1e-12)
+    if any("elbow_score" not in row for row in metrics):
+        raise ValueError("CDF elbow diagnostics must be added before selecting K.")
+    maximum_elbow = max(row["elbow_score"] for row in metrics)
+    elbow_ties = [
+        row for row in metrics
+        if np.isclose(row["elbow_score"], maximum_elbow, rtol=1e-12, atol=1e-12)
     ]
-    return min(row["k"] for row in silhouette_ties)
+    return min(row["k"] for row in elbow_ties)
 
 
 def selection_diagnostics(metrics: list[dict], selected_k: int) -> dict:
     ordered = sorted(metrics, key=lambda row: row["k"])
     pac_values = [row["pac"] for row in ordered]
+    selected = next(row for row in ordered if row["k"] == selected_k)
     return {
+        "selection_method": "cdf_area_elbow",
         "candidate_k_min": ordered[0]["k"],
         "candidate_k_max": ordered[-1]["k"],
         "selected_at_search_boundary": selected_k in {ordered[0]["k"], ordered[-1]["k"]},
+        "selected_elbow_score": selected["elbow_score"],
         "pac_monotonic_nonincreasing": all(left >= right for left, right in zip(pac_values, pac_values[1:])),
         "interpretation": (
-            "minimum_PAC_reached_search_boundary; extend_or_reconsider_candidate_K_range"
-            if selected_k == ordered[-1]["k"] and all(left >= right for left, right in zip(pac_values, pac_values[1:]))
-            else "no_monotonic_boundary_warning"
+            "cdf_area_elbow_at_search_boundary; inspect_curve_before_scientific_interpretation"
+            if selected_k in {ordered[0]["k"], ordered[-1]["k"]}
+            else "cdf_area_elbow_selected_within_candidate_range"
         ),
     }
 
@@ -154,6 +188,7 @@ def main() -> None:
 
     patient_ids, manifest, fused_distance, partitions = load_and_validate_inputs(args.output_root)
     metrics = [compute_k_metrics(k, partitions[k], fused_distance) for k in sorted(partitions)]
+    add_cdf_elbow_diagnostics(metrics)
     selected_k = select_k(metrics)
     diagnostics = selection_diagnostics(metrics, selected_k)
     for row in metrics:
@@ -174,10 +209,11 @@ def main() -> None:
     pd.DataFrame(metrics).to_csv(args.result_dir / "k_selection_metrics.csv", index=False)
     (args.result_dir / "selected_k.json").write_text(json.dumps({
         "analysis": "wo_agent_consensus_clustering",
-        "selection_method": "minimum_PAC",
+        "selection_method": "cdf_area_elbow",
+        "cdf_area_definition": "trapezoidal_area_under_empirical_off_diagonal_consensus_CDF",
         "pac_interval": list(PAC_INTERVAL),
         "selected_k": selected_k,
-        "tie_break_rule": "higher_fused_silhouette_then_smaller_k",
+        "tie_break_rule": "smaller_k_among_maximum_elbow_score",
         "candidate_ks": sorted(partitions),
         "selection_diagnostics": diagnostics,
         "input_manifest": str(consensus_root / "resampling_manifest.json"),
@@ -192,6 +228,10 @@ def main() -> None:
         "subtype_sizes": [row["member_count"] for row in final_subtypes],
         "selected_k_pac": selected_metrics["pac"],
         "selected_k_silhouette": selected_metrics["silhouette_fused"],
+        "selected_k_cdf_area": selected_metrics["cdf_area"],
+        "selected_k_delta_cdf_area": selected_metrics["delta_cdf_area"],
+        "selected_k_elbow_score": selected_metrics["elbow_score"],
+        "selected_k_silhouette_consensus": selected_metrics["silhouette_consensus"],
         "selected_k_consensus_gap": selected_metrics["consensus_gap"],
         "selection_diagnostics": diagnostics,
         "result_dir": str(args.result_dir.resolve()),
