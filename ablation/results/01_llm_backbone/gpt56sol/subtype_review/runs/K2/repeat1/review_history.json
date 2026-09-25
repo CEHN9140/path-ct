@@ -28,7 +28,7 @@
             "K2_C0001"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K2_C0001 have a substantive, interpretable transcriptomic phenotype supporting a distinct biological identity?"
+          "question": "Does K2_C0001 have a substantive, interpretable transcriptomic phenotype that supports a distinct biological identity?"
         },
         {
           "dimension": "biological_support",
@@ -37,7 +37,7 @@
             "K2_C0002"
           ],
           "focus": "transcriptomic_phenotype",
-          "question": "Does K2_C0002 have a substantive, interpretable transcriptomic phenotype supporting a distinct biological identity?"
+          "question": "Does K2_C0002 have a substantive, interpretable transcriptomic phenotype that supports a distinct biological identity?"
         },
         {
           "dimension": "cross_modal_consistency",
@@ -65,14 +65,7 @@
             "K2_C0002"
           ],
           "focus": "boundary_representation",
-          "question": "Do the available modalities affirmatively preserve the boundary between K2_C0001 and K2_C0002, or is it weak, conflicting, or merge-compatible?"
-        },
-        {
-          "dimension": "confounder_exclusion",
-          "scope": "partition",
-          "target_ids": [],
-          "focus": "partition_confounder_association",
-          "question": "Are measured technical or acquisition factors associated with the current two-set partition strongly enough to provide a plausible alternative explanation?"
+          "question": "Do the available modalities affirm preservation of the boundary between K2_C0001 and K2_C0002 rather than support a shared unit?"
         }
       ]
     }
@@ -106,8 +99,8 @@
           "dimension": "confounder_exclusion",
           "scope": "partition",
           "target_ids": [],
-          "focus": "partition_factor_geometry_association",
-          "question": "Are the tissue-source-site and CT acquisition factors associated with the partition also reflected in patient geometry strongly enough to plausibly explain the current boundary?"
+          "focus": "partition_confounder_association",
+          "question": "Are measured technical or acquisition factors associated with the current two-set partition strongly enough to plausibly explain candidate membership?"
         }
       ]
     }
@@ -120,21 +113,10 @@
       "evidence_requests": [
         {
           "dimension": "confounder_exclusion",
-          "scope": "set",
-          "target_ids": [
-            "K2_C0001"
-          ],
-          "focus": "candidate_specific_confounder_association",
-          "question": "Are the measured site and CT acquisition factors specifically associated with K2_C0001 membership strongly enough to plausibly explain its weak, cross-modally discordant representation?"
-        },
-        {
-          "dimension": "confounder_exclusion",
-          "scope": "set",
-          "target_ids": [
-            "K2_C0002"
-          ],
-          "focus": "candidate_specific_confounder_association",
-          "question": "Are the measured site and CT acquisition factors specifically associated with K2_C0002 membership strongly enough to plausibly explain its otherwise coherent native-geometry representation?"
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "partition_factor_geometry_association",
+          "question": "Are the corrected site and CT acquisition factors reflected in patient geometry strongly enough to plausibly explain the current partition boundary?"
         }
       ]
     }
@@ -146,17 +128,44 @@
       "actions": [],
       "evidence_requests": [
         {
-          "dimension": "cross_modal_consistency",
-          "scope": "partition",
-          "target_ids": [],
-          "focus": "patient_geometry_concordance",
-          "question": "Do the measured site and CT acquisition factors associated with membership explain the partition in patient geometry, or does the K2_C0001-K2_C0002 separation persist beyond those factors?"
+          "dimension": "confounder_exclusion",
+          "scope": "set",
+          "target_ids": [
+            "K2_C0001"
+          ],
+          "focus": "candidate_specific_confounder_association",
+          "question": "Do the measured site and CT acquisition factors specifically associate with K2_C0001 membership strongly enough to plausibly explain its weak and conflicting native-view representation?"
+        },
+        {
+          "dimension": "confounder_exclusion",
+          "scope": "set",
+          "target_ids": [
+            "K2_C0002"
+          ],
+          "focus": "candidate_specific_confounder_association",
+          "question": "Do the measured site and CT acquisition factors specifically associate with K2_C0002 membership strongly enough to plausibly explain its otherwise coherent native-view representation?"
         }
       ]
     }
   },
   {
     "round": 7,
+    "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-4821\",\"TCGA-B0-5081\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5702\",\"TCGA-B0-5706\",\"TCGA-B0-5709\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5551\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4167\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5985\",\"TCGA-CZ-5988\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K2_C0001\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-CZ-5984\"],\"set_id\":\"K2_C0002\"}]",
+    "router_plan": {
+      "actions": [],
+      "evidence_requests": [
+        {
+          "dimension": "cross_modal_consistency",
+          "scope": "partition",
+          "target_ids": [],
+          "focus": "patient_geometry_concordance",
+          "question": "After accounting for the measured site and CT acquisition factors associated with the partition, does patient geometry still support two independently represented sets rather than a single merge-compatible union?"
+        }
+      ]
+    }
+  },
+  {
+    "round": 8,
     "partition_signature": "[{\"member_ids\":[\"TCGA-B0-4712\",\"TCGA-B0-4821\",\"TCGA-B0-5081\",\"TCGA-B0-5088\",\"TCGA-B0-5106\",\"TCGA-B0-5117\",\"TCGA-B0-5696\",\"TCGA-B0-5697\",\"TCGA-B0-5698\",\"TCGA-B0-5702\",\"TCGA-B0-5706\",\"TCGA-B0-5709\",\"TCGA-B0-5712\",\"TCGA-B8-4151\",\"TCGA-B8-4153\",\"TCGA-B8-4619\",\"TCGA-B8-5158\",\"TCGA-B8-5164\",\"TCGA-B8-5546\",\"TCGA-B8-5550\",\"TCGA-B8-5551\",\"TCGA-B8-5553\",\"TCGA-B8-A54D\",\"TCGA-B8-A54E\",\"TCGA-B8-A54F\",\"TCGA-B8-A54G\",\"TCGA-BP-4167\",\"TCGA-BP-4770\",\"TCGA-BP-4782\",\"TCGA-BP-4962\",\"TCGA-BP-4971\",\"TCGA-BP-4992\",\"TCGA-BP-4994\",\"TCGA-BP-5000\",\"TCGA-BP-5010\",\"TCGA-BP-5175\",\"TCGA-BP-5190\",\"TCGA-BP-5191\",\"TCGA-CJ-4637\",\"TCGA-CJ-4641\",\"TCGA-CJ-4900\",\"TCGA-CJ-4902\",\"TCGA-CJ-4923\",\"TCGA-CJ-6027\",\"TCGA-CJ-6028\",\"TCGA-CJ-6030\",\"TCGA-CJ-6033\",\"TCGA-CZ-4863\",\"TCGA-CZ-4865\",\"TCGA-CZ-5462\",\"TCGA-CZ-5468\",\"TCGA-CZ-5985\",\"TCGA-CZ-5988\",\"TCGA-G6-A5PC\",\"TCGA-G6-A8L7\"],\"set_id\":\"K2_C0001\"},{\"member_ids\":[\"TCGA-B0-5085\",\"TCGA-B0-5115\",\"TCGA-B0-5703\",\"TCGA-B0-5812\",\"TCGA-B8-4148\",\"TCGA-B8-4622\",\"TCGA-B8-5159\",\"TCGA-B8-5162\",\"TCGA-B8-5165\",\"TCGA-B8-5549\",\"TCGA-BP-4164\",\"TCGA-BP-4960\",\"TCGA-BP-4965\",\"TCGA-BP-4967\",\"TCGA-BP-4970\",\"TCGA-BP-4972\",\"TCGA-BP-4976\",\"TCGA-BP-4977\",\"TCGA-BP-4982\",\"TCGA-BP-4986\",\"TCGA-BP-4988\",\"TCGA-BP-4989\",\"TCGA-BP-4995\",\"TCGA-BP-4999\",\"TCGA-BP-5001\",\"TCGA-BP-5004\",\"TCGA-BP-5006\",\"TCGA-BP-5007\",\"TCGA-BP-5009\",\"TCGA-BP-5174\",\"TCGA-BP-5180\",\"TCGA-BP-5181\",\"TCGA-BP-5183\",\"TCGA-BP-5184\",\"TCGA-BP-5186\",\"TCGA-BP-5187\",\"TCGA-BP-5189\",\"TCGA-BP-5192\",\"TCGA-BP-5194\",\"TCGA-BP-5195\",\"TCGA-BP-5196\",\"TCGA-BP-5199\",\"TCGA-BP-5200\",\"TCGA-CJ-4903\",\"TCGA-CJ-4904\",\"TCGA-CZ-4859\",\"TCGA-CZ-5451\",\"TCGA-CZ-5984\"],\"set_id\":\"K2_C0002\"}]",
     "router_plan": {
       "actions": [
@@ -173,7 +182,7 @@
             "ER:0155eb9d7205:cross_modal_consistency:affinity_geometry_concordance:set:e9f462ede3",
             "ER:0155eb9d7205:cross_modal_consistency:structural_diagnostics:pair:fbf65f89cc"
           ],
-          "reason": "K2_C0001 has an interpretable RNA phenotype, but its exact-set membership is weak and cross-modally discordant: only RNA shows a modest positive contrast, while CT, WSI, and WXS have negative mean silhouettes. The sole relevant boundary has heterogeneous native-view representation and conflicting structural evidence, including appreciable cross-boundary connectivity and a union eigengap strongly dominated by k=1, so independence is not established. Tissue source site and several CT acquisition factors remain plausible candidate-specific explanations. The available partition screen found no obvious internal subdivision, and the only structural alternative suggested by the evidence is merge-compatible but merge is unavailable under the workflow; that constraint does not support retention. The remaining available mutation evidence could add biological characterization but cannot reasonably resolve the unsupported membership, boundary, or technical explanation, so K2_C0001 lacks sufficient defensible independent discovery value."
+          "reason": "K2_C0001 has an interpretable transcriptomic phenotype, but its exact membership is weakly and inconsistently represented: CT and WSI place most patients closer to K2_C0002, WXS is negative on average, and only RNA modestly favors membership. Its sole boundary has only modest, heterogeneous native-view representation, while pair structure shows material cross-boundary connectivity and a strongly k=1-dominated, merge-compatible union despite partial current-label representation. Site and CT acquisition factors remain plausible candidate-specific explanations. No feasible internal subdivision is indicated by the available structural screens, and the available mutation request could add biological characterization but could not resolve the decisive membership, boundary, or technical concerns; therefore no remaining evidence could reasonably establish K2_C0001 as an independent unit."
         },
         {
           "action": "drop",
@@ -188,7 +197,7 @@
             "ER:0155eb9d7205:cross_modal_consistency:affinity_geometry_concordance:set:eba7fa9609",
             "ER:0155eb9d7205:cross_modal_consistency:structural_diagnostics:pair:fbf65f89cc"
           ],
-          "reason": "K2_C0002 has an interpretable RNA phenotype and coherent, though uneven, exact-set membership representation across the supplied native geometries. However, its only relevant boundary is not affirmatively preserved: native-view boundary representation is heterogeneous, while structural evidence conflicts and includes appreciable cross-boundary connectivity plus a union eigengap strongly dominated by k=1, which is merge-compatible. Tissue source site and several CT acquisition factors remain plausible candidate-specific explanations. The available partition screen found no obvious internal subdivision, and merge is the relevant structural alternative but is unavailable only because of workflow constraints, which cannot be treated as evidence for independence. The remaining mutation evidence could refine biological identity but cannot reasonably resolve the boundary or technical ambiguity, so K2_C0002 does not have sufficient defensible independent discovery value."
+          "reason": "K2_C0002 has an interpretable relative transcriptomic phenotype and coherently represented membership across all four native geometries. However, independence from its only neighboring alternative is not affirmatively established: pair-level separation is modest and heterogeneous, and structural evidence shows material cross-boundary connectivity with a strongly k=1-dominated, merge-compatible union despite partial representation of the current labels. Site and CT acquisition factors remain plausible candidate-specific explanations. No feasible internal subdivision is indicated, and the available mutation request could further characterize biology but could not resolve the decisive boundary or technical ambiguity; therefore K2_C0002 cannot be retained independently, while the scientifically relevant merge is unavailable under the workflow constraints."
         }
       ],
       "evidence_requests": []
